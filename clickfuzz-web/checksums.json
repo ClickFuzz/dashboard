@@ -6,8 +6,8 @@
   "modules/pitchsnap/controllers/Pitchsnap_intake.php": "68ad69e83c65c8678656e76016a2d989ceea0f35f773377502bd0f0213753fcf",
   "modules/pitchsnap/controllers/Pitchsnap_runtime.php": "f1980b43c6f8a958c790d590dbe09de45de9c4e5a7e85dda0ba53d906c969cfb",
   "modules/pitchsnap/helpers/pitchsnap_cron_helper.php": "3f07ef7ebdbe1877f84360787f5e940fe8d4262a4e67c2cbbed7cc946006ec74",
-  "modules/pitchsnap/helpers/pitchsnap_generation_helper.php": "a304ffb70f5ff2a775c4828c4d8b337f29529c16649fc3ec59fc3c4fd9da9bf7",
-  "modules/pitchsnap/helpers/pitchsnap_scraper_helper.php": "c245678dd4caf136d5b424d04a6c21b47eba4e72cd05063cade6dd5f50364f95",
+  "modules/pitchsnap/helpers/pitchsnap_generation_helper.php": "076c6683a5a2ede339d06cbcb344a021219679b238afef1e694b8926caf8caaf",
+  "modules/pitchsnap/helpers/pitchsnap_scraper_helper.php": "4e23c4e4c7f6c602e55aa8b70d00899b5a63fa7bf14ab5fda7b369c0a6791fb7",
   "modules/pitchsnap/libraries/Pitchsnap_anthropic.php": "ada171c8e7351b3f98fa16077db85283a3ef12f46d7a9858270831f24897e9f0",
   "modules/pitchsnap/libraries/Pitchsnap_generator.php": "216e6dfead41c385eb80666b05b82d17532a3b47e75bf539dc5141a075a4ed3a",
   "modules/pitchsnap/libraries/Pitchsnap_manus.php": "b96d38ed40496c9afe726d84f214ba65a4663861c794335377bba99eb8fd996b",
@@ -24,5 +24,6 @@
   "modules/pitchsnap/views/lead_section.php": "4b72da7680e454bcd74b7f8b91d496f2f3aba2414008a723a6035ebfc3e22a8f",
   "modules/pitchsnap/views/runtime_js.php": "75d44c15771a3b3e3f639e8515c630721363e5e57b2813eb27a324b771724e8e",
   "modules/pitchsnap/views/subscription_success.php": "04e0cb5773ce86591ffcf39a25198af4eb75597a5a3d2878beab6403a55ea73a",
-  "modules/pitchsnap/config/routes.php": "77b4d688b1dbae00db5049100c753808efaf9142a0bfb5777305bac24e92d7c7"
+  "modules/pitchsnap/config/routes.php": "77b4d688b1dbae00db5049100c753808efaf9142a0bfb5777305bac24e92d7c7",
+  "application/config/my_routes.php": "f6bac979248a5faab9ab6787c3f99dba02fc1c7f2ccfefe28c6e70e301f3052a"
 }

@@ -11,8 +11,11 @@ clickfuzz-web/.mcp.json
 # Perfex app config: DB password, encryption key, DB hostname/user
 clickfuzz-web/application/config/app-config.php
 
-# Claude Code project settings contain DA credentials inline
-clickfuzz-web/.claude/
+# Claude Code — track settings.json (hooks + permissions, no secrets)
+# Ignore local overrides, lock file, and any future local state
+clickfuzz-web/.claude/settings.local.json
+clickfuzz-web/.claude/scheduled_tasks.lock
+clickfuzz-web/.claude/*.lock
 
 # ── Probe / diagnostic / one-time scripts ─────────────────────────────────────
 # These are temporary files used for server-side debugging; not application code
