@@ -1,0 +1,41 @@
+# ── OS / IDE ──────────────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+
+# ── Secrets — NEVER commit these ──────────────────────────────────────────────
+# MCP server config contains DirectAdmin credentials
+clickfuzz-web/.mcp.json
+
+# Perfex app config: DB password, encryption key, DB hostname/user
+clickfuzz-web/application/config/app-config.php
+
+# Claude Code project settings contain DA credentials inline
+clickfuzz-web/.claude/
+
+# ── Probe / diagnostic / one-time scripts ─────────────────────────────────────
+# These are temporary files used for server-side debugging; not application code
+clickfuzz-web/_probe*.php
+clickfuzz-web/_probe*.html
+clickfuzz-web/_cron_*.php
+clickfuzz-web/_ps_*.php
+clickfuzz-web/_ps_*.html
+
+# ── Backup folder and scattered old pre-module copies ────────────────────────
+# These are superseded by the canonical clickfuzz-web/modules/pitchsnap/ tree.
+# The originals are preserved in _backup/scattered/ for reference.
+clickfuzz-web/_backup/
+clickfuzz-web/controllers/
+clickfuzz-web/models/
+clickfuzz-web/views/
+clickfuzz-web/pitchsnap.php
+clickfuzz-web/my_routes.php
+
+# ── Design references / screenshots ───────────────────────────────────────────
+clickfuzz-web/screenshots/
+
+# ── Logs / temp / cache ───────────────────────────────────────────────────────
+*.log
+*.tmp
+*.cache
