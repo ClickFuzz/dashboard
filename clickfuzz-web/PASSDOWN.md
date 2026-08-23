@@ -75,9 +75,9 @@ Production is verified identical to the pre-recovery-audit main baseline. The re
 
 | Workstream | Status | Worktree |
 |---|---|---|
-| Generation | Live in production, needs retesting on a few paths | `claude/generation` (to be created) |
-| Sales Flow | Implemented, purchase path needs end-to-end test | `claude/sales-flow` (to be created) |
-| Onboarding | Not started | `claude/onboarding` (recreate from main) |
+| Generation | Live in production, needs retesting on a few paths | `claude/generation` |
+| Sales Flow | Implemented, purchase path needs end-to-end test | `claude/sales-flow` |
+| Onboarding | Not started | `claude/onboarding` |
 | Lead Connect | Not started | task worktrees created as needed |
 | Reviews | Not started | no worktree yet |
 | Reporting | View tracking only, no dashboard | no worktree yet |
@@ -90,11 +90,11 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 | Branch | Worktree | Status |
 |---|---|---|
-| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical |
-| `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after confirmation |
-| `claude/onboarding` | `worktrees/dashboard/onboarding` | Empty/outdated — recreate from main |
-| `claude/generation` | `worktrees/dashboard/generation` | To be created from current main |
-| `claude/sales-flow` | `worktrees/dashboard/sales-flow` | To be created from current main |
+| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `032b466` |
+| `claude/generation` | `worktrees/dashboard/generation` | Ready — from `032b466`, no feature changes yet |
+| `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
+| `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
+| `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
 
 ---
 
