@@ -125,10 +125,12 @@
                 </div>
 
                 <!-- Prospect Conversation (from latest version) -->
-                <?php if (!empty($conversations)) { ?>
                 <div class="panel_s">
                     <div class="panel-body">
                         <h5 class="tw-font-semibold mbot10">Prospect Feedback</h5>
+                        <?php if (empty($conversations)) { ?>
+                        <p class="text-muted">No prospect responses yet.</p>
+                        <?php } else { ?>
                         <table class="table table-bordered table-condensed">
                             <thead>
                                 <tr>
@@ -156,9 +158,9 @@
                             <?php } ?>
                             </tbody>
                         </table>
+                        <?php } ?>
                     </div>
                 </div>
-                <?php } ?>
 
                 <!-- Version history -->
                 <?php if (count($history) > 1) { ?>

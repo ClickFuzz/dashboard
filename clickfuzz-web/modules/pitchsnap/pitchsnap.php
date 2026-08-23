@@ -114,10 +114,12 @@ function clickfuzz_web_activation()
     }
 }
 
-hooks()->add_action('admin_init',        'clickfuzz_web_add_menu_items');
-hooks()->add_action('admin_init',        'clickfuzz_web_db_upgrade');
-hooks()->add_action('before_cron_run',   'clickfuzz_web_cron_run');
+hooks()->add_action('admin_init',            'clickfuzz_web_add_menu_items');
+hooks()->add_action('admin_init',            'clickfuzz_web_db_upgrade');
+hooks()->add_action('before_cron_run',       'clickfuzz_web_cron_run');
 hooks()->add_action('after_email_templates', 'clickfuzz_web_email_templates_section');
+hooks()->add_action('after_lead_lead_tabs',    'clickfuzz_web_lead_tab');
+hooks()->add_action('after_lead_tabs_content', 'clickfuzz_web_lead_tab_content');
 
 // ---------------------------------------------------------------------------
 // Menu
@@ -428,4 +430,36 @@ GENERAL
 
 By checking the acceptance box and clicking "Agree & Continue to Payment," Customer confirms they have read, understood, and agreed to be bound by this Agreement.
 AGREEMENT;
+}
+
+// ---------------------------------------------------------------------------
+// Lead profile tab — ClickFuzz Web website/site info on the Perfex lead page
+// ---------------------------------------------------------------------------
+
+function clickfuzz_web_lead_tab($lead)
+{
+    if (!$lead) {
+        return;
+    }
+    echo '<li role="presentation"><a href="#tab_pitchsnap" aria-controls="tab_pitchsnap" role="tab" data-toggle="tab">ClickFuzz Web</a></li>';
+}
+
+function clickfuzz_web_lead_tab_content($lead)
+{
+    if (!$lead) {
+        return;
+    }
+    $CI =& get_instance();
+    // Load model via require_once — module models cannot be resolved through
+    // $CI->load->model() from a global hook context outside the module.
+    if (!class_exists('Pitchsnap_model')) {
+        require_once FCPATH . 'modules/pitchsnap/models/Pitchsnap_model.php';
+        $CI->pitchsnap_model = new Pitchsnap_model();
+    }
+    $websites  = $CI->pitchsnap_model->get_by_lead($lead->id);
+    $view_path = FCPATH . 'modules/pitchsnap/views/lead_section.php';
+    if (file_exists($view_path)) {
+        // $websites and $lead are in scope for the included view.
+        include $view_path;
+    }
 }

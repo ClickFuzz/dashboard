@@ -17,6 +17,9 @@ clickfuzz-web/.claude/settings.local.json
 clickfuzz-web/.claude/scheduled_tasks.lock
 clickfuzz-web/.claude/*.lock
 
+# Per-worktree task context — untracked, lives only in the active worktree
+clickfuzz-web/CLAUDE.local.md
+
 # ── Probe / diagnostic / one-time scripts ─────────────────────────────────────
 # These are temporary files used for server-side debugging; not application code
 clickfuzz-web/_probe*.php
