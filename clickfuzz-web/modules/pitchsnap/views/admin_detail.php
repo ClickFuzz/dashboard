@@ -16,9 +16,6 @@
                 <p class="text-muted" style="margin:0 0 12px;">
                     Website #<?php echo (int) $redesign->id; ?>&nbsp;
                     <?php echo ps_badge($redesign->status); ?>
-                    <?php if (!empty($redesign->is_primary)) { ?>
-                    &nbsp;<span class="label label-default"><i class="fa fa-star"></i> Primary</span>
-                    <?php } ?>
                     <?php if (!empty($redesign->parent_redesign_id)) { ?>
                     &nbsp;<small class="text-muted">(regenerated from <a href="<?php echo admin_url('pitchsnap/detail/' . (int) $redesign->parent_redesign_id); ?>">version #<?php echo (int) $redesign->parent_redesign_id; ?></a>)</small>
                     <?php } ?>
@@ -31,66 +28,10 @@
             <!-- ── Left column ──────────────────────────────────────────── -->
             <div class="col-md-8">
 
-                <!-- Version History -->
-                <?php if (!empty($versions) && count($versions) > 1) { ?>
+                <!-- Details -->
                 <div class="panel_s">
                     <div class="panel-body">
-                        <h5 class="tw-font-semibold mbot10">Version History</h5>
-                        <table class="table table-bordered table-condensed" style="margin-bottom:0;">
-                            <thead>
-                                <tr>
-                                    <th width="6%">#</th>
-                                    <th width="22%">Status</th>
-                                    <th width="30%">Created</th>
-                                    <th width="14%">Provider</th>
-                                    <th></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($versions as $v) { ?>
-                                <tr<?php echo ($v->id == $redesign->id) ? ' class="active"' : ''; ?>>
-                                    <td>
-                                        #<?php echo (int) $v->id; ?>
-                                        <?php if (!empty($v->is_primary)) { ?>&nbsp;<i class="fa fa-star text-muted" title="Primary"></i><?php } ?>
-                                    </td>
-                                    <td><?php echo ps_badge($v->status); ?></td>
-                                    <td style="font-size:12px;"><?php echo _dt($v->dateadded); ?></td>
-                                    <td style="font-size:12px;"><?php echo !empty($v->provider) ? e($v->provider) : '<span class="text-muted">—</span>'; ?></td>
-                                    <td class="text-right" style="white-space:nowrap;">
-                                        <?php if ($v->id != $redesign->id) { ?>
-                                        <a href="<?php echo admin_url('pitchsnap/detail/' . (int) $v->id); ?>" class="btn btn-default btn-xs">View</a>
-                                        <?php } ?>
-                                        <?php if (empty($v->is_primary)) { ?>
-                                        <form method="POST" action="<?php echo admin_url('pitchsnap/set_primary/' . (int) $v->id); ?>" style="display:inline;">
-                                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                            <button type="submit" class="btn btn-default btn-xs"
-                                                    onclick="return confirm('Set version #<?php echo (int) $v->id; ?> as primary?');">
-                                                <i class="fa fa-star-o"></i> Set Primary
-                                            </button>
-                                        </form>
-                                        <form method="POST" action="<?php echo admin_url('pitchsnap/delete_versions'); ?>" style="display:inline;">
-                                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                            <input type="hidden" name="ids[]" value="<?php echo (int) $v->id; ?>">
-                                            <input type="hidden" name="redirect_id" value="<?php echo (int) $redesign->id; ?>">
-                                            <button type="submit" class="btn btn-danger btn-xs"
-                                                    onclick="return confirm('Delete version #<?php echo (int) $v->id; ?>? This cannot be undone.');">
-                                                <i class="fa fa-trash"></i>
-                                            </button>
-                                        </form>
-                                        <?php } ?>
-                                    </td>
-                                </tr>
-                                <?php } ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <?php } ?>
-
-                <!-- Intake Details -->
-                <div class="panel_s">
-                    <div class="panel-body">
-                        <h5 class="tw-font-semibold mbot10">Intake Details</h5>
+                        <h5 class="tw-font-semibold mbot10">Details</h5>
                         <table class="table table-bordered table-condensed">
                             <tbody>
                                 <tr>
@@ -281,11 +222,59 @@
                 </div>
                 <?php } ?>
 
-                <!-- Prospect Conversations -->
+                <!-- Version History -->
+                <?php if (!empty($versions) && count($versions) > 1) { ?>
+                <div class="panel_s">
+                    <div class="panel-body">
+                        <h5 class="tw-font-semibold mbot10">Version History</h5>
+                        <table class="table table-bordered table-condensed" style="margin-bottom:0;">
+                            <thead>
+                                <tr>
+                                    <th width="6%">#</th>
+                                    <th width="22%">Status</th>
+                                    <th width="30%">Created</th>
+                                    <th width="14%">Provider</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($versions as $v) { ?>
+                                <tr<?php echo ($v->id == $redesign->id) ? ' class="active"' : ''; ?>>
+                                    <td>#<?php echo (int) $v->id; ?></td>
+                                    <td><?php echo ps_badge($v->status); ?></td>
+                                    <td style="font-size:12px;"><?php echo _dt($v->dateadded); ?></td>
+                                    <td style="font-size:12px;"><?php echo !empty($v->provider) ? e($v->provider) : '<span class="text-muted">—</span>'; ?></td>
+                                    <td class="text-right" style="white-space:nowrap;">
+                                        <?php if (!empty($v->is_primary)) { ?>
+                                        <span class="text-muted" style="font-size:12px;">Primary</span>
+                                        <?php } else { ?>
+                                        <?php if ($v->id != $redesign->id) { ?>
+                                        <a href="<?php echo admin_url('pitchsnap/detail/' . (int) $v->id); ?>" class="btn btn-default btn-xs">View</a>
+                                        <?php } ?>
+                                        <form method="POST" action="<?php echo admin_url('pitchsnap/delete_versions'); ?>" style="display:inline;">
+                                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                            <input type="hidden" name="ids[]" value="<?php echo (int) $v->id; ?>">
+                                            <input type="hidden" name="redirect_id" value="<?php echo (int) $redesign->id; ?>">
+                                            <button type="submit" class="btn btn-danger btn-xs"
+                                                    onclick="return confirm('Delete version #<?php echo (int) $v->id; ?>? This cannot be undone.');">
+                                                <i class="fa fa-trash"></i>
+                                            </button>
+                                        </form>
+                                        <?php } ?>
+                                    </td>
+                                </tr>
+                                <?php } ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <?php } ?>
+
+                <!-- Chat Conversation History -->
                 <?php if (!empty($conversations)) { ?>
                 <div class="panel_s">
                     <div class="panel-body">
-                        <h5 class="tw-font-semibold mbot10">Prospect Conversation</h5>
+                        <h5 class="tw-font-semibold mbot10">Chat Conversation History</h5>
                         <table class="table table-bordered table-condensed">
                             <thead>
                                 <tr><th width="30%">Date</th><th>Response</th></tr>
