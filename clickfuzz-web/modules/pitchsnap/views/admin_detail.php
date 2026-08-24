@@ -410,28 +410,6 @@
                     </div>
                 </div>
 
-                <!-- Preview -->
-                <?php if (!empty($redesign->preview_url)) { ?>
-                <div class="panel_s">
-                    <div class="panel-body">
-                        <div class="tw-flex tw-items-center tw-justify-between">
-                            <h5 class="tw-font-semibold" style="margin:0;">Preview</h5>
-                            <div>
-                                <a href="<?php echo e($redesign->preview_url); ?>" target="_blank" rel="noopener noreferrer" class="btn btn-success btn-sm mright5">
-                                    <i class="fa fa-globe"></i> Open Preview
-                                </a>
-                                <form method="POST" action="<?php echo admin_url('pitchsnap/delete_preview/' . (int) $redesign->id); ?>" style="display:inline;">
-                                    <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                    <button type="submit" class="btn btn-danger btn-sm"
-                                            onclick="return confirm('Delete preview files? The website record will be preserved.');">
-                                        <i class="fa fa-trash"></i> Delete Preview
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <?php } ?>
 
                 <!-- Version History -->
                 <?php if (!empty($versions)) { ?>
