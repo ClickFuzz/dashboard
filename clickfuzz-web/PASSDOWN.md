@@ -98,7 +98,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 | `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
-| `claude/site-management` | `worktrees/dashboard/site-management` | Active — 6-tab detail page implemented, deployed to production, awaiting merge |
+| `claude/site-management` | `worktrees/dashboard/site-management` | **Ready for merge** — 6-tab detail page complete, latest commit `37176f9`. admin_detail.php deployed to production for preview; re-deploy from main after merge per policy. |
 | `claude/convert-to-wp` | `worktrees/dashboard/convert-to-wp` | Fresh — from `0fe1d30`, no feature changes yet |
 
 ---

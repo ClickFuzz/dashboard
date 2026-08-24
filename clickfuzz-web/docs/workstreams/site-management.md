@@ -31,13 +31,18 @@ Replaced the long single-column detail page with a compact header + 6-tab layout
 - Attention section: conditionally shows items needing action (not generated, failed, awaiting review, not published, agreement not accepted)
 
 **Tab 2 — Website:**
-- Current Website panel with generation status details
-- Generation action buttons (Generate, Approve & Send, Regenerate, Retry, New Version) — all preserved
-- Rendered prompt toggle (collapsible) — preserved
-- Preview & HTML panel (Open Preview, Edit HTML, AI Modify, Delete Preview) — all preserved
-- AI Modify inline panel — preserved
-- Version History table (compact: #, Status, Created, Provider, Primary indicator, View/Set Primary/Delete actions)
+- Current Website panel: generation status details + all action buttons inline
+  - Generate / Approve & Send / Regenerate / Retry / New Version (status-conditional)
+  - Edit HTML and AI Modify appear next to Regenerate whenever `generation_result` exists
+  - AI Modify inline panel expands in the same card
+  - Rendered prompt toggle (collapsible)
+- Version History table: checkbox column (left), #, Status, Created, Provider, Actions
+  - Primary versions: checkbox suppressed, last column shows `Primary` label pill
+  - Non-primary: checkbox + View / Set Primary / Delete in last column
+  - "Delete Selected" button at top of panel; `ps_bulk_delete()` + `ps_select_all()` JS
+  - Per-row delete form preserved alongside bulk delete
 - Prospect Engagement stats (views, first/last view, approved date)
+- Preview card removed — Open Preview is in the page header; delete_preview available via per-row delete
 
 **Tab 3 — Domain & Publishing:**
 - Publishing panel: current status, URL, site token, Publish Site button (preserved exactly)
@@ -107,4 +112,5 @@ Nothing currently in progress.
 
 ## History
 
-- **2026-08-24** — Initial implementation: replaced single-column detail view with 6-tab layout. All existing functionality preserved. Deployed to production.
+- **2026-08-24** — Initial implementation: replaced single-column detail view with 6-tab layout. All existing functionality preserved. Deployed to production. (`2fd1b3f`)
+- **2026-08-24** — Refinements: Edit HTML + AI Modify moved into Current Website card alongside Regenerate. Version History reworked with checkboxes, bulk delete, Primary pill in last column. Preview card removed. (`37176f9`)
