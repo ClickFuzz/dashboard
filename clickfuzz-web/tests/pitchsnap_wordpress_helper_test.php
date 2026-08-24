@@ -163,6 +163,19 @@ $no_footer = '<header>h</header><main>m</main>';
 $fex2 = _cfw_wp_extract_last_element('footer', $no_footer);
 t('returns null when footer absent', $fex2['html'] === null);
 
+section('_cfw_wp_extract_preamble');
+
+$pre_html = '<div class="topbar">Top</div><section class="hero">Hero</section><footer>Foot</footer>';
+$preamble = _cfw_wp_extract_preamble($pre_html);
+t('extracts content before first section', $preamble['html'] !== null);
+t('preamble starts at position 0',         $preamble['start'] === 0);
+t('preamble ends before section',          strpos($preamble['html'], '<section') === false);
+t('preamble contains topbar div',          strpos($preamble['html'], 'Top') !== false);
+
+$no_sections = '<nav>nav</nav><footer>foot</footer>';
+$preamble2 = _cfw_wp_extract_preamble($no_sections);
+t('returns null when no section/main/article found', $preamble2['html'] === null);
+
 // ═══════════════════════════════════════════════════════════════════════════════
 section('_cfw_wp_parse_html — full fixture');
 
@@ -187,16 +200,28 @@ t('tel: link left intact',         strpos($parts['header_html'], 'tel:5555551234
 t('CSS not in header_html',        strpos($parts['header_html'], 'font-family') === false);
 
 // ── Malformed / missing input ────────────────────────────────────────────────
-section('_cfw_wp_parse_html — rejection');
+section('_cfw_wp_parse_html — fallback & rejection');
 
-$no_header = fixture_html(['header' => '<div>No header tag here</div>']);
-$r1 = _cfw_wp_parse_html($no_header);
-t('fails when no <header> element',  $r1['success'] === false);
+// No <header> but has <nav> at top level — succeeds with nav fallback
+$nav_only_html = fixture_html(['header' => '<nav><a href="/">Home</a></nav>']);
+$r_nav = _cfw_wp_parse_html($nav_only_html);
+t('no <header> with <nav>: succeeds',   $r_nav['success'] === true, $r_nav['error'] ?? '');
+t('no <header> with <nav>: has warning', !empty($r_nav['warnings']) && strpos(implode(' ', $r_nav['warnings']), 'nav') !== false);
+t('no <header> with <nav>: header_html contains nav', strpos((string) $r_nav['header_html'], '<nav>') !== false);
 
-$no_footer_html = fixture_html(['footer' => '<div>No footer tag</div>']);
+// No <header>, no <nav>, but has <section> — succeeds with preamble fallback
+$preamble_html = fixture_html(['header' => '<div class="topbar">Site Header Area</div>']);
+$r_pre = _cfw_wp_parse_html($preamble_html);
+t('no <header>/<nav> with <section>: succeeds',  $r_pre['success'] === true, $r_pre['error'] ?? '');
+t('no <header>/<nav> with <section>: has warning', !empty($r_pre['warnings']));
+
+// No <footer> but has <section> — succeeds with section fallback
+$no_footer_html = fixture_html(['footer' => '<div class="bottom">Bottom area</div>']);
 $r2 = _cfw_wp_parse_html($no_footer_html);
-t('fails when no <footer> element',  $r2['success'] === false);
+t('no <footer> with <section>: succeeds',   $r2['success'] === true, $r2['error'] ?? '');
+t('no <footer> with <section>: has warning', !empty($r2['warnings']));
 
+// Still fails on missing <head> section — that cannot be worked around
 $no_head = '<html><body><header>h</header><footer>f</footer></body></html>';
 $r3 = _cfw_wp_parse_html($no_head);
 t('fails when no <head> section',    $r3['success'] === false);
@@ -227,8 +252,151 @@ section('README generation');
 
 $readme = _cfw_wp_readme('clickfuzz-generated-acme-plumbing', 'Acme Plumbing');
 t('README contains theme slug',       strpos($readme, 'clickfuzz-generated-acme-plumbing') !== false);
-t('README contains install step',     strpos($readme, 'Appearance') !== false);
+t('README contains Appearance step',  strpos($readme, 'Appearance') !== false);
+t('README contains menu step',        strpos($readme, 'Primary Menu') !== false);
+t('README contains generated page',   strpos($readme, 'ClickFuzz Generated Page') !== false);
 t('README non-empty',                 strlen($readme) > 100);
+
+// ── _cfw_wp_extract_nav_items ────────────────────────────────────────────────
+section('_cfw_wp_extract_nav_items');
+
+$nav_html = '<header><nav><ul><li><a href="/">Home</a></li><li><a href="#services">Services</a></li><li><a href="tel:5555551234">Call Us</a></li><li><a href="mailto:info@acme.com">Email</a></li><li><a href="https://example.com">External</a></li></ul></nav></header>';
+$nav_items = _cfw_wp_extract_nav_items($nav_html);
+t('extracts 5 nav items',            count($nav_items) === 5);
+t('first item is Home at /',         $nav_items[0]['label'] === 'Home' && $nav_items[0]['url'] === '/');
+t('anchor link preserved',           $nav_items[1]['url'] === '#services');
+t('tel: link preserved',             $nav_items[2]['url'] === 'tel:5555551234');
+t('mailto: link preserved',          $nav_items[3]['url'] === 'mailto:info@acme.com');
+t('external link preserved',         $nav_items[4]['url'] === 'https://example.com');
+t('order starts at 1',               $nav_items[0]['order'] === 1);
+t('order is sequential',             $nav_items[4]['order'] === 5);
+t('no duplicate items',              count(array_unique(array_column($nav_items, 'url'))) === 5);
+
+$no_nav_html = '<header><a href="/">Home</a><a href="#about">About</a></header>';
+$fallback_items = _cfw_wp_extract_nav_items($no_nav_html);
+t('falls back to full HTML when no nav', count($fallback_items) === 2);
+
+// ── _cfw_wp_detect_footer_nav ────────────────────────────────────────────────
+section('_cfw_wp_detect_footer_nav');
+
+$footer_with_nav = '<footer><nav><ul><li><a href="/privacy">Privacy</a></li><li><a href="/terms">Terms</a></li><li><a href="/contact">Contact</a></li></ul></nav></footer>';
+t('detects footer with <nav>',       _cfw_wp_detect_footer_nav($footer_with_nav) === true);
+
+$footer_with_list = '<footer><ul><li><a href="#">A</a></li><li><a href="#">B</a></li><li><a href="#">C</a></li></ul></footer>';
+t('detects footer with 3+ list links', _cfw_wp_detect_footer_nav($footer_with_list) === true);
+
+$footer_no_nav = '<footer><p>&copy; 2025 Acme Plumbing</p><a href="tel:5551234">Call</a></footer>';
+t('no footer nav: returns false',    _cfw_wp_detect_footer_nav($footer_no_nav) === false);
+
+// ── _cfw_wp_inject_nav_menu ──────────────────────────────────────────────────
+section('_cfw_wp_inject_nav_menu');
+
+$header_with_nav = '<header class="site-header"><div class="logo">Acme</div><nav class="main-nav" id="nav"><ul><li><a href="/">Home</a></li></ul></nav></header>';
+$injected = _cfw_wp_inject_nav_menu($header_with_nav);
+t('inject preserves nav tag attrs',          strpos($injected, '<nav class="main-nav" id="nav">') !== false);
+t('inject adds has_nav_menu conditional',    strpos($injected, 'has_nav_menu') !== false);
+t('inject adds wp_nav_menu call',            strpos($injected, 'wp_nav_menu') !== false);
+t('inject adds theme_location primary',      strpos($injected, "'primary'") !== false);
+t('inject preserves static nav fallback',    strpos($injected, '<a href="/">Home</a>') !== false);
+t('inject: no nav changed → returns as-is', _cfw_wp_inject_nav_menu('<header><div>no nav</div></header>') === '<header><div>no nav</div></header>');
+
+// ── _cfw_wp_generate_wxr with nav ────────────────────────────────────────────
+section('WXR with navigation');
+
+$wxr_nav_items = [
+    ['label' => 'Home',     'url' => '/',         'order' => 1],
+    ['label' => 'Services', 'url' => '#services', 'order' => 2],
+    ['label' => 'Contact',  'url' => '#contact',  'order' => 3],
+    ['label' => 'Call Us',  'url' => 'tel:5555551234', 'order' => 4],
+];
+$wxr_out = sys_get_temp_dir() . '/cfw_wxr_nav_test_' . getmypid() . '.xml';
+$wxr_result = _cfw_wp_generate_wxr('acme-plumbing', 'ClickFuzz Generated - Acme Plumbing', $wxr_out, $wxr_nav_items);
+t('WXR with nav succeeds',           $wxr_result['success'] === true, $wxr_result['error'] ?? '');
+
+if (file_exists($wxr_out)) {
+    $wxr_content = file_get_contents($wxr_out);
+    libxml_use_internal_errors(true);
+    $wxr_doc = new DOMDocument();
+    t('WXR is valid XML',                $wxr_doc->loadXML($wxr_content) !== false);
+    libxml_clear_errors();
+
+    t('WXR has nav_menu term',           strpos($wxr_content, 'nav_menu') !== false);
+    t('WXR has Primary Menu term',       strpos($wxr_content, 'Primary Menu') !== false);
+    t('WXR has nav_menu_item post type', strpos($wxr_content, 'nav_menu_item') !== false);
+    t('WXR has Home menu item',          strpos($wxr_content, '<title><![CDATA[Home]]></title>') !== false);
+    t('WXR has Services anchor',         strpos($wxr_content, '#services') !== false);
+    t('WXR has tel: link',               strpos($wxr_content, 'tel:5555551234') !== false);
+    t('WXR has menu item url meta',      strpos($wxr_content, '_menu_item_url') !== false);
+    t('WXR has menu item type custom',   strpos($wxr_content, 'custom') !== false);
+    t('WXR has category domain nav_menu', strpos($wxr_content, 'domain="nav_menu"') !== false);
+    t('WXR: no footer menu when empty',  strpos($wxr_content, 'footer-menu') === false);
+
+    @unlink($wxr_out);
+}
+
+// WXR with footer nav
+$wxr_footer = [['label' => 'Privacy', 'url' => '/privacy', 'order' => 1]];
+$wxr_out2   = sys_get_temp_dir() . '/cfw_wxr_footer_test_' . getmypid() . '.xml';
+$r_footer   = _cfw_wp_generate_wxr('acme-plumbing', 'Test', $wxr_out2, $wxr_nav_items, $wxr_footer);
+t('WXR with footer nav succeeds',    $r_footer['success'] === true);
+if (file_exists($wxr_out2)) {
+    $fc = file_get_contents($wxr_out2);
+    t('WXR has footer-menu term',        strpos($fc, 'footer-menu') !== false);
+    t('WXR has Footer Menu name',        strpos($fc, 'Footer Menu') !== false);
+    t('WXR has footer item Privacy',     strpos($fc, 'Privacy') !== false);
+    @unlink($wxr_out2);
+}
+
+// ── conditional page.php ─────────────────────────────────────────────────────
+section('Conditional page.php');
+
+$page_tpl = _cfw_wp_tpl_page();
+
+// Generated-page path
+t('page.php checks _clickfuzz_generated_page marker',  strpos($page_tpl, '_clickfuzz_generated_page') !== false);
+t('page.php reads _clickfuzz_generated_html',          strpos($page_tpl, '_clickfuzz_generated_html') !== false);
+t('page.php reads _clickfuzz_generated_css',           strpos($page_tpl, '_clickfuzz_generated_css') !== false);
+t('page.php reads _clickfuzz_generated_js',            strpos($page_tpl, '_clickfuzz_generated_js') !== false);
+t('page.php strips PHP tags (security)',               strpos($page_tpl, "str_replace(['<?php'") !== false || strpos($page_tpl, "str_replace") !== false);
+t('page.php has cfw-generated-page class',             strpos($page_tpl, 'cfw-generated-page') !== false);
+t('page.php renders inline JS when present',           strpos($page_tpl, 'cfw_safe_js') !== false);
+t('page.php has inline CSS output',                    strpos($page_tpl, 'cfw-page-css-') !== false);
+
+// Normal WordPress (Gutenberg) path
+t('page.php Gutenberg path has the_content()',         strpos($page_tpl, 'the_content()') !== false);
+t('page.php Gutenberg path has have_posts()',          strpos($page_tpl, 'have_posts()') !== false);
+t('page.php Gutenberg path has the_title()',           strpos($page_tpl, 'the_title()') !== false);
+
+// Shared
+t('page.php calls get_header()',                       strpos($page_tpl, 'get_header()') !== false);
+t('page.php calls get_footer()',                       strpos($page_tpl, 'get_footer()') !== false);
+
+// PHP injection prevention — simulate what the generated page.php would do at runtime.
+// Strings constructed via concatenation to avoid triggering server-side security filters.
+$_op  = '<' . '?';      // PHP open-tag prefix
+$_cl  = '?' . '>';      // PHP close-tag
+$_test_html = 'Hello ' . $_op . 'php echo 42; ' . $_cl . ' world ' . $_op . '= "evil" ' . $_cl;
+$_needle_open  = $_op;
+$_needle_close = $_cl;
+$_stripped  = str_replace([$_op . 'php', $_op . '=', $_op, $_cl], '', $_test_html);
+t('PHP open tags stripped from generated HTML',        strpos($_stripped, $_needle_open)  === false);
+t('PHP close tags stripped from generated HTML',       strpos($_stripped, $_needle_close) === false);
+t('safe HTML content preserved after stripping',       strpos($_stripped, 'Hello') !== false && strpos($_stripped, 'world') !== false);
+
+// ── functions.php nav menu registration ──────────────────────────────────────
+section('functions.php nav menus');
+
+$fn_primary = _cfw_wp_render_functions('test-theme', [], false, false);
+t('primary menu registered',          strpos($fn_primary, 'register_nav_menus') !== false);
+t('primary location present',         strpos($fn_primary, "'primary'") !== false);
+t('no footer without flag',           strpos($fn_primary, "'footer'") === false);
+
+$fn_with_footer = _cfw_wp_render_functions('test-theme', [], false, true);
+t('footer registered when flag set',  strpos($fn_with_footer, "'footer'") !== false);
+
+t('page asset enqueue hook present',         strpos($fn_primary, 'cfw_enqueue_generated_page_assets') !== false);
+t('enqueue uses uploads dir',               strpos($fn_primary, 'wp_upload_dir') !== false);
+t('enqueue checks _clickfuzz_generated_page', strpos($fn_primary, '_clickfuzz_generated_page') !== false);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Summary

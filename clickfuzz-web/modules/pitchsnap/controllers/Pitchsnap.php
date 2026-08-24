@@ -65,7 +65,7 @@ class Pitchsnap extends AdminController
     public function approve_design($id = '')
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }
-        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
         $id = (int) $id;
         if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
         $website    = $this->pitchsnap_model->get($id);
@@ -118,7 +118,7 @@ class Pitchsnap extends AdminController
     public function set_primary($id = '')
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }
-        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
         $id = (int) $id;
         if (!$id) { set_alert('danger', 'Invalid ID.'); redirect(admin_url('pitchsnap/websites')); }
         $website = $this->pitchsnap_model->get($id);
@@ -132,7 +132,7 @@ class Pitchsnap extends AdminController
     public function delete_versions()
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }
-        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
         $ids         = $this->input->post('ids');
         $redirect_id = (int) $this->input->post('redirect_id');
         if (!is_array($ids) || empty($ids)) {
@@ -174,7 +174,7 @@ class Pitchsnap extends AdminController
     public function publish_site($id = '')
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }
-        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
         $id = (int) $id;
         if (!$id) {
             set_alert('danger', 'Invalid website ID.');
@@ -362,7 +362,7 @@ class Pitchsnap extends AdminController
     public function delete_preview($id = '')
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }
-        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
         $id = (int) $id;
         if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
         $website = $this->pitchsnap_model->get($id);
@@ -452,7 +452,7 @@ class Pitchsnap extends AdminController
     public function modify_html($id = '')
     {
         if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
-        if (!$this->input->post()) { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
         $id = (int) $id;
         if (!$id) { return $this->_json(['success' => false, 'message' => 'Invalid website ID.']); }
         $website = $this->pitchsnap_model->get($id);
@@ -536,7 +536,7 @@ class Pitchsnap extends AdminController
     public function export_wordpress($id = '')
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }
-        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
         $id = (int) $id;
         if (!$id) {
             set_alert('danger', 'Invalid website ID.');

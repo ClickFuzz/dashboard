@@ -74,8 +74,13 @@ function clickfuzz_web_export_wordpress_site($website_id)
         return _cfw_wp_err('HTML parse failed: ' . $parts['error']);
     }
 
+    // ── Extract navigation items for WXR and header.php ─────────────────────
+    $nav_items        = _cfw_wp_extract_nav_items($parts['header_html']);
+    $has_footer_nav   = _cfw_wp_detect_footer_nav($parts['footer_html']);
+    $footer_nav_items = $has_footer_nav ? _cfw_wp_extract_nav_items($parts['footer_html']) : [];
+
     // ── Build theme files ────────────────────────────────────────────────────
-    $build = _cfw_wp_build_theme($parts, $site_slug, $theme_slug, $theme_name, $theme_dir);
+    $build = _cfw_wp_build_theme($parts, $site_slug, $theme_slug, $theme_name, $theme_dir, $has_footer_nav);
     if (!$build['success']) {
         _cfw_wp_rm_dir($workspace);
         return _cfw_wp_err('Theme build failed: ' . $build['error']);
@@ -108,7 +113,11 @@ function clickfuzz_web_export_wordpress_site($website_id)
     rename($theme_zip_path, $pkg_theme . '/' . $theme_slug . '.zip');
 
     // ── Generate WXR ─────────────────────────────────────────────────────────
-    $wxr_result = _cfw_wp_generate_wxr($site_slug, $theme_name, $pkg_content . '/clickfuzz-content.xml');
+    $wxr_result = _cfw_wp_generate_wxr(
+        $site_slug, $theme_name,
+        $pkg_content . '/clickfuzz-content.xml',
+        $nav_items, $footer_nav_items
+    );
     if (!$wxr_result['success']) {
         _cfw_wp_rm_dir($workspace);
         return _cfw_wp_err('WXR generation failed: ' . $wxr_result['error']);
@@ -117,21 +126,39 @@ function clickfuzz_web_export_wordpress_site($website_id)
     // ── Manifest ─────────────────────────────────────────────────────────────
     $warnings = array_merge($parts['warnings'], $validation['warnings']);
     $manifest = [
-        'format'               => 'clickfuzz-wordpress-export',
-        'version'              => 1,
-        'website_id'           => $website_id,
-        'site_slug'            => $site_slug,
-        'theme'                => [
+        'format'     => 'clickfuzz-wordpress-export',
+        'version'    => 2,
+        'website_id' => $website_id,
+        'site_slug'  => $site_slug,
+        'theme'      => [
             'slug'    => $theme_slug,
             'name'    => $theme_name,
             'version' => '1.0.0',
             'file'    => 'theme/' . $theme_slug . '.zip',
         ],
-        'content'              => ['wxr' => 'content/clickfuzz-content.xml'],
-        'assets'               => [],
-        'runtime_dependencies' => $parts['runtime_deps'],
-        'warnings'             => $warnings,
-        'generated_at'         => date('c'),
+        'content'   => ['wxr' => 'content/clickfuzz-content.xml'],
+        'wordpress' => [
+            'homepage'   => ['render_mode' => 'theme'],
+            'page_modes' => ['wordpress', 'clickfuzz_generated'],
+            'menus'      => array_values(array_filter([
+                ['location' => 'primary', 'name' => 'Primary Menu'],
+                $has_footer_nav ? ['location' => 'footer', 'name' => 'Footer Menu'] : null,
+            ])),
+        ],
+        'generated_page_meta_keys' => [
+            '_clickfuzz_generated_page' => 'marker (set to 1 for ClickFuzz-generated pages)',
+            '_clickfuzz_generated_html' => 'body HTML (sections only, no html/head/body/header/footer)',
+            '_clickfuzz_generated_css'  => 'page-specific inline CSS (optional)',
+            '_clickfuzz_generated_js'   => 'page-specific inline JS (optional)',
+        ],
+        'generated_page_assets'  => 'uploads/clickfuzz/pages/{page_id}/',
+        'menu_locations'         => array_filter(['primary' => 'Primary Menu', 'footer' => $has_footer_nav ? 'Footer Menu' : null]),
+        'imported_menus'         => array_filter(['primary' => count($nav_items) > 0 ? 'Primary Menu' : null, 'footer' => count($footer_nav_items) > 0 ? 'Footer Menu' : null]),
+        'nav_item_count'         => ['primary' => count($nav_items), 'footer' => count($footer_nav_items)],
+        'assets'                 => [],
+        'runtime_dependencies'   => $parts['runtime_deps'],
+        'warnings'               => $warnings,
+        'generated_at'           => date('c'),
     ];
     _cfw_wp_write_file(
         $package_dir . '/manifest.json',
@@ -265,25 +292,51 @@ function _cfw_wp_parse_html($html)
     }
     $body = $body_m[1];
 
-    // ── Extract visual <header> ──────────────────────────────────────────────
+    // ── Extract visual <header> — with fallbacks for non-semantic layouts ────
     $header_info = _cfw_wp_extract_element('header', $body);
     if ($header_info['html'] === null) {
-        return array_merge($result, ['error' => 'Could not locate <header> element in body. Cannot split theme template.']);
+        // Fallback 1: use outermost <nav> as the header proxy
+        $nav_info = _cfw_wp_extract_element('nav', $body);
+        if ($nav_info['html'] !== null) {
+            $header_info = $nav_info;
+            $result['warnings'][] = 'No <header> element found; using <nav> as header template. Regenerate the site for a cleaner WordPress export.';
+        } else {
+            // Fallback 2: everything before the first <section>, <main>, or <article>
+            $preamble = _cfw_wp_extract_preamble($body);
+            if ($preamble['html'] !== null && strlen(trim($preamble['html'])) > 0) {
+                $header_info = $preamble;
+                $result['warnings'][] = 'No <header> or <nav> element found; using page preamble as header template. Regenerate the site for a cleaner WordPress export.';
+            } else {
+                // Fallback 3: empty header — full body goes into main content
+                $header_info = ['html' => '', 'start' => 0, 'end' => 0];
+                $result['warnings'][] = 'No header structure found; header template will be empty. Regenerate the site for a proper WordPress export.';
+            }
+        }
     }
     $result['header_html'] = $header_info['html'];
     $after_header_pos      = $header_info['end'];
 
-    // ── Extract visual <footer> ──────────────────────────────────────────────
+    // ── Extract visual <footer> — with fallback for non-semantic layouts ──────
     $footer_info = _cfw_wp_extract_last_element('footer', $body);
     if ($footer_info['html'] === null) {
-        return array_merge($result, ['error' => 'Could not locate <footer> element in body. Cannot split theme template.']);
+        // Fallback: use last <section> as footer proxy
+        $last_section = _cfw_wp_extract_last_element('section', $body);
+        if ($last_section['html'] !== null) {
+            $footer_info = $last_section;
+            $result['warnings'][] = 'No <footer> element found; using last <section> as footer template. Regenerate the site for a cleaner WordPress export.';
+        } else {
+            // Last resort: empty footer at end of body
+            $body_len    = strlen($body);
+            $footer_info = ['html' => '', 'start' => $body_len, 'end' => $body_len];
+            $result['warnings'][] = 'No <footer> or <section> element found; footer template will be empty. Regenerate the site for a proper WordPress export.';
+        }
     }
     $result['footer_html'] = $footer_info['html'];
     $footer_start_pos      = $footer_info['start'];
 
     // ── Main content between header and footer ───────────────────────────────
-    if ($footer_start_pos <= $after_header_pos) {
-        return array_merge($result, ['error' => '<footer> appears before end of <header> — unexpected HTML structure.']);
+    if ($footer_start_pos < $after_header_pos) {
+        return array_merge($result, ['error' => 'Footer position appears before header end — unexpected HTML structure.']);
     }
     $result['main_html'] = trim(substr($body, $after_header_pos, $footer_start_pos - $after_header_pos));
 
@@ -400,6 +453,107 @@ function _cfw_wp_extract_last_element($tag, $html)
     return ['html' => null, 'start' => -1, 'end' => -1];
 }
 
+/**
+ * Extract everything before the first <section>, <main>, or <article> as a header "preamble".
+ * Returns ['html'=>string|null, 'start'=>0, 'end'=>int] or html===null if nothing useful found.
+ */
+function _cfw_wp_extract_preamble($html)
+{
+    $first_pos = PHP_INT_MAX;
+    foreach (['section', 'main', 'article'] as $tag) {
+        if (preg_match('/<' . $tag . '\b/i', $html, $m, PREG_OFFSET_CAPTURE)) {
+            if ($m[0][1] < $first_pos) {
+                $first_pos = $m[0][1];
+            }
+        }
+    }
+
+    if ($first_pos === PHP_INT_MAX || $first_pos === 0) {
+        return ['html' => null, 'start' => -1, 'end' => -1];
+    }
+
+    return [
+        'html'  => substr($html, 0, $first_pos),
+        'start' => 0,
+        'end'   => $first_pos,
+    ];
+}
+
+/**
+ * Extract navigation links from HTML (from <nav> if present, otherwise full HTML).
+ * Returns array of ['label'=>string, 'url'=>string, 'order'=>int].
+ */
+function _cfw_wp_extract_nav_items($html)
+{
+    $items = [];
+    // Prefer links inside a <nav> element
+    $search_html = $html;
+    if (preg_match('/<nav\b[^>]*>([\s\S]*?)<\/nav>/i', $html, $nm)) {
+        $search_html = $nm[1];
+    }
+
+    if (!preg_match_all('/<a\b[^>]*\bhref=["\']([^"\']+)["\'][^>]*>([\s\S]*?)<\/a>/i', $search_html, $matches, PREG_SET_ORDER)) {
+        return $items;
+    }
+
+    $seen  = [];
+    $order = 1;
+    foreach ($matches as $m) {
+        $url   = trim($m[1]);
+        $label = trim(strip_tags($m[2]));
+        if (!$label || !$url) continue;
+        $key = strtolower($label) . '|' . $url;
+        if (isset($seen[$key])) continue;
+        $seen[$key] = true;
+        $items[] = ['label' => $label, 'url' => $url, 'order' => $order++];
+    }
+    return $items;
+}
+
+/**
+ * Return true if the footer HTML appears to contain a distinct navigation list.
+ */
+function _cfw_wp_detect_footer_nav($footer_html)
+{
+    if (preg_match('/<nav\b/i', $footer_html)) return true;
+    $count = preg_match_all('/<li\b[^>]*>[\s\S]{0,300}?<a\b/i', $footer_html, $m);
+    return $count >= 3;
+}
+
+/**
+ * Inject wp_nav_menu() into a header HTML block, replacing the inner <nav> content
+ * with a WordPress menu conditional that falls back to the static nav when no menu
+ * is assigned to the 'primary' location. The <nav> tag's own attributes (class, id)
+ * are preserved so site-specific JS hooks continue to work.
+ */
+function _cfw_wp_inject_nav_menu($header_html)
+{
+    // Match the first <nav ...> ... </nav> block (non-nested, single level)
+    if (!preg_match('/(<nav\b[^>]*>)([\s\S]*?)(<\/nav>)/i', $header_html, $m, PREG_OFFSET_CAPTURE)) {
+        return $header_html;  // No nav found — return as-is, menu registration still works
+    }
+
+    $full_match  = $m[0][0];
+    $match_start = $m[0][1];
+    $nav_open    = $m[1][0];  // e.g. <nav class="main-nav" id="nav">
+    $nav_content = $m[2][0];  // the static ul/li/a content
+    $nav_close   = $m[3][0];  // </nav>
+
+    // Build the conditional: use WP menu if assigned, else fall back to static HTML
+    $wp_menu_call = "wp_nav_menu(['theme_location'=>'primary','container'=>false,'items_wrap'=>'%3\$s','fallback_cb'=>false]);";
+    $injected = $nav_open . "\n"
+        . "<?php if (has_nav_menu('primary')) : ?>\n"
+        . "<?php " . $wp_menu_call . " ?>\n"
+        . "<?php else : ?>\n"
+        . $nav_content . "\n"
+        . "<?php endif; ?>\n"
+        . $nav_close;
+
+    return substr($header_html, 0, $match_start)
+        . $injected
+        . substr($header_html, $match_start + strlen($full_match));
+}
+
 // ---------------------------------------------------------------------------
 // Theme file generation
 // ---------------------------------------------------------------------------
@@ -407,7 +561,7 @@ function _cfw_wp_extract_last_element($tag, $html)
 /**
  * Write all WordPress classic theme files into $theme_dir.
  */
-function _cfw_wp_build_theme($parts, $site_slug, $theme_slug, $theme_name, $theme_dir)
+function _cfw_wp_build_theme($parts, $site_slug, $theme_slug, $theme_name, $theme_dir, $has_footer_nav = false)
 {
     // ── style.css ────────────────────────────────────────────────────────────
     $style_css = <<<CSS
@@ -431,19 +585,20 @@ CSS;
     }
 
     // ── functions.php ────────────────────────────────────────────────────────
-    $functions = _cfw_wp_render_functions($theme_slug, $parts['font_links'], !empty($parts['css']));
+    $functions = _cfw_wp_render_functions($theme_slug, $parts['font_links'], !empty($parts['css']), $has_footer_nav);
     if (!_cfw_wp_write_file($theme_dir . '/functions.php', $functions)) {
         return _cfw_wp_err('Could not write functions.php.');
     }
 
     // ── header.php ───────────────────────────────────────────────────────────
-    $header_php = _cfw_wp_render_header($parts['header_html']);
+    $header_html_with_menu = _cfw_wp_inject_nav_menu($parts['header_html']);
+    $header_php = _cfw_wp_render_header($header_html_with_menu);
     if (!_cfw_wp_write_file($theme_dir . '/header.php', $header_php)) {
         return _cfw_wp_err('Could not write header.php.');
     }
 
     // ── footer.php ───────────────────────────────────────────────────────────
-    $footer_php = _cfw_wp_render_footer($parts['footer_html']);
+    $footer_php = _cfw_wp_render_footer($parts['footer_html'], $has_footer_nav);
     if (!_cfw_wp_write_file($theme_dir . '/footer.php', $footer_php)) {
         return _cfw_wp_err('Could not write footer.php.');
     }
@@ -488,7 +643,7 @@ CSS;
 // Template renderers
 // ---------------------------------------------------------------------------
 
-function _cfw_wp_render_functions($theme_slug, array $font_links, $has_theme_css)
+function _cfw_wp_render_functions($theme_slug, array $font_links, $has_theme_css, $has_footer_nav = false)
 {
     $enqueues = [];
     $i        = 1;
@@ -500,6 +655,11 @@ function _cfw_wp_render_functions($theme_slug, array $font_links, $has_theme_css
         $enqueues[] = '    wp_enqueue_style(\'clickfuzz-theme\', get_theme_file_uri(\'/assets/css/theme.css\'), [], \'1.0.0\');';
     }
     $enqueue_block = implode("\n", $enqueues);
+
+    $nav_menus = "'primary' => __('" . addslashes('Primary Menu') . "', '{$theme_slug}')";
+    if ($has_footer_nav) {
+        $nav_menus .= ",\n        'footer'  => __('" . addslashes('Footer Menu') . "', '{$theme_slug}')";
+    }
 
     return <<<PHP
 <?php
@@ -517,7 +677,45 @@ function clickfuzz_theme_setup()
     add_theme_support('title-tag');
     add_theme_support('post-thumbnails');
     add_theme_support('html5', ['script', 'style', 'search-form', 'comment-form', 'comment-list', 'gallery', 'caption']);
-    register_nav_menus(['primary' => __('Primary Menu', '{$theme_slug}')]);
+    register_nav_menus([
+        {$nav_menus}
+    ]);
+}
+
+// Enqueue per-page assets for ClickFuzz-generated Pages.
+// CSS/JS are stored in uploads/clickfuzz/pages/{page_id}/ and only loaded
+// for the current generated Page (not globally).
+add_action('wp_enqueue_scripts', 'cfw_enqueue_generated_page_assets');
+function cfw_enqueue_generated_page_assets()
+{
+    if (!is_singular('page')) {
+        return;
+    }
+    \$page_id = get_the_ID();
+    if (!get_post_meta(\$page_id, '_clickfuzz_generated_page', true)) {
+        return;
+    }
+    \$upload   = wp_upload_dir();
+    \$base_url = \$upload['baseurl'] . '/clickfuzz/pages/' . \$page_id;
+    \$base_dir = \$upload['basedir'] . '/clickfuzz/pages/' . \$page_id;
+
+    if (file_exists(\$base_dir . '/style.css')) {
+        wp_enqueue_style(
+            'cfw-page-' . \$page_id,
+            \$base_url . '/style.css',
+            ['clickfuzz-theme'],
+            filemtime(\$base_dir . '/style.css')
+        );
+    }
+    if (file_exists(\$base_dir . '/script.js')) {
+        wp_enqueue_script(
+            'cfw-page-js-' . \$page_id,
+            \$base_url . '/script.js',
+            [],
+            filemtime(\$base_dir . '/script.js'),
+            true
+        );
+    }
 }
 PHP;
 }
@@ -540,11 +738,18 @@ function _cfw_wp_render_header($visual_header_html)
 PHP;
 }
 
-function _cfw_wp_render_footer($visual_footer_html)
+function _cfw_wp_render_footer($visual_footer_html, $has_footer_nav = false)
 {
+    $footer_menu = '';
+    if ($has_footer_nav) {
+        $footer_menu = "\n<?php if (has_nav_menu('footer')) : ?>\n"
+            . "<nav class=\"footer-nav\" aria-label=\"Footer navigation\">\n"
+            . "<?php wp_nav_menu(['theme_location'=>'footer','container'=>false,'items_wrap'=>'<ul>%3\$s</ul>','fallback_cb'=>false]); ?>\n"
+            . "</nav>\n"
+            . "<?php endif; ?>\n";
+    }
     return <<<PHP
-{$visual_footer_html}
-
+{$visual_footer_html}{$footer_menu}
 <?php wp_footer(); ?>
 </body>
 </html>
@@ -617,16 +822,39 @@ PHP;
 function _cfw_wp_tpl_page()
 {
     return <<<'PHP'
-<?php get_header(); ?>
-<main style="max-width:760px;margin:4rem auto;padding:0 1.5rem;">
-    <?php if (have_posts()) : while (have_posts()) : the_post(); ?>
-    <article>
-        <h1 style="margin-bottom:1.5rem;"><?php the_title(); ?></h1>
-        <?php the_content(); ?>
-    </article>
-    <?php endwhile; endif; ?>
-</main>
-<?php get_footer(); ?>
+<?php
+defined('ABSPATH') or exit;
+get_header();
+
+if (get_post_meta(get_the_ID(), '_clickfuzz_generated_page', true)) {
+    $cfw_id        = get_the_ID();
+    // Strip PHP tags: generated content must be HTML/CSS/JS only — never server-side PHP.
+    $cfw_safe_css  = str_replace(['<?php', '<?=', '<?', '?>'], '', (string) get_post_meta($cfw_id, '_clickfuzz_generated_css',  true));
+    $cfw_safe_html = str_replace(['<?php', '<?=', '<?', '?>'], '', (string) get_post_meta($cfw_id, '_clickfuzz_generated_html', true));
+    $cfw_safe_js   = str_replace(['<?php', '<?=', '<?', '?>'], '', (string) get_post_meta($cfw_id, '_clickfuzz_generated_js',   true));
+    if ($cfw_safe_css) {
+        echo '<style id="cfw-page-css-' . (int) $cfw_id . '">' . $cfw_safe_css . '</style>' . "\n";
+    }
+    echo '<main id="cfw-page-' . (int) $cfw_id . '" class="cfw-generated-page" data-cfw-page="1">' . "\n";
+    echo $cfw_safe_html;
+    echo '</main>' . "\n";
+    if ($cfw_safe_js) {
+        echo '<script id="cfw-page-js-' . (int) $cfw_id . '">' . $cfw_safe_js . '</script>' . "\n";
+    }
+} else {
+    ?>
+    <main style="max-width:760px;margin:4rem auto;padding:0 1.5rem;">
+        <?php if (have_posts()) : while (have_posts()) : the_post(); ?>
+        <article>
+            <h1 style="margin-bottom:1.5rem;"><?php the_title(); ?></h1>
+            <?php the_content(); ?>
+        </article>
+        <?php endwhile; endif; ?>
+    </main>
+    <?php
+}
+
+get_footer();
 PHP;
 }
 
@@ -648,67 +876,95 @@ PHP;
 // ---------------------------------------------------------------------------
 
 /**
- * Generate a minimal valid WordPress WXR content export file.
+ * Generate a WordPress WXR content export file with Home page and primary navigation menu.
+ *
+ * @param string $site_slug         URL-safe site slug
+ * @param string $theme_name        Human-readable theme name
+ * @param string $out_path          Absolute path to write the .xml file
+ * @param array  $nav_items         Items from _cfw_wp_extract_nav_items() — primary header nav
+ * @param array  $footer_nav_items  Items from footer nav, or []
  */
-function _cfw_wp_generate_wxr($site_slug, $theme_name, $out_path)
+function _cfw_wp_generate_wxr($site_slug, $theme_name, $out_path, array $nav_items = [], array $footer_nav_items = [])
 {
-    $now       = date('D, d M Y H:i:s +0000');
-    $pub_date  = date('Y-m-d H:i:s');
-    $safe_name = htmlspecialchars($theme_name, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+    $now      = date('D, d M Y H:i:s +0000');
+    $pub_date = date('Y-m-d H:i:s');
 
-    $xml = <<<XML
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- generator="ClickFuzz Web WordPress Exporter/1.0" -->
-<rss version="2.0"
-    xmlns:excerpt="http://wordpress.org/export/1.2/excerpt/"
-    xmlns:content="http://purl.org/rss/1.0/modules/content/"
-    xmlns:wfw="http://wellformedweb.org/CommentAPI/"
-    xmlns:dc="http://purl.org/dc/elements/1.1/"
-    xmlns:wp="http://wordpress.org/export/1.2/">
-  <channel>
-    <title>{$safe_name}</title>
-    <link>http://example.com</link>
-    <description>Exported by ClickFuzz Web</description>
-    <pubDate>{$now}</pubDate>
-    <language>en-US</language>
-    <wp:wxr_version>1.2</wp:wxr_version>
-    <wp:base_site_url>http://example.com</wp:base_site_url>
-    <wp:base_blog_url>http://example.com</wp:base_blog_url>
-    <wp:author>
-      <wp:author_id>1</wp:author_id>
-      <wp:author_login><![CDATA[admin]]></wp:author_login>
-      <wp:author_email><![CDATA[admin@example.com]]></wp:author_email>
-      <wp:author_display_name><![CDATA[Admin]]></wp:author_display_name>
-      <wp:author_first_name><![CDATA[]]></wp:author_first_name>
-      <wp:author_last_name><![CDATA[]]></wp:author_last_name>
-    </wp:author>
-    <item>
-      <title>Home</title>
-      <link>http://example.com/home/</link>
-      <pubDate>{$now}</pubDate>
-      <dc:creator><![CDATA[admin]]></dc:creator>
-      <guid isPermaLink="false">http://example.com/?page_id=2</guid>
-      <description></description>
-      <content:encoded><![CDATA[<!-- Homepage content is managed by the theme front-page.php -->]]></content:encoded>
-      <excerpt:encoded><![CDATA[]]></excerpt:encoded>
-      <wp:post_id>2</wp:post_id>
-      <wp:post_date><![CDATA[{$pub_date}]]></wp:post_date>
-      <wp:post_date_gmt><![CDATA[{$pub_date}]]></wp:post_date_gmt>
-      <wp:post_modified><![CDATA[{$pub_date}]]></wp:post_modified>
-      <wp:post_modified_gmt><![CDATA[{$pub_date}]]></wp:post_modified_gmt>
-      <wp:comment_status><![CDATA[closed]]></wp:comment_status>
-      <wp:ping_status><![CDATA[closed]]></wp:ping_status>
-      <wp:post_name><![CDATA[home]]></wp:post_name>
-      <wp:status><![CDATA[publish]]></wp:status>
-      <wp:post_parent>0</wp:post_parent>
-      <wp:menu_order>0</wp:menu_order>
-      <wp:post_type><![CDATA[page]]></wp:post_type>
-      <wp:post_password><![CDATA[]]></wp:post_password>
-      <wp:is_sticky>0</wp:is_sticky>
-    </item>
-  </channel>
-</rss>
-XML;
+    $cd = function($text) {
+        return '<![CDATA[' . str_replace(']]>', ']]]]><![CDATA[>', (string) $text) . ']]>';
+    };
+
+    // Post ID allocation: 2=Home page, 10+ = menu items (primary), 200+ = footer menu items
+    $home_id       = 2;
+    $menu_item_start = 10;
+
+    // ── Channel header ───────────────────────────────────────────────────────
+    $xml  = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+    $xml .= '<!-- generator="ClickFuzz Web WordPress Exporter/2.0" -->' . "\n";
+    $xml .= '<rss version="2.0"' . "\n";
+    $xml .= '    xmlns:excerpt="http://wordpress.org/export/1.2/excerpt/"' . "\n";
+    $xml .= '    xmlns:content="http://purl.org/rss/1.0/modules/content/"' . "\n";
+    $xml .= '    xmlns:wfw="http://wellformedweb.org/CommentAPI/"' . "\n";
+    $xml .= '    xmlns:dc="http://purl.org/dc/elements/1.1/"' . "\n";
+    $xml .= '    xmlns:wp="http://wordpress.org/export/1.2/">' . "\n";
+    $xml .= '  <channel>' . "\n";
+    $xml .= '    <title>' . $cd($theme_name) . '</title>' . "\n";
+    $xml .= '    <link>http://example.com</link>' . "\n";
+    $xml .= '    <description>Exported by ClickFuzz Web</description>' . "\n";
+    $xml .= '    <pubDate>' . $now . '</pubDate>' . "\n";
+    $xml .= '    <language>en-US</language>' . "\n";
+    $xml .= '    <wp:wxr_version>1.2</wp:wxr_version>' . "\n";
+    $xml .= '    <wp:base_site_url>http://example.com</wp:base_site_url>' . "\n";
+    $xml .= '    <wp:base_blog_url>http://example.com</wp:base_blog_url>' . "\n";
+    $xml .= '    <wp:author>' . "\n";
+    $xml .= '      <wp:author_id>1</wp:author_id>' . "\n";
+    $xml .= '      <wp:author_login>' . $cd('admin') . '</wp:author_login>' . "\n";
+    $xml .= '      <wp:author_email>' . $cd('admin@example.com') . '</wp:author_email>' . "\n";
+    $xml .= '      <wp:author_display_name>' . $cd('Admin') . '</wp:author_display_name>' . "\n";
+    $xml .= '      <wp:author_first_name><![CDATA[]]></wp:author_first_name>' . "\n";
+    $xml .= '      <wp:author_last_name><![CDATA[]]></wp:author_last_name>' . "\n";
+    $xml .= '    </wp:author>' . "\n";
+
+    // ── nav_menu terms ───────────────────────────────────────────────────────
+    if (!empty($nav_items)) {
+        $xml .= '    <wp:term>' . "\n";
+        $xml .= '      <wp:term_id>1</wp:term_id>' . "\n";
+        $xml .= '      <wp:term_taxonomy>nav_menu</wp:term_taxonomy>' . "\n";
+        $xml .= '      <wp:term_slug>' . $cd('primary-menu') . '</wp:term_slug>' . "\n";
+        $xml .= '      <wp:term_name>' . $cd('Primary Menu') . '</wp:term_name>' . "\n";
+        $xml .= '      <wp:term_parent></wp:term_parent>' . "\n";
+        $xml .= '      <wp:term_description><![CDATA[]]></wp:term_description>' . "\n";
+        $xml .= '    </wp:term>' . "\n";
+    }
+    if (!empty($footer_nav_items)) {
+        $xml .= '    <wp:term>' . "\n";
+        $xml .= '      <wp:term_id>2</wp:term_id>' . "\n";
+        $xml .= '      <wp:term_taxonomy>nav_menu</wp:term_taxonomy>' . "\n";
+        $xml .= '      <wp:term_slug>' . $cd('footer-menu') . '</wp:term_slug>' . "\n";
+        $xml .= '      <wp:term_name>' . $cd('Footer Menu') . '</wp:term_name>' . "\n";
+        $xml .= '      <wp:term_parent></wp:term_parent>' . "\n";
+        $xml .= '      <wp:term_description><![CDATA[]]></wp:term_description>' . "\n";
+        $xml .= '    </wp:term>' . "\n";
+    }
+
+    // ── Home Page item ───────────────────────────────────────────────────────
+    $xml .= _cfw_wp_wxr_page_item($home_id, 'Home', 'home', $now, $pub_date, $cd);
+
+    // ── Primary menu items ───────────────────────────────────────────────────
+    $item_id = $menu_item_start;
+    foreach ($nav_items as $item) {
+        $xml .= _cfw_wp_wxr_menu_item($item_id, $item, 'primary-menu', 'Primary Menu', $now, $pub_date, $cd);
+        $item_id++;
+    }
+
+    // ── Footer menu items ────────────────────────────────────────────────────
+    $item_id = 200;
+    foreach ($footer_nav_items as $item) {
+        $xml .= _cfw_wp_wxr_menu_item($item_id, $item, 'footer-menu', 'Footer Menu', $now, $pub_date, $cd);
+        $item_id++;
+    }
+
+    $xml .= '  </channel>' . "\n";
+    $xml .= '</rss>' . "\n";
 
     // Validate XML before writing
     libxml_use_internal_errors(true);
@@ -727,6 +983,85 @@ XML;
     return ['success' => true, 'error' => null];
 }
 
+/**
+ * Build a WXR <item> block for a WordPress Page.
+ */
+function _cfw_wp_wxr_page_item($post_id, $title, $slug, $now, $pub_date, callable $cd)
+{
+    $s  = '    <item>' . "\n";
+    $s .= '      <title>' . $cd($title) . '</title>' . "\n";
+    $s .= '      <link>http://example.com/' . htmlspecialchars($slug, ENT_XML1, 'UTF-8') . '/</link>' . "\n";
+    $s .= '      <pubDate>' . $now . '</pubDate>' . "\n";
+    $s .= '      <dc:creator>' . $cd('admin') . '</dc:creator>' . "\n";
+    $s .= '      <guid isPermaLink="false">http://example.com/?page_id=' . (int) $post_id . '</guid>' . "\n";
+    $s .= '      <description></description>' . "\n";
+    $s .= '      <content:encoded>' . $cd('<!-- Homepage content is managed by the theme front-page.php -->') . '</content:encoded>' . "\n";
+    $s .= '      <excerpt:encoded><![CDATA[]]></excerpt:encoded>' . "\n";
+    $s .= '      <wp:post_id>' . (int) $post_id . '</wp:post_id>' . "\n";
+    $s .= '      <wp:post_date>' . $cd($pub_date) . '</wp:post_date>' . "\n";
+    $s .= '      <wp:post_date_gmt>' . $cd($pub_date) . '</wp:post_date_gmt>' . "\n";
+    $s .= '      <wp:post_modified>' . $cd($pub_date) . '</wp:post_modified>' . "\n";
+    $s .= '      <wp:post_modified_gmt>' . $cd($pub_date) . '</wp:post_modified_gmt>' . "\n";
+    $s .= '      <wp:comment_status>' . $cd('closed') . '</wp:comment_status>' . "\n";
+    $s .= '      <wp:ping_status>' . $cd('closed') . '</wp:ping_status>' . "\n";
+    $s .= '      <wp:post_name>' . $cd($slug) . '</wp:post_name>' . "\n";
+    $s .= '      <wp:status>' . $cd('publish') . '</wp:status>' . "\n";
+    $s .= '      <wp:post_parent>0</wp:post_parent>' . "\n";
+    $s .= '      <wp:menu_order>0</wp:menu_order>' . "\n";
+    $s .= '      <wp:post_type>' . $cd('page') . '</wp:post_type>' . "\n";
+    $s .= '      <wp:post_password><![CDATA[]]></wp:post_password>' . "\n";
+    $s .= '      <wp:is_sticky>0</wp:is_sticky>' . "\n";
+    $s .= '    </item>' . "\n";
+    return $s;
+}
+
+/**
+ * Build a WXR <item> block for a nav_menu_item (custom link type).
+ * All links are stored as custom links — anchor (#section), tel:, mailto:,
+ * external, and internal — preserving the original structure without inventing Pages.
+ */
+function _cfw_wp_wxr_menu_item($post_id, array $item, $menu_nicename, $menu_name, $now, $pub_date, callable $cd)
+{
+    $label = $item['label'];
+    $url   = $item['url'];
+    $order = (int) ($item['order'] ?? 1);
+
+    $s  = '    <item>' . "\n";
+    $s .= '      <title>' . $cd($label) . '</title>' . "\n";
+    $s .= '      <link>http://example.com/?post_type=nav_menu_item&amp;p=' . (int) $post_id . '</link>' . "\n";
+    $s .= '      <pubDate>' . $now . '</pubDate>' . "\n";
+    $s .= '      <dc:creator>' . $cd('admin') . '</dc:creator>' . "\n";
+    $s .= '      <guid isPermaLink="false">http://example.com/?post_type=nav_menu_item&amp;p=' . (int) $post_id . '</guid>' . "\n";
+    $s .= '      <description></description>' . "\n";
+    $s .= '      <content:encoded><![CDATA[]]></content:encoded>' . "\n";
+    $s .= '      <excerpt:encoded><![CDATA[]]></excerpt:encoded>' . "\n";
+    $s .= '      <wp:post_id>' . (int) $post_id . '</wp:post_id>' . "\n";
+    $s .= '      <wp:post_date>' . $cd($pub_date) . '</wp:post_date>' . "\n";
+    $s .= '      <wp:post_date_gmt>' . $cd($pub_date) . '</wp:post_date_gmt>' . "\n";
+    $s .= '      <wp:post_modified>' . $cd($pub_date) . '</wp:post_modified>' . "\n";
+    $s .= '      <wp:post_modified_gmt>' . $cd($pub_date) . '</wp:post_modified_gmt>' . "\n";
+    $s .= '      <wp:comment_status>' . $cd('closed') . '</wp:comment_status>' . "\n";
+    $s .= '      <wp:ping_status>' . $cd('closed') . '</wp:ping_status>' . "\n";
+    $s .= '      <wp:post_name>' . $cd('menu-item-' . (int) $post_id) . '</wp:post_name>' . "\n";
+    $s .= '      <wp:status>' . $cd('publish') . '</wp:status>' . "\n";
+    $s .= '      <wp:post_parent>0</wp:post_parent>' . "\n";
+    $s .= '      <wp:menu_order>' . $order . '</wp:menu_order>' . "\n";
+    $s .= '      <wp:post_type>' . $cd('nav_menu_item') . '</wp:post_type>' . "\n";
+    $s .= '      <wp:post_password><![CDATA[]]></wp:post_password>' . "\n";
+    $s .= '      <wp:is_sticky>0</wp:is_sticky>' . "\n";
+    $s .= '      <category domain="nav_menu" nicename="' . htmlspecialchars($menu_nicename, ENT_XML1 | ENT_QUOTES, 'UTF-8') . '">' . $cd($menu_name) . '</category>' . "\n";
+    $s .= '      <wp:postmeta><wp:meta_key>' . $cd('_menu_item_type') . '</wp:meta_key><wp:meta_value>' . $cd('custom') . '</wp:meta_value></wp:postmeta>' . "\n";
+    $s .= '      <wp:postmeta><wp:meta_key>' . $cd('_menu_item_menu_item_parent') . '</wp:meta_key><wp:meta_value>' . $cd('0') . '</wp:meta_value></wp:postmeta>' . "\n";
+    $s .= '      <wp:postmeta><wp:meta_key>' . $cd('_menu_item_object_id') . '</wp:meta_key><wp:meta_value>' . $cd('0') . '</wp:meta_value></wp:postmeta>' . "\n";
+    $s .= '      <wp:postmeta><wp:meta_key>' . $cd('_menu_item_object') . '</wp:meta_key><wp:meta_value>' . $cd('custom') . '</wp:meta_value></wp:postmeta>' . "\n";
+    $s .= '      <wp:postmeta><wp:meta_key>' . $cd('_menu_item_target') . '</wp:meta_key><wp:meta_value>' . $cd('') . '</wp:meta_value></wp:postmeta>' . "\n";
+    $s .= '      <wp:postmeta><wp:meta_key>' . $cd('_menu_item_classes') . '</wp:meta_key><wp:meta_value>' . $cd('a:1:{i:0;s:0:"";}') . '</wp:meta_value></wp:postmeta>' . "\n";
+    $s .= '      <wp:postmeta><wp:meta_key>' . $cd('_menu_item_xfn') . '</wp:meta_key><wp:meta_value>' . $cd('') . '</wp:meta_value></wp:postmeta>' . "\n";
+    $s .= '      <wp:postmeta><wp:meta_key>' . $cd('_menu_item_url') . '</wp:meta_key><wp:meta_value>' . $cd($url) . '</wp:meta_value></wp:postmeta>' . "\n";
+    $s .= '    </item>' . "\n";
+    return $s;
+}
+
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
@@ -740,7 +1075,7 @@ function _cfw_wp_validate($theme_dir, $theme_slug)
     $warnings = [];
 
     // Required files
-    $required = ['style.css', 'index.php', 'functions.php', 'header.php', 'footer.php', 'front-page.php'];
+    $required = ['style.css', 'index.php', 'functions.php', 'header.php', 'footer.php', 'front-page.php', 'page.php'];
     foreach ($required as $f) {
         if (!file_exists($theme_dir . '/' . $f)) {
             return ['success' => false, 'error' => 'Required file missing: ' . $f, 'warnings' => $warnings];
@@ -754,13 +1089,27 @@ function _cfw_wp_validate($theme_dir, $theme_slug)
     }
 
     // wp_head / wp_footer / body_class in header/footer
-    $header_php = file_get_contents($theme_dir . '/header.php');
-    $footer_php = file_get_contents($theme_dir . '/footer.php');
+    $header_php  = file_get_contents($theme_dir . '/header.php');
+    $footer_php  = file_get_contents($theme_dir . '/footer.php');
+    $functions_php = file_get_contents($theme_dir . '/functions.php');
 
     foreach (['wp_head()' => $header_php, 'wp_footer()' => $footer_php, 'body_class()' => $header_php] as $fn => $src) {
         if (stripos($src, $fn) === false) {
             return ['success' => false, 'error' => $fn . ' not found in generated template.', 'warnings' => $warnings];
         }
+    }
+
+    if (stripos($functions_php, 'register_nav_menus') === false) {
+        return ['success' => false, 'error' => 'register_nav_menus() not found in functions.php.', 'warnings' => $warnings];
+    }
+
+    // Validate page.php implements the ClickFuzz conditional generated-page logic
+    $page_php = file_get_contents($theme_dir . '/page.php');
+    if (stripos($page_php, '_clickfuzz_generated_page') === false) {
+        return ['success' => false, 'error' => 'page.php is missing _clickfuzz_generated_page conditional.', 'warnings' => $warnings];
+    }
+    if (stripos($page_php, '_clickfuzz_generated_html') === false) {
+        return ['success' => false, 'error' => 'page.php is missing _clickfuzz_generated_html meta read.', 'warnings' => $warnings];
     }
 
     // No hard-coded absolute server paths or preview tokens in theme PHP files
@@ -1006,19 +1355,54 @@ function _cfw_wp_readme($theme_slug, $business_name = '')
 
 INSTALLATION INSTRUCTIONS
 
-1. Log into your WordPress admin panel.
-2. Go to Appearance → Themes → Add New → Upload Theme.
-3. Upload the theme ZIP from /theme/{$theme_slug}.zip.
-4. Activate the theme.
-5. Go to Tools → Import → WordPress.
-6. Install/launch WordPress Importer if prompted.
-7. Import /content/clickfuzz-content.xml.
-8. Select "Download and import file attachments" when prompted.
-9. Go to Settings → Reading and set your Front page to a static page (Home).
-10. Verify navigation and forms.
+STEP 1 — Install the theme
+  a. Go to Appearance → Themes → Add New → Upload Theme.
+  b. Upload the theme ZIP from /theme/{$theme_slug}.zip.
+  c. Activate the theme.
 
-See manifest.json for a full list of exported assets and any runtime
-dependencies that require attention after installation.
+STEP 2 — Import content
+  a. Go to Tools → Import → WordPress.
+  b. Install/launch the WordPress Importer plugin if prompted.
+  c. Import /content/clickfuzz-content.xml.
+  d. Select "Download and import file attachments" when prompted.
+  e. Assign imported content to an existing admin user.
+
+STEP 3 — Set the homepage
+  a. Go to Settings → Reading.
+  b. Set "Your homepage displays" to "A static page".
+  c. Select "Home" as the Homepage.
+  d. Save.
+
+STEP 4 — Assign navigation menus
+  a. Go to Appearance → Menus.
+  b. Find the imported "Primary Menu".
+  c. Under "Menu Settings", check "Primary Menu" display location.
+  d. Save the menu.
+  e. If a Footer Menu was imported, assign it to the "Footer Menu" location.
+
+STEP 5 — Verify
+  a. Visit the site homepage — it should match the ClickFuzz preview exactly.
+  b. Click navigation links to confirm they work.
+  c. Check the footer.
+
+ADDING AI-GENERATED PAGES (future workflow)
+  a. Create a new WordPress Page (use default template — no special template needed).
+  b. Add post meta _clickfuzz_generated_page = 1 to mark it as ClickFuzz-generated.
+  c. Add post meta _clickfuzz_generated_html = <your HTML body (sections only)>.
+     Do NOT include <html>, <head>, <body>, <header>, or <footer> — those come from the theme.
+  d. Optionally add _clickfuzz_generated_css for page-specific inline styles.
+  e. Optionally add _clickfuzz_generated_js for page-specific inline JS.
+  f. File assets can go in uploads/clickfuzz/pages/{page_id}/style.css or script.js.
+  g. Publish. The page inherits the shared header, navigation, and footer automatically.
+
+NOTES
+  - Homepage HTML is managed by the theme (front-page.php). Edit the theme to change it.
+  - Normal WordPress Pages (no _clickfuzz_generated_page meta) use the Gutenberg editor.
+  - ClickFuzz Generated Pages store HTML in post meta — Gutenberg is bypassed for them.
+  - Elementor works normally on any page not marked with _clickfuzz_generated_page.
+  - ClickFuzz runtime (lead capture / chat) must be re-integrated via a separate plugin.
+
+See manifest.json for exported menus, assets, and runtime dependency warnings.
 
 Generated by ClickFuzz Web.
 TXT;

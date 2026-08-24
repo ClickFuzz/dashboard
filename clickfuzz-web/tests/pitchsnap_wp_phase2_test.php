@@ -39,8 +39,8 @@ t2('download_wordpress method present',
 t2('export_wordpress checks is_admin()',
     (bool) preg_match('/export_wordpress[\s\S]{0,200}is_admin\(\)/', $ctrl_src));
 
-t2('export_wordpress checks POST',
-    (bool) preg_match('/export_wordpress[\s\S]{0,400}input->post\(\)/', $ctrl_src));
+t2('export_wordpress checks POST via REQUEST_METHOD',
+    (bool) preg_match('/export_wordpress[\s\S]{0,400}REQUEST_METHOD/', $ctrl_src));
 
 t2('download_wordpress checks is_admin()',
     (bool) preg_match('/download_wordpress[\s\S]{0,200}is_admin\(\)/', $ctrl_src));

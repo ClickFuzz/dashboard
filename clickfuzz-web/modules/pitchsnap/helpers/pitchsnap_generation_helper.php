@@ -429,9 +429,24 @@ TECHNICAL REQUIREMENTS
 — Complete single-file HTML with all CSS in a <style> tag in <head>
 — Google Fonts loaded via <link rel="preconnect"> + <link rel="stylesheet">
 — No external CSS frameworks (no Bootstrap, Tailwind, etc.)
-— Valid semantic HTML5 (header, nav, main, section, footer)
 — All phone numbers wrapped in <a href="tel:..."> links
 — All email addresses wrapped in <a href="mailto:..."> links
+
+SEMANTIC HTML STRUCTURE — MANDATORY (required for WordPress export):
+The body MUST follow this exact top-level structure:
+  <body>
+    <header>  ← site navigation + branding. MUST use the <header> tag. NOT a <div>.
+      <nav>...</nav>
+    </header>
+    <main>    ← hero + all content sections
+      <section>...</section>
+      ...
+    </main>
+    <footer>  ← copyright, links, contact. MUST use the <footer> tag. NOT a <div>.
+      ...
+    </footer>
+  </body>
+Do NOT wrap the navigation in a <div> instead of <header>. The <header> and <footer> tags are non-negotiable.
 
 COPYRIGHT_YEAR_PLACEHOLDER
 
@@ -487,6 +502,18 @@ DESIGN REQUIREMENTS:
 - Clear, prominent calls-to-action (phone number, contact form, quote request)
 - Use the real business branding and color scheme
 - Fast-loading, professional result
+
+SEMANTIC HTML STRUCTURE — MANDATORY (required for WordPress export):
+The body MUST use this top-level structure:
+  <body>
+    <header> — site navigation + branding. MUST use the <header> tag.
+    </header>
+    <main> — hero and all content sections
+    </main>
+    <footer> — copyright, links, contact info. MUST use the <footer> tag.
+    </footer>
+  </body>
+Do NOT use <div> where <header>, <main>, or <footer> belongs.
 
 ANTI-HALLUCINATION RULES — CRITICAL — DO NOT VIOLATE:
 Never invent or add anything not found on the original website, including:
