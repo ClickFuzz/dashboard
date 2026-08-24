@@ -10,7 +10,7 @@ required at conversion time.
 
 ## Confirmed Working
 
-*(nothing deployed to production yet)*
+*(nothing deployed to production yet — Phase 1+2 validated on server, pending manual UI test)*
 
 ---
 
@@ -27,13 +27,24 @@ required at conversion time.
   - `_cfw_wp_validate(...)` — checks required files, WP theme header, wp_head/wp_footer/body_class presence, PHP lint (when PHP CLI available), no leaked server paths.
   - `_cfw_wp_zip_dir(...)` — Zip Slip-protected ZIP with top-level directory verification.
   - Pure utility functions: `_cfw_wp_make_slug`, `_cfw_wp_is_external_url`, `_cfw_wp_convert_internal_links`, `_cfw_wp_convert_dynamic_year`, `_cfw_wp_write_file`, `_cfw_wp_rm_dir`.
-- **`tests/pitchsnap_wordpress_helper_test.php`** — Standalone CLI test runner (50+ assertions). Covers slug generation, link conversion, year conversion, element extraction, parse success/failure, path safety, idempotency. No CI/WP dependencies required.
+- **`tests/pitchsnap_wordpress_helper_test.php`** — Standalone CLI test runner (60 assertions, 60/60 pass on PHP 8.3.33).
+
+### Phase 2 (2026-08-24)
+
+- **`modules/pitchsnap/controllers/Pitchsnap.php`** — Two new actions:
+  - `export_wordpress($id)` — admin-only POST; loads helper, calls `clickfuzz_web_export_wordpress_site`, flash alert, redirect to detail.
+  - `download_wordpress($id)` — admin-only GET; glob-finds ZIP, realpath-confines to `exports/wordpress/{id}/`, streams with `Content-Disposition: attachment`.
+- **`modules/pitchsnap/views/admin_detail.php`** — WordPress Export section in the Preview & HTML panel (below Publish Site button):
+  - No export: `[Convert to WordPress]` POST button.
+  - Export exists: `[Download WordPress Package]` link + `[Regenerate]` POST button.
+  - Gated on `$redesign->generation_result`. Export state detected via `glob(exports/wordpress/{id}/*.zip)`.
+- **`tests/pitchsnap_wp_phase2_test.php`** — Phase 2 test runner (30 assertions, 30/30 pass on PHP 8.3.33). Tests controller structure, view UI patterns, download path security.
 
 ---
 
 ## In Progress
 
-- Phase 2: Admin UI (Convert to WordPress button on admin_detail.php + controller action `export_wordpress`).
+*(nothing — Phase 2 complete, awaiting manual UI test)*
 
 ---
 
@@ -92,8 +103,8 @@ clickfuzz-generated-{slug}/
 
 ## Next
 
-1. **Phase 2 — Admin UI**: Add `export_wordpress($id)` controller action to `Pitchsnap.php` (JSON response), add "Convert to WordPress" button + download link to `admin_detail.php` Preview & HTML panel.
-2. **Test on real generated site**: Run `clickfuzz_web_export_wordpress_site($website_id)` against the current live ClickFuzz site (after Phase 2 UI lands or via Tinker/DA console).
+1. **Manual UI test**: Visit a website detail page with generated HTML on the live server, click "Convert to WordPress", verify flash alert + "Download WordPress Package" button appears. Click download and verify ZIP is valid.
+2. **Test on real generated site**: Confirm `clickfuzz_web_export_wordpress_site($website_id)` succeeds end-to-end against a live ClickFuzz-generated site HTML.
 3. **WordPress install verification**: Install exported theme on a test WordPress, verify header/footer/front-page render, run blog post to verify blog templates.
 4. **Internal link resolution**: Phase 3 — import actual pages (About, Contact, etc.) into WXR and resolve `/about` → WordPress page slug in `_cfw_wp_convert_internal_links`.
 
@@ -104,3 +115,4 @@ clickfuzz-generated-{slug}/
 | Date | Event |
 |---|---|
 | 2026-08-24 | Phase 1 complete: helper, conversion contract doc, test runner. No admin UI yet. |
+| 2026-08-24 | Phase 2 complete: `export_wordpress` + `download_wordpress` controller actions, WordPress Export UI in admin_detail.php, Phase 2 tests (30/30). All 90 tests pass on PHP 8.3.33. |

@@ -533,6 +533,65 @@ class Pitchsnap extends AdminController
         return $this->_json(['success' => true, 'message' => 'Changes applied and preview updated.']);
     }
 
+    public function export_wordpress($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) {
+            set_alert('danger', 'Invalid website ID.');
+            redirect(admin_url('pitchsnap/websites'));
+        }
+        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $website = $this->pitchsnap_model->get($id);
+        if (!$website) { show_404(); }
+        if (empty($website->generation_result)) {
+            set_alert('danger', 'No generated HTML found for this website. Generate the site first.');
+            redirect($detail_url);
+        }
+        if (!function_exists('clickfuzz_web_export_wordpress_site')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_wordpress_helper.php';
+        }
+        $result = clickfuzz_web_export_wordpress_site($id);
+        if ($result['success']) {
+            $warnings = !empty($result['warnings']) ? ' Warnings: ' . implode('; ', $result['warnings']) : '';
+            log_activity('ClickFuzz Web: WordPress export created [Website ID: ' . $id . ', Slug: ' . $result['site_slug'] . ']');
+            set_alert('success', 'WordPress package exported.' . $warnings);
+        } else {
+            set_alert('danger', 'WordPress export failed: ' . $result['error']);
+        }
+        redirect($detail_url);
+    }
+
+    public function download_wordpress($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        $id = (int) $id;
+        if (!$id) { show_404(); }
+        $website = $this->pitchsnap_model->get($id);
+        if (!$website) { show_404(); }
+
+        $export_dir = dirname(FCPATH) . '/exports/wordpress/' . $id;
+        $real_base  = realpath(dirname(FCPATH) . '/exports/wordpress');
+        if (!$real_base) { show_404(); }
+
+        $zips = glob($export_dir . '/*.zip') ?: [];
+        if (empty($zips)) { show_404(); }
+
+        $zip_path = $zips[0];
+        $real_zip = realpath($zip_path);
+        if (!$real_zip || strpos($real_zip, $real_base . '/') !== 0) { show_404(); }
+        if (!is_file($real_zip)) { show_404(); }
+
+        $filename = basename($real_zip);
+        header('Content-Type: application/zip');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . filesize($real_zip));
+        header('Cache-Control: no-store, no-cache');
+        readfile($real_zip);
+        exit;
+    }
+
     private function _json($data)
     {
         $this->output

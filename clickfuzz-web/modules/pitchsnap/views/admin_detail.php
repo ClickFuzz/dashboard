@@ -267,6 +267,34 @@
                         </div>
                         <?php } ?>
 
+                        <?php if (!empty($redesign->generation_result)) {
+                            $_wp_zips = glob(dirname(FCPATH) . '/exports/wordpress/' . (int) $redesign->id . '/*.zip') ?: [];
+                            $_wp_has_export = !empty($_wp_zips);
+                        ?>
+                        <div class="mtop10" style="padding-top:10px; border-top:1px solid #eee;">
+                            <span class="text-muted" style="font-size:11px; display:block; margin-bottom:6px; text-transform:uppercase; letter-spacing:.05em;">WordPress Export</span>
+                            <?php if ($_wp_has_export) { ?>
+                            <a href="<?php echo admin_url('pitchsnap/download_wordpress/' . (int) $redesign->id); ?>" class="btn btn-success btn-sm mright5">
+                                <i class="fa fa-download"></i> Download WordPress Package
+                            </a>
+                            <form method="POST" action="<?php echo admin_url('pitchsnap/export_wordpress/' . (int) $redesign->id); ?>" style="display:inline;">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-default btn-sm"
+                                        onclick="return confirm('Regenerate the WordPress package? This will overwrite the current export.');">
+                                    <i class="fa fa-refresh"></i> Regenerate
+                                </button>
+                            </form>
+                            <?php } else { ?>
+                            <form method="POST" action="<?php echo admin_url('pitchsnap/export_wordpress/' . (int) $redesign->id); ?>" style="display:inline;">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-default btn-sm">
+                                    <i class="fa fa-wordpress"></i> Convert to WordPress
+                                </button>
+                            </form>
+                            <?php } ?>
+                        </div>
+                        <?php } ?>
+
                         <!-- AI Modify panel -->
                         <div id="ps_modify_panel" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid #eee;">
                             <p class="text-muted" style="font-size:12px; margin-bottom:6px;">Describe the changes to apply. The AI will edit only what you specify and return the full updated HTML.</p>
