@@ -90,11 +90,16 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 | Branch | Worktree | Status |
 |---|---|---|
-| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `032b466` |
-| `claude/generation` | `worktrees/dashboard/generation` | Ready — from `032b466`, no feature changes yet |
-| `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
+| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `0fe1d30` |
+| `claude/generation` | `worktrees/dashboard/generation` | Active — at `7ade348`, feature changes present |
+| `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | Ready — from `0fe1d30`, no feature changes yet |
+| `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
+| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
+| `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
+| `claude/site-management` | `worktrees/dashboard/site-management` | Active — 6-tab detail page implemented, deployed to production, awaiting merge |
+| `claude/convert-to-wp` | `worktrees/dashboard/convert-to-wp` | Fresh — from `0fe1d30`, no feature changes yet |
 
 ---
 
