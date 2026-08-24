@@ -329,17 +329,33 @@
                             </button>
                         </form>
                         <a href="<?php echo admin_url('pitchsnap/regenerate/' . (int) $redesign->id); ?>"
-                           class="btn btn-default"
+                           class="btn btn-default mright5"
                            onclick="return confirm('Create a new version from this one?');">
                             <i class="fa fa-refresh"></i> Regenerate
                         </a>
+                        <?php if (!empty($redesign->generation_result)) { ?>
+                        <a href="<?php echo admin_url('pitchsnap/edit_html/' . (int) $redesign->id); ?>" class="btn btn-default mright5">
+                            <i class="fa fa-code"></i> Edit HTML
+                        </a>
+                        <button class="btn btn-default" onclick="$('#ps_modify_panel').toggle();">
+                            <i class="fa fa-magic"></i> AI Modify
+                        </button>
+                        <?php } ?>
 
                         <?php } elseif (in_array($s, ['approved', 'sent', 'viewed'])) { ?>
                         <a href="<?php echo admin_url('pitchsnap/regenerate/' . (int) $redesign->id); ?>"
-                           class="btn btn-default"
+                           class="btn btn-default mright5"
                            onclick="return confirm('Create a new version from this one?');">
                             <i class="fa fa-refresh"></i> Regenerate
                         </a>
+                        <?php if (!empty($redesign->generation_result)) { ?>
+                        <a href="<?php echo admin_url('pitchsnap/edit_html/' . (int) $redesign->id); ?>" class="btn btn-default mright5">
+                            <i class="fa fa-code"></i> Edit HTML
+                        </a>
+                        <button class="btn btn-default" onclick="$('#ps_modify_panel').toggle();">
+                            <i class="fa fa-magic"></i> AI Modify
+                        </button>
+                        <?php } ?>
 
                         <?php } elseif ($s === 'failed') { ?>
                         <button class="btn btn-primary mright5" onclick="ps_queue_generate(<?php echo (int) $redesign->id; ?>)">
@@ -350,10 +366,31 @@
                             <i class="fa fa-cloud"></i> Retry with Anthropic
                         </a>
                         <a href="<?php echo admin_url('pitchsnap/regenerate/' . (int) $redesign->id); ?>"
-                           class="btn btn-default"
+                           class="btn btn-default mright5"
                            onclick="return confirm('Create a new version from this one?');">
                             <i class="fa fa-copy"></i> New Version
                         </a>
+                        <?php if (!empty($redesign->generation_result)) { ?>
+                        <a href="<?php echo admin_url('pitchsnap/edit_html/' . (int) $redesign->id); ?>" class="btn btn-default mright5">
+                            <i class="fa fa-code"></i> Edit HTML
+                        </a>
+                        <button class="btn btn-default" onclick="$('#ps_modify_panel').toggle();">
+                            <i class="fa fa-magic"></i> AI Modify
+                        </button>
+                        <?php } ?>
+                        <?php } ?>
+
+                        <!-- AI Modify panel -->
+                        <?php if (!empty($redesign->generation_result)) { ?>
+                        <div id="ps_modify_panel" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid #eee;">
+                            <p class="text-muted" style="font-size:12px; margin-bottom:6px;">Describe the changes to apply. The AI will edit only what you specify and return the full updated HTML.</p>
+                            <textarea id="ps_modify_request" class="form-control" rows="3"
+                                      placeholder="e.g. Change the hero headline to 'Trusted Local Plumbers'…"></textarea>
+                            <button class="btn btn-primary btn-sm mtop10" onclick="ps_modify_html(<?php echo (int) $redesign->id; ?>)">
+                                <i class="fa fa-magic"></i> Apply Changes
+                            </button>
+                            <span id="ps_modify_status" class="text-muted" style="font-size:12px; margin-left:10px;"></span>
+                        </div>
                         <?php } ?>
 
                         <!-- Rendered prompt (collapsible) -->
@@ -373,47 +410,24 @@
                     </div>
                 </div>
 
-                <!-- Preview & HTML -->
-                <?php if (!empty($redesign->preview_url) || !empty($redesign->generation_result)) { ?>
+                <!-- Preview -->
+                <?php if (!empty($redesign->preview_url)) { ?>
                 <div class="panel_s">
                     <div class="panel-body">
-                        <div class="tw-flex tw-items-center tw-justify-between mbot10">
-                            <h5 class="tw-font-semibold" style="margin:0;">Preview &amp; HTML</h5>
+                        <div class="tw-flex tw-items-center tw-justify-between">
+                            <h5 class="tw-font-semibold" style="margin:0;">Preview</h5>
                             <div>
-                                <?php if (!empty($redesign->preview_url)) { ?>
                                 <a href="<?php echo e($redesign->preview_url); ?>" target="_blank" rel="noopener noreferrer" class="btn btn-success btn-sm mright5">
                                     <i class="fa fa-globe"></i> Open Preview
                                 </a>
-                                <?php } ?>
-                                <?php if (!empty($redesign->generation_result)) { ?>
-                                <a href="<?php echo admin_url('pitchsnap/edit_html/' . (int) $redesign->id); ?>" class="btn btn-default btn-sm mright5">
-                                    <i class="fa fa-code"></i> Edit HTML
-                                </a>
-                                <button class="btn btn-default btn-sm mright5" onclick="$('#ps_modify_panel').toggle();">
-                                    <i class="fa fa-magic"></i> AI Modify
-                                </button>
-                                <?php } ?>
-                                <?php if (!empty($redesign->preview_url)) { ?>
                                 <form method="POST" action="<?php echo admin_url('pitchsnap/delete_preview/' . (int) $redesign->id); ?>" style="display:inline;">
                                     <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
                                     <button type="submit" class="btn btn-danger btn-sm"
                                             onclick="return confirm('Delete preview files? The website record will be preserved.');">
-                                        <i class="fa fa-trash"></i>
+                                        <i class="fa fa-trash"></i> Delete Preview
                                     </button>
                                 </form>
-                                <?php } ?>
                             </div>
-                        </div>
-
-                        <!-- AI Modify panel -->
-                        <div id="ps_modify_panel" style="display:none; padding-top:12px; border-top:1px solid #eee;">
-                            <p class="text-muted" style="font-size:12px; margin-bottom:6px;">Describe the changes to apply. The AI will edit only what you specify and return the full updated HTML.</p>
-                            <textarea id="ps_modify_request" class="form-control" rows="3"
-                                      placeholder="e.g. Change the hero headline to 'Trusted Local Plumbers'…"></textarea>
-                            <button class="btn btn-primary btn-sm mtop10" onclick="ps_modify_html(<?php echo (int) $redesign->id; ?>)">
-                                <i class="fa fa-magic"></i> Apply Changes
-                            </button>
-                            <span id="ps_modify_status" class="text-muted" style="font-size:12px; margin-left:10px;"></span>
                         </div>
                     </div>
                 </div>
@@ -423,35 +437,42 @@
                 <?php if (!empty($versions)) { ?>
                 <div class="panel_s">
                     <div class="panel-body">
-                        <h5 class="tw-font-semibold mbot10">Version History</h5>
+                        <div class="tw-flex tw-items-center tw-justify-between mbot10">
+                            <h5 class="tw-font-semibold" style="margin:0;">Version History</h5>
+                            <button class="btn btn-danger btn-xs" onclick="ps_bulk_delete()">
+                                <i class="fa fa-trash"></i> Delete Selected
+                            </button>
+                        </div>
                         <table class="table table-bordered table-condensed" style="margin-bottom:0;">
                             <thead>
                                 <tr>
+                                    <th width="4%"><input type="checkbox" id="ps-select-all" onclick="ps_select_all(this)"></th>
                                     <th width="8%">#</th>
                                     <th width="20%">Status</th>
-                                    <th width="28%">Created</th>
-                                    <th width="14%">Provider</th>
-                                    <th width="8%" class="text-center">Primary</th>
+                                    <th width="26%">Created</th>
+                                    <th width="12%">Provider</th>
                                     <th></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php foreach ($versions as $v) { ?>
                                 <tr<?php echo ($v->id == $redesign->id) ? ' class="active"' : ''; ?>>
+                                    <td>
+                                        <?php if (empty($v->is_primary)) { ?>
+                                        <input type="checkbox" class="ps-version-cb" value="<?php echo (int) $v->id; ?>">
+                                        <?php } ?>
+                                    </td>
                                     <td>#<?php echo (int) $v->id; ?></td>
                                     <td><?php echo ps_badge($v->status); ?></td>
                                     <td style="font-size:12px;"><?php echo _dt($v->dateadded); ?></td>
                                     <td style="font-size:12px;"><?php echo !empty($v->provider) ? e($v->provider) : '<span class="text-muted">—</span>'; ?></td>
-                                    <td class="text-center">
-                                        <?php if (!empty($v->is_primary)) { ?>
-                                        <i class="fa fa-star text-warning" title="Primary"></i>
-                                        <?php } ?>
-                                    </td>
                                     <td class="text-right" style="white-space:nowrap;">
+                                        <?php if (!empty($v->is_primary)) { ?>
+                                        <span class="label label-default"><i class="fa fa-star"></i> Primary</span>
+                                        <?php } else { ?>
                                         <?php if ($v->id != $redesign->id) { ?>
                                         <a href="<?php echo admin_url('pitchsnap/detail/' . (int) $v->id); ?>" class="btn btn-default btn-xs">View</a>
                                         <?php } ?>
-                                        <?php if (empty($v->is_primary)) { ?>
                                         <form method="POST" action="<?php echo admin_url('pitchsnap/set_primary/' . (int) $v->id); ?>" style="display:inline;">
                                             <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
                                             <button type="submit" class="btn btn-default btn-xs"
@@ -810,6 +831,11 @@
 <form id="ps_delete_profile_form" method="POST" action="" style="display:none;">
     <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
 </form>
+<!-- Hidden form for bulk version delete -->
+<form id="ps_bulk_delete_form" method="POST" action="<?php echo admin_url('pitchsnap/delete_versions'); ?>" style="display:none;">
+    <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+    <input type="hidden" name="redirect_id" value="<?php echo (int) $redesign->id; ?>">
+</form>
 
 <?php init_tail(); ?>
 <script>
@@ -879,6 +905,28 @@ function ps_delete_profile(lead_id) {
     if (!confirm('Delete ALL ClickFuzz Web data for this lead?\n\nThis removes all versions, previews, and site records. The lead itself stays in Perfex.')) return;
     var f = document.getElementById('ps_delete_profile_form');
     f.action = admin_url + 'pitchsnap/delete_profile/' + lead_id;
+    f.submit();
+}
+
+function ps_select_all(master) {
+    document.querySelectorAll('.ps-version-cb').forEach(function(cb) {
+        cb.checked = master.checked;
+    });
+}
+
+function ps_bulk_delete() {
+    var cbs = document.querySelectorAll('.ps-version-cb:checked');
+    if (!cbs.length) { alert_float('warning', 'Select at least one version to delete.'); return; }
+    if (!confirm('Delete ' + cbs.length + ' version(s)? This cannot be undone.')) return;
+    var f = document.getElementById('ps_bulk_delete_form');
+    f.querySelectorAll('input[name="ids[]"]').forEach(function(el) { el.remove(); });
+    cbs.forEach(function(cb) {
+        var inp = document.createElement('input');
+        inp.type = 'hidden';
+        inp.name = 'ids[]';
+        inp.value = cb.value;
+        f.appendChild(inp);
+    });
     f.submit();
 }
 </script>
