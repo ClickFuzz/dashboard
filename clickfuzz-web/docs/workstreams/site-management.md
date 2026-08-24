@@ -15,6 +15,21 @@ Reorganize the website details/admin page (`pitchsnap/detail/{id}`) into a compa
 
 ## Confirmed Working
 
+### Delete All ClickFuzz Web Data (fixed 2026-08-24)
+
+The "Delete All ClickFuzz Web Data" button in the Customer tab → Danger Zone is now fully working.
+
+**Root cause of original failure:** CI3's CSRF middleware unsets the CSRF token from `$_POST` after validation. The `ps_delete_profile_form` only contained the CSRF token field, so `$_POST` was empty by the time the controller ran. The `if (!$this->input->post())` guard fired and silently redirected without deleting anything or showing a flash message.
+
+**Fix:** Added `<input type="hidden" name="confirm_delete" value="1">` to `ps_delete_profile_form`. Controller guard changed to `if ($this->input->post('confirm_delete') !== '1')`.
+
+**What gets deleted:** All redesign records, conversations, agreements, site records, preview directories on disk (`/previews/{token}/`), and published site directories on disk (`/sites/{slug}/`). The Perfex lead and any Perfex customer record are preserved.
+
+**Files changed:**
+- `views/admin_detail.php` — added `confirm_delete` field to hidden form
+- `controllers/Pitchsnap.php` — guard changed to check `confirm_delete`
+- `models/Pitchsnap_model.php` — added published site directory cleanup to `delete_lead_profile()`
+
 ### Tabbed detail page (completed 2026-08-24)
 
 Replaced the long single-column detail page with a compact header + 6-tab layout.
@@ -114,3 +129,4 @@ Nothing currently in progress.
 
 - **2026-08-24** — Initial implementation: replaced single-column detail view with 6-tab layout. All existing functionality preserved. Deployed to production. (`2fd1b3f`)
 - **2026-08-24** — Refinements: Edit HTML + AI Modify moved into Current Website card alongside Regenerate. Version History reworked with checkboxes, bulk delete, Primary pill in last column. Preview card removed. (`37176f9`)
+- **2026-08-24** — Bug fix: Delete All ClickFuzz Web Data was silently failing due to CI3 CSRF middleware emptying `$_POST`. Added `confirm_delete` hidden field to form, updated controller guard, added published site directory cleanup to model. Verified working on production.

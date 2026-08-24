@@ -49,6 +49,14 @@ if (!class_exists('Pitchsnap_model')) {
 }
 ```
 
+### Key GOTCHA: CI3 CSRF strips POST data — guard forms correctly
+
+CI3's CSRF middleware **unsets the CSRF token from `$_POST` after validation**. If a form contains only the CSRF token field (no other fields), `$_POST` is empty by the time the controller runs. The common pattern `if (!$this->input->post()) { redirect(...); }` will then silently bail out.
+
+**Fix:** Always include at least one non-CSRF field in any form that uses this guard. For action-confirmation forms, use `<input type="hidden" name="confirm_delete" value="1">` (or similar) and check `$this->input->post('confirm_delete') !== '1'` in the controller.
+
+This bit the `delete_profile` action — fixed 2026-08-24 in `site-management` workstream.
+
 ### Key GOTCHA: Route value format
 
 Module route values must NOT include the module prefix. `Modules::parse_routes()` prepends it automatically.
@@ -98,7 +106,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 | `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
-| `claude/site-management` | `worktrees/dashboard/site-management` | **Ready for merge** — 6-tab detail page complete, latest commit `37176f9`. admin_detail.php deployed to production for preview; re-deploy from main after merge per policy. |
+| `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix. Uncommitted changes: `admin_detail.php`, `Pitchsnap.php`, `Pitchsnap_model.php`. All three deployed to production. Needs commit then merge to main. |
 | `claude/convert-to-wp` | `worktrees/dashboard/convert-to-wp` | Fresh — from `0fe1d30`, no feature changes yet |
 
 ---
