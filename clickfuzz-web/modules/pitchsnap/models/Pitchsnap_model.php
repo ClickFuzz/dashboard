@@ -741,9 +741,30 @@ class Pitchsnap_model extends App_Model
             $this->db->where_in('redesign_id', $redesign_ids)->delete($conv_table);
         }
 
-        // Collect site IDs for this lead's redesigns
+        // Collect site records for this lead's redesigns
         $sites    = $this->db->where_in('source_website_id', $redesign_ids)->get($this->site_table)->result();
         $site_ids = array_map(function ($s) { return (int) $s->id; }, $sites);
+
+        // Remove published site directories from disk
+        $sites_base      = dirname(FCPATH) . '/sites';
+        $real_sites_base = realpath($sites_base);
+        foreach ($sites as $s) {
+            $domain = $s->domain ?? '';
+            $after  = strstr($domain, '/sites/');
+            if (!$after) { continue; }
+            $slug = ltrim($after, '/sites/');
+            if (!$slug || !preg_match('/^[a-z0-9\-]+$/', $slug)) { continue; }
+            $site_dir = $sites_base . '/' . $slug;
+            if (!is_dir($site_dir)) { continue; }
+            $real_dir = realpath($site_dir);
+            if ($real_sites_base && $real_dir && strpos($real_dir . '/', $real_sites_base . '/') === 0) {
+                foreach (@scandir($site_dir) ?: [] as $entry) {
+                    if ($entry === '.' || $entry === '..') { continue; }
+                    @unlink($site_dir . '/' . $entry);
+                }
+                @rmdir($site_dir);
+            }
+        }
 
         // Delete agreements
         if (!empty($site_ids) && $this->db->table_exists($this->agreement_table)) {

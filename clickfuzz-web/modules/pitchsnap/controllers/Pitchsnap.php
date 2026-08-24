@@ -156,7 +156,7 @@ class Pitchsnap extends AdminController
     public function delete_profile($lead_id = '')
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }
-        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        if ($this->input->post('confirm_delete') !== '1') { redirect(admin_url('pitchsnap/websites')); }
         $lead_id = (int) $lead_id;
         if (!$lead_id) {
             set_alert('danger', 'Invalid lead ID.');

@@ -808,6 +808,7 @@
 <!-- Hidden form for delete_profile -->
 <form id="ps_delete_profile_form" method="POST" action="" style="display:none;">
     <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+    <input type="hidden" name="confirm_delete" value="1">
 </form>
 <!-- Hidden form for bulk version delete -->
 <form id="ps_bulk_delete_form" method="POST" action="<?php echo admin_url('pitchsnap/delete_versions'); ?>" style="display:none;">
