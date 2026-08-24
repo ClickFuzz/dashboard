@@ -95,6 +95,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
+| `claude/convert-to-wp` | `worktrees/dashboard/convert-to-wp` | Active — Phase 1 complete (helper + tests, no admin UI yet) |
 
 ---
 
