@@ -118,9 +118,41 @@ Custom domains come later.
 
 ---
 
+### Phase 5A — Custom Domain Data Model + UI (complete 2026-08-25)
+
+**DB v13 migration** (`pitchsnap.php`):
+- Adds `verification_status` (pending/verified/failed), `verified_at`, `ssl_status` (pending/active/failed) to `tblpitchsnap_site_domains`
+- Existing platform rows backfilled: `verification_status=verified`, `ssl_status=active` (covered by wildcard cert)
+- Gate bumped from `>= 12` to `>= 13`
+
+**Model** (`Pitchsnap_model.php`):
+- `get_custom_domain_for_site($site_id)` — fetch `domain_type=custom` row for a site
+- `save_custom_domain($site_id, $hostname)` — create or update custom mapping, always resets to pending
+- `remove_custom_domain($site_id)` — delete custom mapping
+- `hostname_available_for_site($hostname, $site_id)` — uniqueness check excluding current site own mapping
+
+**Helper** (`pitchsnap_domain_helper.php`):
+- `clickfuzz_web_normalize_hostname($input)` — strips scheme/path/port/trailing dot, lowercases, does NOT strip www
+- `clickfuzz_web_validate_custom_hostname($hostname, $site_id)` — rejects: empty, no TLD, IP addresses, wildcards, `clickfuzz.com`, `*.clickfuzz.com` subdomains, malformed hostnames, hostnames already assigned to another site
+
+**Controller** (`Pitchsnap.php`):
+- `save_custom_domain($id)` — POST: normalize → validate → save → redirect with alert
+- `remove_custom_domain($id)` — POST: remove custom mapping → redirect with alert
+
+**Publishing tab** (`tab_publishing.php`):
+- Custom Domain section replaces placeholder
+- Shows current hostname, Pending DNS setup / Verified / Failed badge, SSL status badge
+- Input field + Save/Update Domain button
+- Remove Domain button (when a mapping exists)
+- Note: platform URL remains active throughout — custom domain does not affect it
+
+**Tests**: 75/75 pass — 8 normalization tests, 8 validation rejection/acceptance tests, 8 CRUD + isolation tests added to `test_publishing_domains.php`
+
+---
+
 ## In Progress
 
-Nothing — Phases 1–4 are complete.
+Nothing — Phases 1–5A are complete.
 
 ---
 
@@ -135,13 +167,13 @@ Nothing — Phases 1–4 are complete.
 
 ## Next
 
-Phase 5: Custom domain support
+Phase 5B: DNS verification
 
-1. `tblpitchsnap_site_domains` schema extension — add `verified_at`, `ssl_status`, etc.
-2. DNS verification flow (CNAME check)
-3. SSL provisioning / status tracking
-4. Custom domain UI in Publishing tab
-5. Alternate hostname routing (runtime already supports any active mapping)
+1. DNS lookup to verify CNAME/A points to ClickFuzz server
+2. Admin action to re-check verification status
+3. Show DNS instructions (CNAME target) in Publishing tab when pending
+4. Update `verification_status` and `verified_at` on success
+5. (Later) SSL provisioning once verified
 
 ---
 
@@ -151,3 +183,4 @@ Phase 5: Custom domain support
 - 2026-08-25: Phase 2 application/data layer implemented — DB v12, model methods, hostname generation, publish flow updated.
 - 2026-08-25: Phase 3 hosted-site runtime deployed and tested — `sites.clickfuzz.com` now routes live hostnames to static storage. 11/11 tests pass.
 - 2026-08-25: Phase 4 complete — first real site published (jackrabbit.clickfuzz.com, site_id=6), Publishing tab updated with live URL, Open Site button, and Republish state.
+- 2026-08-25: Phase 5A complete — custom domain data model, normalization/validation helper, save/remove controller actions, Custom Domain UI in Publishing tab. 75/75 tests pass. DB at v13.
