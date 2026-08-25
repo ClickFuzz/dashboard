@@ -8,19 +8,33 @@
                 <div class="panel_s">
                     <div class="panel-body">
                         <h5 class="tw-font-semibold mbot10">HTML Hosting</h5>
+                        <?php
+                        $_pf_domain    = null;
+                        $_is_published = !empty($site) && $site->status === 'published';
+                        if (!empty($site) && isset($this->pitchsnap_model)) {
+                            $_pf_domain = $this->pitchsnap_model->get_platform_domain_for_site($site->id);
+                        }
+                        $_pub_url = $_pf_domain ? 'https://' . $_pf_domain->hostname . '/' : null;
+                        ?>
                         <table class="table table-bordered table-condensed mbot15" style="max-width:520px;">
                             <tbody>
                                 <?php if (!empty($site)) { ?>
                                 <tr>
                                     <th width="35%">Status</th>
-                                    <td><?php echo e($site->status ?? '—'); ?></td>
+                                    <td>
+                                        <?php if ($_is_published) { ?>
+                                        <span class="label label-success">Published</span>
+                                        <?php } else { ?>
+                                        <span class="label label-default"><?php echo e(ucfirst($site->status ?? 'draft')); ?></span>
+                                        <?php } ?>
+                                    </td>
                                 </tr>
-                                <?php if (!empty($site->domain)) { ?>
+                                <?php if ($_pub_url) { ?>
                                 <tr>
-                                    <th>URL</th>
+                                    <th>Live URL</th>
                                     <td style="word-break:break-all;">
-                                        <a href="https://<?php echo e($site->domain); ?>" target="_blank" rel="noopener noreferrer">
-                                            <?php echo e($site->domain); ?>
+                                        <a href="<?php echo e($_pub_url); ?>" target="_blank" rel="noopener noreferrer">
+                                            <?php echo e($_pub_url); ?>
                                         </a>
                                     </td>
                                 </tr>
@@ -41,11 +55,18 @@
                         </table>
 
                         <?php if (!empty($site)) { ?>
+                        <?php if ($_pub_url) { ?>
+                        <a href="<?php echo e($_pub_url); ?>" target="_blank" rel="noopener noreferrer"
+                           class="btn btn-success btn-sm mright5">
+                            <i class="fa fa-globe"></i> Open Site
+                        </a>
+                        <?php } ?>
                         <form method="POST" action="<?php echo admin_url('pitchsnap/publish_site/' . (int) $redesign->id); ?>" style="display:inline;">
                             <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
                             <button type="submit" class="btn btn-primary btn-sm"
-                                    onclick="return confirm('Publish this site to its permanent URL?');">
-                                <i class="fa fa-upload"></i> Publish Site
+                                    onclick="return confirm('<?php echo $_is_published ? 'Republish this site (overwrites current content)?' : 'Publish this site to its permanent URL?'; ?>');">
+                                <i class="fa fa-<?php echo $_is_published ? 'refresh' : 'upload'; ?>"></i>
+                                <?php echo $_is_published ? 'Republish' : 'Publish Site'; ?>
                             </button>
                         </form>
                         <?php } elseif (!empty($redesign->preview_url) || !empty($redesign->generation_result)) { ?>
