@@ -106,7 +106,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 | `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
-| `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix. Uncommitted changes: `admin_detail.php`, `Pitchsnap.php`, `Pitchsnap_model.php`. All three deployed to production. Needs commit then merge to main. |
+| `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix + tab extraction. Uncommitted changes: `admin_detail.php` (shell only), `Pitchsnap.php`, `Pitchsnap_model.php`, new `views/admin_detail/tab_*.php` (6 files). New partials not yet deployed to production. Needs deploy + verify + commit + merge to main. |
 | `claude/convert-to-wp` | `worktrees/dashboard/convert-to-wp` | Fresh — from `0fe1d30`, no feature changes yet |
 
 ---

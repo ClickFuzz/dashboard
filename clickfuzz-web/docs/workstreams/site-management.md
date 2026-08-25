@@ -109,19 +109,48 @@ Nothing currently in progress.
 
 ---
 
+## File Structure
+
+`admin_detail.php` is now a shell that includes one partial per tab:
+
+```
+views/admin_detail.php              ← page shell (header, tab nav, hidden forms, JS, ps_badge)
+views/admin_detail/
+    tab_overview.php                ← Tab 1: Overview
+    tab_website.php                 ← Tab 2: Website
+    tab_publishing.php              ← Tab 3: Domain & Publishing
+    tab_customer.php                ← Tab 4: Customer
+    tab_ghl.php                     ← Tab 5: GHL
+    tab_history.php                 ← Tab 6: History
+```
+
+Partials are included via native PHP `include __DIR__ . '/admin_detail/tab_xxx.php'` so all local variables (`$redesign`, `$lead`, `$site`, `$agreement`, `$versions`, `$conversations`) are automatically available without reconstructing `$data`.
+
+**What stays in the parent shell (do not move to partials):**
+- Page header markup and action buttons (reference variables from multiple tabs)
+- Tab `<ul>` navigation
+- Hidden forms `#ps_delete_profile_form` and `#ps_bulk_delete_form` (referenced by JS via `document.getElementById`)
+- All JavaScript functions (`ps_queue_generate`, `ps_modify_html`, `ps_delete_profile`, `ps_select_all`, `ps_bulk_delete`)
+- `ps_badge()` PHP function (called in header and in multiple tab partials; PHP hoisting makes it available in all includes)
+
+**Rule:** To work on one tab, modify only its partial. The parent shell should rarely need changes for tab-specific work.
+
+---
+
 ## Known Issues / Risks
 
 - The controller loads the view as `admin_detail` (no module prefix) while other views use `pitchsnap/admin_xyz`. This is existing behavior that works; do not change it.
-- `ps_badge()` is defined at the end of the view file but called earlier — this works because PHP hoists top-level function declarations within an included file.
+- `ps_badge()` is defined at the end of `admin_detail.php` but called in the page header (line 23) and in tab partials — this works because PHP hoists top-level function declarations, making it available globally before the includes execute.
 
 ---
 
 ## Next
 
-1. Manual browser test on production: verify all six tabs render, all actions work, no PHP errors
-2. Merge `claude/site-management` into `main` after verification
-3. Future: `publishing-domains` worktree fills in Domain & Publishing tab with real DNS/SSL provisioning
-4. Future: `ghl-integration` worktree fills in the GHL tab
+1. Deploy partials to production: upload `admin_detail.php` + the new `admin_detail/` directory to the server
+2. Manual browser test on production: verify all six tabs render, all actions work, no PHP errors
+3. Merge `claude/site-management` into `main` after verification
+4. Future: `publishing-domains` worktree fills in Domain & Publishing tab with real DNS/SSL provisioning
+5. Future: `ghl-integration` worktree fills in the GHL tab
 
 ---
 
@@ -130,3 +159,4 @@ Nothing currently in progress.
 - **2026-08-24** — Initial implementation: replaced single-column detail view with 6-tab layout. All existing functionality preserved. Deployed to production. (`2fd1b3f`)
 - **2026-08-24** — Refinements: Edit HTML + AI Modify moved into Current Website card alongside Regenerate. Version History reworked with checkboxes, bulk delete, Primary pill in last column. Preview card removed. (`37176f9`)
 - **2026-08-24** — Bug fix: Delete All ClickFuzz Web Data was silently failing due to CI3 CSRF middleware emptying `$_POST`. Added `confirm_delete` hidden field to form, updated controller guard, added published site directory cleanup to model. Verified working on production.
+- **2026-08-25** — Structural extraction: split `admin_detail.php` into one partial per tab under `views/admin_detail/`. No UI or functional changes. Pure code isolation to support parallel worktree development.
