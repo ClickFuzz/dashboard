@@ -103,7 +103,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
-| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Active** — Phases 1–3 complete. DB v12 + `tblpitchsnap_site_domains` live. Hosted-site runtime deployed at `sites.clickfuzz.com`. Pending: merge to main, Phase 4 (real publish + UI). |
+| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Active** — Phases 1–4 complete. DB v12 + `tblpitchsnap_site_domains` live. Hosted-site runtime at `sites.clickfuzz.com`. `jackrabbit.clickfuzz.com` live. Publishing tab shows correct live URL, Open Site button, Republish state. Pending: merge to main, Phase 5 (custom domains). |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
 | `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix + tab extraction. Uncommitted changes: `admin_detail.php` (shell only), `Pitchsnap.php`, `Pitchsnap_model.php`, new `views/admin_detail/tab_*.php` (6 files). New partials not yet deployed to production. Needs deploy + verify + commit + merge to main. |

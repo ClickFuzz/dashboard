@@ -99,30 +99,49 @@ Custom domains come later.
 
 ---
 
+### Phase 4 — End-to-end Publish + UI (complete 2026-08-25)
+
+**Real publish milestone:**
+- site_id=6 (JackRabbit, lead_id=610) published end-to-end via `clickfuzz_web_publish_site()`
+- Platform hostname `jackrabbit.clickfuzz.com` derived, registered in `tblpitchsnap_site_domains`
+- `https://jackrabbit.clickfuzz.com/` returns HTTP 200 — correct HTML, noindex stripped, widget injected
+- Republish is idempotent (same hostname, no duplicate mapping, site overwrites cleanly)
+- DB state verified: site status=published, one active platform domain row
+
+**Publishing tab update** (`modules/pitchsnap/views/admin_detail/tab_publishing.php`):
+- Derives `$_pf_domain` via `$this->pitchsnap_model->get_platform_domain_for_site()` in view scope
+- Status badge: green "Published" label vs gray draft/other label
+- Live URL row shows correct `https://{hostname}/` (was showing internal storage slug — bug fixed)
+- "Open Site" button shown when hostname is set
+- Button label: "Republish" + refresh icon when already published; "Publish Site" + upload icon otherwise
+- Confirm dialog text adapts to published vs unpublished state
+
+---
+
 ## In Progress
 
-Nothing — Phases 1–3 are complete.
+Nothing — Phases 1–4 are complete.
 
 ---
 
 ## Known Issues / Risks
 
-- `tblpitchsnap_site_domains` has no custom-domain verification or SSL provisioning fields — Phase 4
+- `tblpitchsnap_site_domains` has no custom-domain verification or SSL provisioning fields — Phase 5
 - The `domain` field on `tblpitchsnap_sites` stores `clickfuzz.com/sites/{slug}` — slug extraction is via regex; format must not change without updating the runtime
-- `sites.clickfuzz.com/public_html/sites/` directory created and secured; it is empty until first real site publish
 - Wildcard cert expires 2026-11-02 — auto-renewal should be confirmed before that date
+- Controller (`Pitchsnap.php`) has extra WP methods on production server (752 lines) not in local git (542 lines) — do NOT overwrite server controller from local without reconciling first
 
 ---
 
 ## Next
 
-Phase 4: End-to-end publish + UI
+Phase 5: Custom domain support
 
-1. Trigger a real site publish through the admin UI
-2. Verify the generated HTML lands at `sites/{slug}/`
-3. Verify `https://{hostname}/` serves the published content correctly
-4. Update `tab_publishing.php` to display the live platform hostname URL
-5. (Later) Custom domain support: DNS verification, SSL provisioning, alternate mappings
+1. `tblpitchsnap_site_domains` schema extension — add `verified_at`, `ssl_status`, etc.
+2. DNS verification flow (CNAME check)
+3. SSL provisioning / status tracking
+4. Custom domain UI in Publishing tab
+5. Alternate hostname routing (runtime already supports any active mapping)
 
 ---
 
@@ -131,3 +150,4 @@ Phase 4: End-to-end publish + UI
 - 2026-08-25: Infrastructure proven (wildcard DNS, TLS, vhost, Host-header). Worktree synced to main at `2d94ea6`.
 - 2026-08-25: Phase 2 application/data layer implemented — DB v12, model methods, hostname generation, publish flow updated.
 - 2026-08-25: Phase 3 hosted-site runtime deployed and tested — `sites.clickfuzz.com` now routes live hostnames to static storage. 11/11 tests pass.
+- 2026-08-25: Phase 4 complete — first real site published (jackrabbit.clickfuzz.com, site_id=6), Publishing tab updated with live URL, Open Site button, and Republish state.
