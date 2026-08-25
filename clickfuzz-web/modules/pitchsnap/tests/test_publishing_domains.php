@@ -9,7 +9,8 @@
 // Minimal stubs so the helper functions load without a full CI bootstrap
 // ---------------------------------------------------------------------------
 
-if (!defined('FCPATH')) { define('FCPATH', __DIR__ . '/../../../..'); }
+if (!defined('FCPATH'))    { define('FCPATH',    __DIR__ . '/../../../..'); }
+if (!defined('BASEPATH'))  { define('BASEPATH',  FCPATH   . '/system/');  }
 
 class CI_Stub {
     public $pitchsnap_model;
@@ -25,6 +26,7 @@ function &get_instance() {
 function db_prefix() { return 'tbl'; }
 
 require_once __DIR__ . '/../helpers/pitchsnap_generation_helper.php';
+require_once __DIR__ . '/../helpers/pitchsnap_domain_helper.php';
 
 // ---------------------------------------------------------------------------
 // Mock model
@@ -43,27 +45,86 @@ class MockPitchsnapModel {
         $o->source_lead_id = $lead_id;
         $this->sites[$site_id] = $o;
     }
-    public function seed_domain($site_id, $hostname) {
+    public function seed_domain($site_id, $hostname, $type = 'platform') {
         $o = new stdClass();
-        $o->site_id  = $site_id;
-        $o->hostname = $hostname;
-        $this->site_domains[$site_id] = $o;
+        $o->site_id     = $site_id;
+        $o->hostname    = $hostname;
+        $o->domain_type = $type;
+        $key = ($type === 'custom') ? 'c_' . (int) $site_id : (int) $site_id;
+        $this->site_domains[$key] = $o;
+        $this->taken[] = $hostname;
     }
 
     public function hostname_available($hostname) {
         return !in_array($hostname, $this->taken, true);
     }
+    public function hostname_available_for_site($hostname, $site_id) {
+        // Taken by a *different* site — compare via the row's site_id, not the array key
+        foreach ($this->site_domains as $row) {
+            if ($row->hostname === $hostname && (int) $row->site_id !== (int) $site_id) {
+                return false;
+            }
+        }
+        return true;
+    }
     public function get_platform_domain_for_site($site_id) {
-        return $this->site_domains[(int) $site_id] ?? null;
+        $sid = (int) $site_id;
+        if (isset($this->site_domains[$sid]) && $this->site_domains[$sid]->domain_type === 'platform') {
+            return $this->site_domains[$sid];
+        }
+        return null;
+    }
+    public function get_custom_domain_for_site($site_id) {
+        $key = 'c_' . (int) $site_id;
+        return $this->site_domains[$key] ?? null;
     }
     public function get_site_by_id($site_id) {
         return $this->sites[(int) $site_id] ?? null;
     }
     public function create_site_domain($data) {
         $o = (object) $data;
-        $this->site_domains[(int) $data['site_id']] = $o;
+        $type = $data['domain_type'] ?? 'platform';
+        if ($type === 'custom') {
+            $this->site_domains['c_' . (int) $data['site_id']] = $o;
+        } else {
+            $this->site_domains[(int) $data['site_id']] = $o;
+        }
         $this->taken[] = $data['hostname'];
         return 99;
+    }
+    public function save_custom_domain($site_id, $hostname) {
+        $existing = $this->get_custom_domain_for_site($site_id);
+        $now = date('Y-m-d H:i:s');
+        if ($existing) {
+            $existing->hostname             = $hostname;
+            $existing->verification_status  = 'pending';
+            $existing->verified_at          = null;
+            $existing->ssl_status           = 'pending';
+            $existing->dateupdated          = $now;
+            return (int) $existing->id;
+        }
+        return $this->create_site_domain([
+            'id'                  => 999,
+            'site_id'             => (int) $site_id,
+            'hostname'            => $hostname,
+            'domain_type'         => 'custom',
+            'is_primary'          => 0,
+            'status'              => 'active',
+            'verification_status' => 'pending',
+            'verified_at'         => null,
+            'ssl_status'          => 'pending',
+            'dateadded'           => $now,
+        ]);
+    }
+    public function remove_custom_domain($site_id) {
+        $key = 'c_' . (int) $site_id;
+        if (isset($this->site_domains[$key])) {
+            $hostname = $this->site_domains[$key]->hostname;
+            unset($this->site_domains[$key]);
+            $this->taken = array_values(array_filter($this->taken, fn($h) => $h !== $hostname));
+            return true;
+        }
+        return false;
     }
 }
 
@@ -274,6 +335,149 @@ if (!$row2) {
     $create_called++;
 }
 eq('create_site_domain not called on republish', $create_called, 0);
+
+// ---------------------------------------------------------------------------
+// 13. Hostname normalization
+// ---------------------------------------------------------------------------
+
+echo "\n-- hostname normalization --\n";
+
+eq('bare domain passthrough',      clickfuzz_web_normalize_hostname('example.com'),                          'example.com');
+eq('https with path stripped',     clickfuzz_web_normalize_hostname('https://Example.com/path?q=1#frag'),    'example.com');
+eq('http scheme stripped',         clickfuzz_web_normalize_hostname('http://MYDOMAIN.COM/'),                 'mydomain.com');
+eq('www preserved',                clickfuzz_web_normalize_hostname('www.example.com'),                      'www.example.com');
+eq('leading/trailing whitespace',  clickfuzz_web_normalize_hostname('  example.com  '),                     'example.com');
+eq('trailing dot stripped',        clickfuzz_web_normalize_hostname('example.com.'),                         'example.com');
+eq('uppercase lowercased',         clickfuzz_web_normalize_hostname('MyDomain.COM'),                         'mydomain.com');
+
+// ---------------------------------------------------------------------------
+// 14. Hostname validation — rejection cases
+// ---------------------------------------------------------------------------
+
+echo "\n-- hostname validation: rejections --\n";
+
+$ci_v    =& get_instance();
+$mock_v  = new MockPitchsnapModel();
+$ci_v->pitchsnap_model = $mock_v;
+
+$errFn = function($h) { return clickfuzz_web_validate_custom_hostname($h, 999); };
+
+ok('empty rejected',               $errFn('') !== null);
+ok('no TLD rejected',              $errFn('not-a-domain') !== null);
+ok('IP address rejected',          $errFn('192.168.1.1') !== null);
+ok('wildcard rejected',            $errFn('*.example.com') !== null);
+ok('clickfuzz.com rejected',       $errFn('clickfuzz.com') !== null);
+ok('platform subdomain rejected',  $errFn('jackrabbit.clickfuzz.com') !== null);
+ok('double dot rejected',          $errFn('ex..ample.com') !== null);
+ok('leading hyphen rejected',      $errFn('-example.com') !== null);
+
+// ---------------------------------------------------------------------------
+// 15. Hostname validation — acceptance cases
+// ---------------------------------------------------------------------------
+
+echo "\n-- hostname validation: acceptance --\n";
+
+ok('valid apex domain',       clickfuzz_web_validate_custom_hostname('example.com', 999)     === null);
+ok('valid www subdomain',     clickfuzz_web_validate_custom_hostname('www.example.com', 999) === null);
+ok('valid deep subdomain',    clickfuzz_web_validate_custom_hostname('app.my-biz.io', 999)   === null);
+
+// ---------------------------------------------------------------------------
+// 16. Conflict check — hostname taken by another site
+// ---------------------------------------------------------------------------
+
+echo "\n-- conflict detection --\n";
+
+$mock_conf = new MockPitchsnapModel();
+$mock_conf->seed_domain(10, 'taken.com', 'custom');
+$ci_v->pitchsnap_model = $mock_conf;
+
+$conf_err = clickfuzz_web_validate_custom_hostname('taken.com', 20); // site 20, but site 10 has it
+ok('hostname taken by other site → rejected', $conf_err !== null);
+
+$own_err = clickfuzz_web_validate_custom_hostname('taken.com', 10); // site 10 updating its own
+ok('same site own hostname → accepted',        $own_err === null);
+
+// ---------------------------------------------------------------------------
+// 17. Custom domain creation
+// ---------------------------------------------------------------------------
+
+echo "\n-- custom domain creation --\n";
+
+$mock_cd = new MockPitchsnapModel();
+$mock_cd->seed_site(20, 'clickfuzz.com/sites/ps-20-aa01');
+// also seed platform domain for site 20
+$mock_cd->seed_domain(20, 'ps-20-aa01.clickfuzz.com', 'platform');
+$ci_v->pitchsnap_model = $mock_cd;
+
+$result_id = $mock_cd->save_custom_domain(20, 'mybusiness.com');
+ok('save_custom_domain returns id',             $result_id > 0);
+
+$cd = $mock_cd->get_custom_domain_for_site(20);
+ok('custom domain persisted',                   $cd !== null);
+eq('correct hostname stored',                   $cd->hostname, 'mybusiness.com');
+eq('verification_status = pending',             $cd->verification_status, 'pending');
+eq('ssl_status = pending',                      $cd->ssl_status, 'pending');
+eq('domain_type = custom',                      $cd->domain_type, 'custom');
+eq('is_primary = 0',                            (int) $cd->is_primary, 0);
+
+// Platform domain must still exist and be unaffected
+$pd = $mock_cd->get_platform_domain_for_site(20);
+ok('platform domain still present',             $pd !== null);
+eq('platform hostname unchanged',               $pd->hostname, 'ps-20-aa01.clickfuzz.com');
+
+// ---------------------------------------------------------------------------
+// 18. Custom domain update resets status
+// ---------------------------------------------------------------------------
+
+echo "\n-- custom domain update --\n";
+
+$update_id = $mock_cd->save_custom_domain(20, 'newdomain.com');
+ok('update returns id',                         $update_id > 0);
+
+$cd2 = $mock_cd->get_custom_domain_for_site(20);
+eq('hostname updated',                          $cd2->hostname, 'newdomain.com');
+eq('verification_status reset to pending',      $cd2->verification_status, 'pending');
+eq('ssl_status reset to pending',               $cd2->ssl_status, 'pending');
+ok('verified_at cleared',                       $cd2->verified_at === null);
+
+// ---------------------------------------------------------------------------
+// 19. Remove custom domain
+// ---------------------------------------------------------------------------
+
+echo "\n-- custom domain removal --\n";
+
+$removed = $mock_cd->remove_custom_domain(20);
+ok('remove returns true',                       $removed === true);
+ok('custom domain gone',                        $mock_cd->get_custom_domain_for_site(20) === null);
+
+// Platform domain still present after removal
+$pd3 = $mock_cd->get_platform_domain_for_site(20);
+ok('platform domain survives removal',          $pd3 !== null);
+eq('platform hostname still correct',           $pd3->hostname, 'ps-20-aa01.clickfuzz.com');
+
+$remove_again = $mock_cd->remove_custom_domain(20);
+ok('remove non-existent returns false',         $remove_again === false);
+
+// ---------------------------------------------------------------------------
+// 20. Platform mapping untouched by custom-domain save
+// ---------------------------------------------------------------------------
+
+echo "\n-- platform mapping isolation --\n";
+
+$mock_iso = new MockPitchsnapModel();
+$mock_iso->seed_site(30, 'clickfuzz.com/sites/ps-30-bb99');
+$mock_iso->seed_domain(30, 'myco.clickfuzz.com', 'platform');
+$ci_v->pitchsnap_model = $mock_iso;
+
+$mock_iso->save_custom_domain(30, 'myco.com');
+
+$pd4 = $mock_iso->get_platform_domain_for_site(30);
+ok('platform domain still set after custom save',  $pd4 !== null);
+eq('platform hostname unmodified',                 $pd4->hostname, 'myco.clickfuzz.com');
+
+$cd4 = $mock_iso->get_custom_domain_for_site(30);
+ok('custom domain is separate record',             $cd4 !== null);
+eq('custom hostname correct',                      $cd4->hostname, 'myco.com');
 
 // ---------------------------------------------------------------------------
 // Summary

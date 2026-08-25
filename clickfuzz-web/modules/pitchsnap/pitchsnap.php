@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 12) {
+    if ((int) get_option('pitchsnap_db_version') >= 13) {
         return;
     }
 
@@ -389,11 +389,29 @@ function clickfuzz_web_db_upgrade()
         ");
     }
 
+    // v13: verification + SSL status columns on site-domain table
+    if ($CI->db->table_exists($td)) {
+        if (!$CI->db->field_exists('verification_status', $td)) {
+            $CI->db->query("ALTER TABLE `{$td}` ADD COLUMN `verification_status` VARCHAR(50) NOT NULL DEFAULT 'pending' AFTER `status`");
+            // Existing platform rows are already live on *.clickfuzz.com — mark them verified.
+            $CI->db->query("UPDATE `{$td}` SET `verification_status` = 'verified' WHERE `domain_type` = 'platform'");
+        }
+        if (!$CI->db->field_exists('verified_at', $td)) {
+            $CI->db->query("ALTER TABLE `{$td}` ADD COLUMN `verified_at` DATETIME DEFAULT NULL AFTER `verification_status`");
+            $CI->db->query("UPDATE `{$td}` SET `verified_at` = `dateadded` WHERE `domain_type` = 'platform' AND `verified_at` IS NULL");
+        }
+        if (!$CI->db->field_exists('ssl_status', $td)) {
+            $CI->db->query("ALTER TABLE `{$td}` ADD COLUMN `ssl_status` VARCHAR(50) NOT NULL DEFAULT 'pending' AFTER `verified_at`");
+            // Platform rows are covered by the *.clickfuzz.com wildcard cert.
+            $CI->db->query("UPDATE `{$td}` SET `ssl_status` = 'active' WHERE `domain_type` = 'platform'");
+        }
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '12');
+        add_option('pitchsnap_db_version', '13');
     } else {
-        update_option('pitchsnap_db_version', '12');
+        update_option('pitchsnap_db_version', '13');
     }
 }
 

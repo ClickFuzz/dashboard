@@ -199,6 +199,70 @@ class Pitchsnap extends AdminController
         redirect($detail_url);
     }
 
+    public function save_custom_domain($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) {
+            set_alert('danger', 'Invalid website ID.');
+            redirect(admin_url('pitchsnap/websites'));
+        }
+        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) {
+            set_alert('danger', 'No site record found for this website.');
+            redirect($detail_url);
+        }
+
+        if (!function_exists('clickfuzz_web_normalize_hostname')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_domain_helper.php';
+        }
+
+        $raw      = $this->input->post('custom_domain', true);
+        $hostname = clickfuzz_web_normalize_hostname($raw);
+        $error    = clickfuzz_web_validate_custom_hostname($hostname, $site->id);
+        if ($error) {
+            set_alert('danger', $error);
+            redirect($detail_url);
+        }
+
+        $result = $this->pitchsnap_model->save_custom_domain($site->id, $hostname);
+        if ($result) {
+            log_activity('ClickFuzz Web: Custom domain saved [Site ID: ' . $site->id . ', Hostname: ' . $hostname . ']');
+            set_alert('success', 'Custom domain <strong>' . e($hostname) . '</strong> saved. DNS setup is pending.');
+        } else {
+            set_alert('danger', 'Failed to save custom domain. Please try again.');
+        }
+        redirect($detail_url);
+    }
+
+    public function remove_custom_domain($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) {
+            set_alert('danger', 'Invalid website ID.');
+            redirect(admin_url('pitchsnap/websites'));
+        }
+        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) {
+            set_alert('danger', 'No site record found.');
+            redirect($detail_url);
+        }
+
+        $removed = $this->pitchsnap_model->remove_custom_domain($site->id);
+        if ($removed) {
+            log_activity('ClickFuzz Web: Custom domain removed [Site ID: ' . $site->id . ']');
+            set_alert('success', 'Custom domain removed.');
+        } else {
+            set_alert('warning', 'No custom domain was set.');
+        }
+        redirect($detail_url);
+    }
+
     public function settings()
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }

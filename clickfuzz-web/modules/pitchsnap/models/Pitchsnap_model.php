@@ -568,6 +568,60 @@ class Pitchsnap_model extends App_Model
         return $id ? (int) $id : false;
     }
 
+    public function get_custom_domain_for_site($site_id)
+    {
+        return $this->db->where('site_id', (int) $site_id)
+                        ->where('domain_type', 'custom')
+                        ->get($this->domain_table)
+                        ->row();
+    }
+
+    public function hostname_available_for_site($hostname, $site_id)
+    {
+        return $this->db->where('hostname', $hostname)
+                        ->where('site_id !=', (int) $site_id)
+                        ->count_all_results($this->domain_table) === 0;
+    }
+
+    public function save_custom_domain($site_id, $hostname)
+    {
+        $site_id  = (int) $site_id;
+        $existing = $this->get_custom_domain_for_site($site_id);
+        $now      = date('Y-m-d H:i:s');
+        if ($existing) {
+            $this->db->where('id', (int) $existing->id)
+                     ->update($this->domain_table, [
+                         'hostname'             => $hostname,
+                         'verification_status'  => 'pending',
+                         'verified_at'          => null,
+                         'ssl_status'           => 'pending',
+                         'dateupdated'          => $now,
+                     ]);
+            return (int) $existing->id;
+        }
+        return $this->create_site_domain([
+            'site_id'             => $site_id,
+            'hostname'            => $hostname,
+            'domain_type'         => 'custom',
+            'is_primary'          => 0,
+            'status'              => 'active',
+            'verification_status' => 'pending',
+            'verified_at'         => null,
+            'ssl_status'          => 'pending',
+            'dateadded'           => $now,
+        ]);
+    }
+
+    public function remove_custom_domain($site_id)
+    {
+        $existing = $this->get_custom_domain_for_site((int) $site_id);
+        if (!$existing) {
+            return false;
+        }
+        $this->db->where('id', (int) $existing->id)->delete($this->domain_table);
+        return $this->db->affected_rows() > 0;
+    }
+
     // -----------------------------------------------------------------------
     // Lead source / status helpers
     // -----------------------------------------------------------------------

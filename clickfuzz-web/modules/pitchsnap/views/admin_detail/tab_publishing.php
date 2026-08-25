@@ -266,19 +266,85 @@
                     </div>
                 </div><!-- /.panel_s WordPress -->
 
-                <!-- Custom Domain placeholder -->
+                <!-- ── Custom Domain ─────────────────────────────────────── -->
+                <?php
+                $_cd = null;
+                if (!empty($site) && isset($this->pitchsnap_model)) {
+                    $_cd = $this->pitchsnap_model->get_custom_domain_for_site($site->id);
+                }
+                $_cd_verification = $_cd ? ($_cd->verification_status ?? 'pending') : null;
+                $_cd_ssl          = $_cd ? ($_cd->ssl_status          ?? 'pending') : null;
+                ?>
                 <div class="panel_s">
                     <div class="panel-body">
                         <h5 class="tw-font-semibold mbot10">Custom Domain</h5>
+
+                        <?php if ($_cd) { ?>
                         <table class="table table-bordered table-condensed mbot15" style="max-width:520px;">
                             <tbody>
-                                <tr><th width="35%">Custom domain</th><td><span class="text-muted">Not configured</span></td></tr>
-                                <tr><th>DNS</th><td><span class="text-muted">Not configured</span></td></tr>
-                                <tr><th>SSL</th><td><span class="text-muted">Not configured</span></td></tr>
+                                <tr>
+                                    <th width="35%">Domain</th>
+                                    <td><strong><?php echo e($_cd->hostname); ?></strong></td>
+                                </tr>
+                                <tr>
+                                    <th>Verification</th>
+                                    <td>
+                                        <?php if ($_cd_verification === 'verified') { ?>
+                                        <span class="label label-success">Verified</span>
+                                        <?php } elseif ($_cd_verification === 'failed') { ?>
+                                        <span class="label label-danger">Failed</span>
+                                        <?php } else { ?>
+                                        <span class="label label-warning">Pending DNS setup</span>
+                                        <?php } ?>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>SSL</th>
+                                    <td>
+                                        <?php if ($_cd_ssl === 'active') { ?>
+                                        <span class="label label-success">Active</span>
+                                        <?php } elseif ($_cd_ssl === 'failed') { ?>
+                                        <span class="label label-danger">Failed</span>
+                                        <?php } else { ?>
+                                        <span class="label label-default">Pending</span>
+                                        <?php } ?>
+                                    </td>
+                                </tr>
                             </tbody>
                         </table>
-                        <p class="text-muted" style="font-size:12px; margin:0;">
-                            <i class="fa fa-clock-o"></i> Custom domain provisioning is coming in a future update.
+                        <?php } else { ?>
+                        <p class="text-muted" style="font-size:13px; margin-bottom:14px;">
+                            No custom domain configured. Enter a domain below to begin setup.
+                        </p>
+                        <?php } ?>
+
+                        <?php if (!empty($site)) { ?>
+                        <form method="POST" action="<?php echo admin_url('pitchsnap/save_custom_domain/' . (int) $redesign->id); ?>" style="max-width:480px;">
+                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                            <div class="input-group" style="margin-bottom:10px;">
+                                <input type="text" name="custom_domain" class="form-control input-sm"
+                                       value="<?php echo $_cd ? e($_cd->hostname) : ''; ?>"
+                                       placeholder="yourdomain.com">
+                                <span class="input-group-btn">
+                                    <button type="submit" class="btn btn-primary btn-sm">
+                                        <i class="fa fa-save"></i> <?php echo $_cd ? 'Update Domain' : 'Save Domain'; ?>
+                                    </button>
+                                </span>
+                            </div>
+                        </form>
+                        <?php if ($_cd) { ?>
+                        <form method="POST" action="<?php echo admin_url('pitchsnap/remove_custom_domain/' . (int) $redesign->id); ?>" style="display:inline;">
+                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                            <button type="submit" class="btn btn-default btn-xs"
+                                    onclick="return confirm('Remove custom domain <?php echo e($_cd->hostname); ?>?');">
+                                <i class="fa fa-times"></i> Remove Domain
+                            </button>
+                        </form>
+                        <?php } ?>
+                        <?php } ?>
+
+                        <p class="text-muted" style="font-size:12px; margin-top:12px; margin-bottom:0;">
+                            <i class="fa fa-info-circle"></i> DNS verification and SSL provisioning are coming in a future update. The ClickFuzz platform URL remains active throughout.
                         </p>
                     </div>
                 </div>
