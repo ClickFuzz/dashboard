@@ -59,6 +59,12 @@ class Pitchsnap extends AdminController
         $data['conversations'] = $this->pitchsnap_model->get_conversations($website->id);
         $data['site']          = $this->pitchsnap_model->get_site_by_website_id((int) $website->id);
         $data['agreement']     = !empty($data['site']) ? $this->pitchsnap_model->get_agreement_by_site($data['site']->id) : null;
+        if (!empty($data['site'])) {
+            $this->load->model('pitchsnap_ghl_model');
+            $data['ghl_link'] = $this->pitchsnap_ghl_model->get_by_site($data['site']->id);
+        } else {
+            $data['ghl_link'] = null;
+        }
         $this->load->view('admin_detail', $data);
     }
 
@@ -351,8 +357,11 @@ class Pitchsnap extends AdminController
         $web_design_admin = (int) $this->input->post('pitchsnap_web_design_admin', true);
         update_option('pitchsnap_web_design_admin', (string) $web_design_admin);
 
+        $ghl_key = trim((string) $this->input->post('pitchsnap_ghl_api_key'));
+        if ($ghl_key !== '') { update_option('pitchsnap_ghl_api_key', $ghl_key); }
+
         $tab = $this->input->post('active_tab');
-        $tab = in_array($tab, ['general', 'ai', 'agreement', 'pricing', 'logs']) ? $tab : 'general';
+        $tab = in_array($tab, ['general', 'ai', 'agreement', 'pricing', 'logs', 'ghl']) ? $tab : 'general';
         set_alert('success', 'ClickFuzz Web settings saved.');
         redirect(admin_url('pitchsnap/settings?tab=' . $tab));
     }
@@ -595,6 +604,56 @@ class Pitchsnap extends AdminController
 
         log_activity('ClickFuzz Web: HTML modification applied [Website ID: ' . $id . ']');
         return $this->_json(['success' => true, 'message' => 'Changes applied and preview updated.']);
+    }
+
+    public function ghl_link_location($id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+        if (!$this->input->post()) { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+        $site_id     = (int) $id;
+        $location_id = trim($this->input->post('ghl_location_id', true));
+        if (!$site_id || $location_id === '') {
+            return $this->_json(['success' => false, 'message' => 'Site ID and Location ID are required.']);
+        }
+        if (!get_option('pitchsnap_ghl_api_key')) {
+            return $this->_json(['success' => false, 'message' => 'GHL Private Integration Token not configured. Go to Settings → GHL.']);
+        }
+        require_once FCPATH . 'modules/pitchsnap/libraries/Pitchsnap_ghl.php';
+        $ghl    = new Pitchsnap_ghl();
+        $result = $ghl->get_location($location_id);
+        if (!$result['success']) {
+            return $this->_json(['success' => false, 'message' => 'GHL verification failed: ' . $result['error']]);
+        }
+        $location_name = $result['data']['location']['name'] ?? $location_id;
+        $this->load->model('pitchsnap_ghl_model');
+        $this->pitchsnap_ghl_model->mark_connected($site_id, $location_id, $location_name);
+        log_activity('ClickFuzz Web: GHL location linked [Site ID: ' . $site_id . ', Location: ' . $location_id . ']');
+        return $this->_json(['success' => true, 'message' => 'Linked: ' . $location_name, 'location_name' => $location_name]);
+    }
+
+    public function ghl_test_connection($id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+        if (!$this->input->post()) { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+        $site_id = (int) $id;
+        if (!$site_id) { return $this->_json(['success' => false, 'message' => 'Invalid site ID.']); }
+        if (!get_option('pitchsnap_ghl_api_key')) {
+            return $this->_json(['success' => false, 'message' => 'GHL Private Integration Token not configured. Go to Settings → GHL.']);
+        }
+        $this->load->model('pitchsnap_ghl_model');
+        $ghl_link = $this->pitchsnap_ghl_model->get_by_site($site_id);
+        if (!$ghl_link || empty($ghl_link->ghl_location_id)) {
+            return $this->_json(['success' => false, 'message' => 'No GHL location linked for this site.']);
+        }
+        require_once FCPATH . 'modules/pitchsnap/libraries/Pitchsnap_ghl.php';
+        $ghl    = new Pitchsnap_ghl();
+        $result = $ghl->get_location($ghl_link->ghl_location_id);
+        if (!$result['success']) {
+            return $this->_json(['success' => false, 'message' => 'Connection test failed: ' . $result['error']]);
+        }
+        $location_name = $result['data']['location']['name'] ?? $ghl_link->ghl_location_id;
+        $this->pitchsnap_ghl_model->mark_connected($site_id, $ghl_link->ghl_location_id, $location_name);
+        return $this->_json(['success' => true, 'message' => 'Connection verified. Location: ' . $location_name]);
     }
 
     private function _json($data)

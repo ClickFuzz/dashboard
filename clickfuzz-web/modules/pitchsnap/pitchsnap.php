@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 13) {
+    if ((int) get_option('pitchsnap_db_version') >= 14) {
         return;
     }
 
@@ -407,11 +407,35 @@ function clickfuzz_web_db_upgrade()
         }
     }
 
+    // v14: GHL location mapping table + API token option
+    $tg = db_prefix() . 'pitchsnap_ghl_locations';
+    if (!$CI->db->table_exists($tg)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tg}` (
+                `id`                INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `site_id`           INT(11) NOT NULL,
+                `ghl_location_id`   VARCHAR(50)  NOT NULL DEFAULT '',
+                `ghl_location_name` VARCHAR(255) DEFAULT NULL,
+                `status`            VARCHAR(20)  NOT NULL DEFAULT 'pending',
+                `last_error`        VARCHAR(500) DEFAULT NULL,
+                `last_verified_at`  DATETIME DEFAULT NULL,
+                `created_at`        DATETIME NOT NULL,
+                `updated_at`        DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_ghl_site` (`site_id`),
+                KEY `idx_ghl_location` (`ghl_location_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+    if (get_option('pitchsnap_ghl_api_key') === false) {
+        add_option('pitchsnap_ghl_api_key', '');
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '13');
+        add_option('pitchsnap_db_version', '14');
     } else {
-        update_option('pitchsnap_db_version', '13');
+        update_option('pitchsnap_db_version', '14');
     }
 }
 
