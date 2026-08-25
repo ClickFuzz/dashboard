@@ -209,6 +209,87 @@ function clickfuzz_web_ensure_site($website_id, $lead_id = null)
 }
 
 /**
+ * Convert a business name to a DNS-safe slug.
+ * e.g. "Bob's Plumbing & Heating" → "bobs-plumbing-heating"
+ */
+function clickfuzz_web_slugify_business_name($name)
+{
+    // Transliterate accented/non-ASCII characters to ASCII equivalents
+    // (e.g. Ü→U, é→e, č→c) before stripping
+    $slug = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', (string) $name);
+    if ($slug === false || $slug === '') {
+        $slug = (string) $name;
+    }
+    $slug = mb_strtolower($slug, 'UTF-8');
+    // Drop everything that is not a-z, 0-9, or whitespace (string is ASCII now)
+    $slug = preg_replace('/[^a-z0-9\s]/', '', $slug);
+    // Collapse whitespace to hyphens
+    $slug = preg_replace('/\s+/', '-', trim($slug));
+    // Collapse repeated hyphens
+    $slug = preg_replace('/-+/', '-', $slug);
+    // Trim leading/trailing hyphens
+    $slug = trim($slug, '-');
+    // DNS label max; leave room for a numeric suffix
+    if (strlen($slug) > 50) {
+        $slug = rtrim(substr($slug, 0, 50), '-');
+    }
+    return $slug;
+}
+
+/**
+ * Generate a unique platform hostname for a site.
+ * Prefers the lead's business/company name; falls back to the storage slug.
+ * Does NOT write to the database — only checks for availability.
+ */
+function clickfuzz_web_generate_platform_hostname($site_id, $lead_id = null)
+{
+    $CI =& get_instance();
+    if (!isset($CI->pitchsnap_model)) {
+        require_once(FCPATH . 'modules/pitchsnap/models/Pitchsnap_model.php');
+        $CI->pitchsnap_model = new Pitchsnap_model();
+    }
+
+    // Build base slug from lead business name
+    $base = '';
+    if ($lead_id) {
+        $lead = $CI->db->where('id', (int) $lead_id)
+                       ->get(db_prefix() . 'leads')
+                       ->row();
+        if ($lead) {
+            $name = !empty($lead->company) ? $lead->company : (isset($lead->name) ? $lead->name : '');
+            $base = clickfuzz_web_slugify_business_name($name);
+        }
+    }
+
+    // Fallback: storage slug from domain field (clickfuzz.com/sites/{slug})
+    if (!$base) {
+        $site = $CI->pitchsnap_model->get_site_by_id($site_id);
+        if ($site && !empty($site->domain)) {
+            $parsed = ltrim(strstr($site->domain, '/sites/'), '/sites/');
+            if ($parsed && preg_match('/^[a-z0-9\-]+$/', $parsed)) {
+                $base = $parsed;
+            }
+        }
+    }
+    if (!$base) {
+        $base = 'site-' . (int) $site_id;
+    }
+
+    // Find a unique hostname with deterministic numeric suffix
+    $candidate = $base . '.clickfuzz.com';
+    for ($n = 2; !$CI->pitchsnap_model->hostname_available($candidate) && $n <= 999; $n++) {
+        $candidate = $base . '-' . $n . '.clickfuzz.com';
+    }
+
+    // Safety: if all suffixes exhausted, signal failure rather than return a collision
+    if (!$CI->pitchsnap_model->hostname_available($candidate)) {
+        return false;
+    }
+
+    return $candidate;
+}
+
+/**
  * Publish a site: copy the latest preview HTML to sites/{slug}/index.html.
  * Returns ['success'=>bool, 'url'=>string|null, 'error'=>string|null].
  */
@@ -283,7 +364,29 @@ function clickfuzz_web_publish_site($site_id)
         'dateupdated' => date('Y-m-d H:i:s'),
     ]);
 
-    $pub_url = 'https://clickfuzz.com/sites/' . $slug . '/';
+    // Resolve platform hostname: reuse existing mapping or generate a new one.
+    // Use $website->lead_id (always populated on the redesign row) as the
+    // authoritative source for the business name — more reliable than
+    // $site->source_lead_id which can be NULL for older records.
+    $domain_row = $CI->pitchsnap_model->get_platform_domain_for_site($site_id);
+    if ($domain_row) {
+        $hostname = $domain_row->hostname;
+    } else {
+        $hostname = clickfuzz_web_generate_platform_hostname($site_id, $website->lead_id ?? null);
+        if (!$hostname) {
+            return ['success' => false, 'url' => null, 'error' => 'Could not generate a unique platform hostname.'];
+        }
+        $CI->pitchsnap_model->create_site_domain([
+            'site_id'     => (int) $site_id,
+            'hostname'    => $hostname,
+            'domain_type' => 'platform',
+            'is_primary'  => 1,
+            'status'      => 'active',
+            'dateadded'   => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    $pub_url = 'https://' . $hostname . '/';
 
     $pub_site = $CI->pitchsnap_model->get_site_by_id($site_id);
     if ($pub_site && !empty($pub_site->client_id)) {

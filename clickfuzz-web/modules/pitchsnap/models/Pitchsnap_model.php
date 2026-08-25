@@ -7,6 +7,7 @@ class Pitchsnap_model extends App_Model
     private $site_table;
     private $agreement_table;
     private $log_table;
+    private $domain_table;
 
     public function __construct()
     {
@@ -15,6 +16,7 @@ class Pitchsnap_model extends App_Model
         $this->site_table       = db_prefix() . 'pitchsnap_sites';
         $this->agreement_table  = db_prefix() . 'pitchsnap_agreements';
         $this->log_table        = db_prefix() . 'pitchsnap_logs';
+        $this->domain_table     = db_prefix() . 'pitchsnap_site_domains';
     }
 
     // -----------------------------------------------------------------------
@@ -528,6 +530,42 @@ class Pitchsnap_model extends App_Model
     public function is_slug_available($slug)
     {
         return $this->db->where('domain', 'clickfuzz.com/sites/' . $slug)->count_all_results($this->site_table) === 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // Site-domain mapping helpers (tblpitchsnap_site_domains)
+    // -----------------------------------------------------------------------
+
+    public function get_site_domain_by_hostname($hostname)
+    {
+        return $this->db->where('hostname', $hostname)
+                        ->get($this->domain_table)
+                        ->row();
+    }
+
+    public function get_platform_domain_for_site($site_id)
+    {
+        return $this->db->where('site_id', (int) $site_id)
+                        ->where('domain_type', 'platform')
+                        ->where('is_primary', 1)
+                        ->get($this->domain_table)
+                        ->row();
+    }
+
+    public function hostname_available($hostname)
+    {
+        return $this->db->where('hostname', $hostname)
+                        ->count_all_results($this->domain_table) === 0;
+    }
+
+    public function create_site_domain($data)
+    {
+        if (empty($data['dateadded'])) {
+            $data['dateadded'] = date('Y-m-d H:i:s');
+        }
+        $this->db->insert($this->domain_table, $data);
+        $id = $this->db->insert_id();
+        return $id ? (int) $id : false;
     }
 
     // -----------------------------------------------------------------------

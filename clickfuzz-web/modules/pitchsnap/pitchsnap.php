@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 11) {
+    if ((int) get_option('pitchsnap_db_version') >= 12) {
         return;
     }
 
@@ -369,11 +369,31 @@ function clickfuzz_web_db_upgrade()
         ");
     }
 
+    // v12: site-domain mapping table
+    $td = db_prefix() . 'pitchsnap_site_domains';
+    if (!$CI->db->table_exists($td)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$td}` (
+                `id`          INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `site_id`     INT(11) NOT NULL,
+                `hostname`    VARCHAR(255) NOT NULL,
+                `domain_type` VARCHAR(50)  NOT NULL DEFAULT 'platform',
+                `is_primary`  TINYINT(1)   NOT NULL DEFAULT 1,
+                `status`      VARCHAR(50)  NOT NULL DEFAULT 'active',
+                `dateadded`   DATETIME     NOT NULL,
+                `dateupdated` DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_hostname` (`hostname`),
+                KEY `idx_site_domains_site` (`site_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '11');
+        add_option('pitchsnap_db_version', '12');
     } else {
-        update_option('pitchsnap_db_version', '11');
+        update_option('pitchsnap_db_version', '12');
     }
 }
 
