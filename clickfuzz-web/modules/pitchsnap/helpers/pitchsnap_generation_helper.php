@@ -378,11 +378,24 @@ function clickfuzz_web_publish_site($site_id)
         return ['success' => false, 'url' => null, 'error' => 'Could not read preview file.'];
     }
 
-    // Derive slug from domain field (clickfuzz.com/sites/{slug})
+    // Derive slug from domain field (clickfuzz.com/sites/{slug}).
+    // substr() used for prefix removal — ltrim()'s second argument is a character mask,
+    // not a string prefix, which would silently strip extra leading chars.
     $domain = $site->domain ?? '';
-    $slug   = ltrim(strstr($domain, '/sites/'), '/sites/');
+    $after  = strstr($domain, '/sites/');
+    $slug   = ($after !== false) ? substr($after, strlen('/sites/')) : '';
+
     if (!$slug || !preg_match('/^[a-z0-9\-]+$/', $slug)) {
-        return ['success' => false, 'url' => null, 'error' => 'Invalid site slug.'];
+        // Legacy record: domain was never set (created before slug system).
+        // Generate, validate, and persist a slug before attempting FTPS.
+        $slug = clickfuzz_web_generate_site_slug((int) $site->source_website_id);
+        if (!$slug || !preg_match('/^[a-z0-9\-]+$/', $slug)) {
+            return ['success' => false, 'url' => null, 'error' => 'Could not generate a valid site slug.'];
+        }
+        $CI->pitchsnap_model->update_site($site_id, ['domain' => 'clickfuzz.com/sites/' . $slug]);
+        if ($CI->db->affected_rows() < 1) {
+            return ['success' => false, 'url' => null, 'error' => 'Failed to persist generated site slug.'];
+        }
     }
 
     // Remove noindex, strip all external scripts, re-inject canonical widget
