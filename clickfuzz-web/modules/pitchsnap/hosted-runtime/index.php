@@ -9,8 +9,8 @@ error_reporting(0);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-define('SITES_BASE_DIR',   '/home/clgorman/domains/clickfuzz.com/public_html/sites/');
-define('APP_CONFIG_PATH',  '/home/clgorman/domains/clickfuzz.com/public_html/dashboard/application/config/app-config.php');
+define('SITES_BASE_DIR',   '/home/xqsfhrlj/domains/sites.clickfuzz.com/public_html/sites/');
+define('APP_CONFIG_PATH',  '/home/xqsfhrlj/domains/sites.clickfuzz.com/public_html/runtime-config.php');
 define('DB_DOMAINS_TABLE', 'tblpitchsnap_site_domains');
 define('DB_SITES_TABLE',   'tblpitchsnap_sites');
 define('RUNTIME_OWN_HOST', 'sites.clickfuzz.com');
