@@ -150,9 +150,33 @@ Custom domains come later.
 
 ---
 
+### Phase 5B — DNS Instructions + Verification (complete 2026-08-26)
+
+**DNS helper** (`pitchsnap_dns_helper.php`):
+- Constants: `CFZ_DNS_SERVER_IP = 104.152.168.38`, `CFZ_DNS_RUNTIME_HOST = sites.clickfuzz.com`
+- `clickfuzz_web_hostname_is_apex($hostname)` — true when exactly one dot (root domain)
+- `clickfuzz_web_expected_dns_records($hostname)` — apex: `[A @ → IP, CNAME www → runtime]`; subdomain: `[CNAME {label} → runtime]`
+- `clickfuzz_web_verify_dns($hostname, $a_lookup, $cname_lookup, $resolver)` — injectable callables for testability; checks A record match, CNAME→sites.clickfuzz.com with IP chain follow; `verified/pending/failed` result with reason and observed records; wrong records → failed, absent → pending
+
+**Model** (`Pitchsnap_model`):
+- `update_domain_verification($domain_id, $status, $verified_at)` — narrow update, never touches `ssl_status`
+
+**Controller** (`Pitchsnap`):
+- `verify_custom_domain($id)` — POST admin action; loads custom domain, calls verify_dns, writes result; preserves 'verified' status if subsequent check is merely inconclusive (pending)
+
+**Publishing tab**:
+- DNS record instructions table shown when custom domain is pending/failed (hidden when verified)
+- Verify DNS button (POST form) alongside Remove Domain
+- Verified-at timestamp shown when verified
+- SSL label reads "Pending (after verification)" when ssl_status=pending
+
+**Tests**: 102/102 pass — 27 new assertions in sections 21–31
+
+---
+
 ## In Progress
 
-Nothing — Phases 1–5A are complete.
+Nothing — Phases 1–5B are complete.
 
 ---
 
@@ -167,13 +191,13 @@ Nothing — Phases 1–5A are complete.
 
 ## Next
 
-Phase 5B: DNS verification
+Phase 5C: Real DNS test + SSL provisioning
 
-1. DNS lookup to verify CNAME/A points to ClickFuzz server
-2. Admin action to re-check verification status
-3. Show DNS instructions (CNAME target) in Publishing tab when pending
-4. Update `verification_status` and `verified_at` on success
-5. (Later) SSL provisioning once verified
+1. Save spare Namecheap domain as custom domain on site_id=6 via admin UI
+2. Add Namecheap DNS records manually (A @ → 104.152.168.38 for apex, or CNAME www → sites.clickfuzz.com for www)
+3. Hit Verify DNS in Publishing tab — confirm verification_status updates to 'verified'
+4. (Later) SSL provisioning: DirectAdmin Let's Encrypt for the custom hostname
+5. (Later) Make custom domain live through the runtime (runtime currently only routes active `tblpitchsnap_site_domains` rows)
 
 ---
 
@@ -184,3 +208,4 @@ Phase 5B: DNS verification
 - 2026-08-25: Phase 3 hosted-site runtime deployed and tested — `sites.clickfuzz.com` now routes live hostnames to static storage. 11/11 tests pass.
 - 2026-08-25: Phase 4 complete — first real site published (jackrabbit.clickfuzz.com, site_id=6), Publishing tab updated with live URL, Open Site button, and Republish state.
 - 2026-08-25: Phase 5A complete — custom domain data model, normalization/validation helper, save/remove controller actions, Custom Domain UI in Publishing tab. 75/75 tests pass. DB at v13.
+- 2026-08-26: Phase 5B complete — DNS helper with injectable lookups, verify_custom_domain controller action, DNS record instructions table in Publishing tab. 102/102 tests pass.
