@@ -16,14 +16,14 @@ $pass    = 0;
 $fail    = 0;
 $results = [];
 
-function t_pass($name)              { global $pass, $results; $pass++; $results[] = "PASS  $name"; }
-function t_fail($name, $detail = '') { global $fail, $results; $fail++; $results[] = "FAIL  $name" . ($detail ? " — $detail" : ''); }
-function t_skip($name, $reason)     { global $results; $results[] = "SKIP  $name ($reason)"; }
+if (!function_exists('t_pass'))       { function t_pass($name)              { global $pass, $results; $pass++; $results[] = "PASS  $name"; } }
+if (!function_exists('t_fail'))       { function t_fail($name, $detail = '') { global $fail, $results; $fail++; $results[] = "FAIL  $name" . ($detail ? " — $detail" : ''); } }
+if (!function_exists('t_skip'))       { function t_skip($name, $reason)     { global $results; $results[] = "SKIP  $name ($reason)"; } }
 
-function assert_true($cond, $name, $detail = '')  { if ($cond) { t_pass($name); } else { t_fail($name, $detail); } }
-function assert_eq($a, $b, $name)   { assert_true($a === $b, $name, 'expected ' . json_encode($b) . ', got ' . json_encode($a)); }
-function assert_null($v, $name)     { assert_true($v === null, $name, 'expected null, got ' . json_encode($v)); }
-function assert_false($cond, $name) { assert_true(!$cond, $name, 'expected false'); }
+if (!function_exists('assert_true'))  { function assert_true($cond, $name, $detail = '')  { if ($cond) { t_pass($name); } else { t_fail($name, $detail); } } }
+if (!function_exists('assert_eq'))    { function assert_eq($a, $b, $name)   { assert_true($a === $b, $name, 'expected ' . json_encode($b) . ', got ' . json_encode($a)); } }
+if (!function_exists('assert_null'))  { function assert_null($v, $name)     { assert_true($v === null, $name, 'expected null, got ' . json_encode($v)); } }
+if (!function_exists('assert_false')) { function assert_false($cond, $name) { assert_true(!$cond, $name, 'expected false'); } }
 
 // ---------------------------------------------------------------------------
 // Mock objects

@@ -121,10 +121,10 @@ assert_true5($r2h['error'] !== null, 'T2h: missing parent rejected');
 // ---------------------------------------------------------------------------
 // T3: Publishing eligibility
 // ---------------------------------------------------------------------------
-$site_pub  = make_site5(['status'=>'published']);
+$site_pub  = make_site5(['status'=>'published']);   // id=5 (make_site5 default)
 $site_draft = make_site5(['status'=>'draft']);
-$good_gen  = make_gen5(['page_id'=>1,'site_id'=>10]);
-$bad_gen   = make_gen5(['page_id'=>1,'site_id'=>10,'html_content'=>'']);
+$good_gen  = make_gen5(['page_id'=>1,'site_id'=>5]);  // site_id must match $site_pub->id
+$bad_gen   = make_gen5(['page_id'=>1,'site_id'=>5,'html_content'=>'']);
 $gen_wrong_page = make_gen5(['page_id'=>99,'site_id'=>10]);
 
 $p_good = make_page5(['generation_status'=>'generated']);

@@ -14,12 +14,12 @@ if (!defined('FCPATH'))   { define('FCPATH',   __DIR__ . '/../../../'); }
 
 $pass = 0; $fail = 0; $results = [];
 
-function t_pass($n)               { global $pass, $results; $pass++; $results[] = "PASS  $n"; }
-function t_fail($n, $d = '')     { global $fail, $results; $fail++; $results[] = "FAIL  $n" . ($d ? " — $d" : ''); }
-function t_skip($n, $r)          { global $results; $results[] = "SKIP  $n ($r)"; }
-function assert_true($c, $n, $d = '') { if ($c) { t_pass($n); } else { t_fail($n, $d); } }
-function assert_eq($a, $b, $n)   { assert_true($a === $b, $n, 'expected '.json_encode($b).', got '.json_encode($a)); }
-function assert_false($c, $n)    { assert_true(!$c, $n, 'expected false'); }
+if (!function_exists('t_pass'))       { function t_pass($n)               { global $pass, $results; $pass++; $results[] = "PASS  $n"; } }
+if (!function_exists('t_fail'))       { function t_fail($n, $d = '')     { global $fail, $results; $fail++; $results[] = "FAIL  $n" . ($d ? " — $d" : ''); } }
+if (!function_exists('t_skip'))       { function t_skip($n, $r)          { global $results; $results[] = "SKIP  $n ($r)"; } }
+if (!function_exists('assert_true'))  { function assert_true($c, $n, $d = '') { if ($c) { t_pass($n); } else { t_fail($n, $d); } } }
+if (!function_exists('assert_eq'))    { function assert_eq($a, $b, $n)   { assert_true($a === $b, $n, 'expected '.json_encode($b).', got '.json_encode($a)); } }
+if (!function_exists('assert_false')) { function assert_false($c, $n)    { assert_true(!$c, $n, 'expected false'); } }
 
 require_once __DIR__ . '/../helpers/pitchsnap_media_helper.php';
 require_once __DIR__ . '/../helpers/pitchsnap_domain_helper.php';
@@ -136,13 +136,20 @@ assert_true(!empty($parsed_p['body_html']),  'T4i: body_html present in partial'
 assert_eq($parsed_p['page_css'],  '',        'T4j: missing page_css returns empty string');
 assert_eq($parsed_p['meta_title'], '',       'T4k: missing meta_title returns empty string');
 
-// T4l: fallback for raw HTML response (no delimiters)
-$raw_html_only = '<html><head></head><body><p>A real page.</p></body></html>';
+// T4l: fallback for raw HTML response (no delimiters) — must be >200 chars to trigger fallback
+$raw_html_only = '<html><head><title>AC Repair</title></head><body>' .
+    '<header><nav><a href="/">Home</a><a href="/services/">Services</a></nav></header>' .
+    '<main><h1>AC Repair Austin</h1><p>We fix your AC same day. Call us for fast, reliable service in Austin TX.</p></main>' .
+    '<footer><p>&copy; 2024 AC Repair Austin</p></footer></body></html>';
 $parsed_fallback = clickfuzz_web_extract_page_output($raw_html_only);
 assert_true(!empty($parsed_fallback['body_html']), 'T4l: raw HTML fallback populates body_html');
 
-// T4m: markdown-fenced response stripped in fallback
-$raw_fenced = "```html\n<html><body><p>Hello</p></body></html>\n```";
+// T4m: markdown-fenced response stripped in fallback — must be >200 chars to trigger fallback
+$raw_fenced_body = '<html><head><title>AC Repair</title></head><body>' .
+    '<header><nav><a href="/">Home</a><a href="/services/">Services</a></nav></header>' .
+    '<main><h1>AC Repair Austin</h1><p>We fix your AC same day. Call us for fast, reliable service in Austin TX.</p></main>' .
+    '<footer><p>&copy; 2024 AC Repair Austin</p></footer></body></html>';
+$raw_fenced = "```html\n" . $raw_fenced_body . "\n```";
 $parsed_fenced = clickfuzz_web_extract_page_output($raw_fenced);
 assert_true(!empty($parsed_fenced['body_html']),         'T4m: markdown-fenced fallback populates body_html');
 assert_false(strpos($parsed_fenced['body_html'], '```') !== false, 'T4n: backticks stripped from fallback body_html');
@@ -307,7 +314,8 @@ assert_false(mock_preview_guard(5, null),         'T10c: null generation returns
 // Phase 3: T6e — SVG is rejected (now covered by T7 above)
 // Phase 3: slug sanitisation still works
 function ps_sanitise_slug4($raw) {
-    return strtolower(preg_replace('/[^a-z0-9\-]/', '', str_replace(' ', '-', $raw)));
+    $slug = preg_replace('/[^a-z0-9\-]/', '', str_replace(' ', '-', strtolower($raw)));
+    return preg_replace('/-{2,}/', '-', $slug);
 }
 assert_eq(ps_sanitise_slug4('AC Repair Austin'), 'ac-repair-austin', 'T11a: Phase 3 slug regression');
 

@@ -14,12 +14,12 @@ if (!defined('FCPATH'))   { define('FCPATH',   __DIR__ . '/../../../'); }
 
 $pass = 0; $fail = 0; $results = [];
 
-function t_pass($n)                { global $pass, $results; $pass++; $results[] = "PASS  $n"; }
-function t_fail($n, $d = '')      { global $fail, $results; $fail++; $results[] = "FAIL  $n" . ($d ? " — $d" : ''); }
-function t_skip($n, $r)           { global $results; $results[] = "SKIP  $n ($r)"; }
-function assert_true($c, $n, $d = '')  { if ($c) { t_pass($n); } else { t_fail($n, $d); } }
-function assert_eq($a, $b, $n)    { assert_true($a === $b, $n, 'expected '.json_encode($b).', got '.json_encode($a)); }
-function assert_false($c, $n)     { assert_true(!$c, $n, 'expected false'); }
+if (!function_exists('t_pass'))       { function t_pass($n)                { global $pass, $results; $pass++; $results[] = "PASS  $n"; } }
+if (!function_exists('t_fail'))       { function t_fail($n, $d = '')      { global $fail, $results; $fail++; $results[] = "FAIL  $n" . ($d ? " — $d" : ''); } }
+if (!function_exists('t_skip'))       { function t_skip($n, $r)           { global $results; $results[] = "SKIP  $n ($r)"; } }
+if (!function_exists('assert_true'))  { function assert_true($c, $n, $d = '')  { if ($c) { t_pass($n); } else { t_fail($n, $d); } } }
+if (!function_exists('assert_eq'))    { function assert_eq($a, $b, $n)    { assert_true($a === $b, $n, 'expected '.json_encode($b).', got '.json_encode($a)); } }
+if (!function_exists('assert_false')) { function assert_false($c, $n)     { assert_true(!$c, $n, 'expected false'); } }
 
 require_once __DIR__ . '/../helpers/pitchsnap_media_helper.php';
 require_once __DIR__ . '/../helpers/pitchsnap_domain_helper.php';
@@ -28,14 +28,15 @@ require_once __DIR__ . '/../helpers/pitchsnap_domain_helper.php';
 // T1: Slug sanitisation
 // ---------------------------------------------------------------------------
 function ps_sanitise_slug($raw) {
-    return strtolower(preg_replace('/[^a-z0-9\-]/', '', str_replace(' ', '-', $raw)));
+    $slug = preg_replace('/[^a-z0-9\-]/', '', str_replace(' ', '-', strtolower($raw)));
+    return preg_replace('/-{2,}/', '-', $slug);
 }
 
 assert_eq(ps_sanitise_slug('AC Repair'),         'ac-repair',        'T1a: slug from page name');
 assert_eq(ps_sanitise_slug('Services & More!'),  'services-more',    'T1b: slug strips special chars');
 assert_eq(ps_sanitise_slug('UPPER CASE'),        'upper-case',       'T1c: slug lowercased');
 assert_eq(ps_sanitise_slug('already-valid'),     'already-valid',    'T1d: valid slug unchanged');
-assert_eq(ps_sanitise_slug('  spaces  '),        '--spaces--',       'T1e: leading/trailing spaces become hyphens');
+assert_eq(ps_sanitise_slug('  spaces  '),        '-spaces-',         'T1e: leading/trailing spaces become hyphens (consecutive hyphens collapsed)');
 
 // T1f: empty slug after sanitisation
 assert_true(ps_sanitise_slug('!!!') === '', 'T1f: all-special slug becomes empty string');
