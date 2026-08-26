@@ -78,9 +78,23 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ---
 
+## Phase 1 — Publishing Type + Primary Site Lock (2026-08-26, needs server validation)
+
+- DB migration v15: `publish_type`, `wp_site_url`, `wp_username`, `wp_app_password`, `wp_page_id` on `tblpitchsnap_sites`; v12–v14 already present (identical to main)
+- `save_publish_type` controller: persists `html` or `wordpress`; blocked after publish
+- HTML publishing: existing `clickfuzz_web_publish_site` unchanged; calls `clickfuzz_web_cleanup_generation_history` on success
+- WordPress publishing: `clickfuzz_web_publish_site_wp` via WP REST API; **two-phase**: page creation → Settings API front-page assignment; `site.status=published` only after both succeed
+- WordPress admin requirement: UI note in `tab_publishing.php` — user must be WordPress Administrator (manage_options capability required for settings endpoint)
+- Cleanup: `clickfuzz_web_cleanup_generation_history` deletes non-primary redesigns + preview files + conversations after publish
+- Canonical lock: `regenerate()` and `queue_generate()` blocked when primary site is `published`
+- UI: Phase 1 "Publish Type" panel + "WordPress REST API Publish" panel in `tab_publishing.php`; sits alongside existing HTML Hosting, ClickFuzz Connector, and Custom Domain panels
+- Tests: `modules/pitchsnap/tests/test_phase1_publishing.php` — 50 pure-PHP assertions, 10 DB-dependent SKIPs
+
+---
+
 ## In Progress
 
-- Nothing actively in-progress as of 2026-08-23
+- Phase 1 code complete (2026-08-26). Tests need server run; migration needs server deploy.
 
 ---
 

@@ -197,10 +197,88 @@ class Pitchsnap extends AdminController
         }
         $result = clickfuzz_web_publish_site($site->id);
         if ($result['success']) {
+            if (!function_exists('clickfuzz_web_cleanup_generation_history')) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
+            }
+            $website = $this->pitchsnap_model->get($id);
+            if ($website) { clickfuzz_web_cleanup_generation_history((int) $website->lead_id); }
             log_activity('ClickFuzz Web: Site published [Site ID: ' . $site->id . ', URL: ' . $result['url'] . ']');
             set_alert('success', 'Site published at <a href="' . $result['url'] . '" target="_blank">' . $result['url'] . '</a>');
         } else {
             set_alert('danger', 'Publish failed: ' . $result['error']);
+        }
+        redirect($detail_url);
+    }
+
+    public function save_publish_type($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) { set_alert('danger', 'No site record found.'); redirect($detail_url); }
+        if ($site->status === 'published') { set_alert('warning', 'Cannot change publish type after site is published.'); redirect($detail_url); }
+        $type = $this->input->post('publish_type', true);
+        if (!in_array($type, ['html', 'wordpress'])) { set_alert('danger', 'Invalid publish type.'); redirect($detail_url); }
+        $this->pitchsnap_model->update_site($site->id, ['publish_type' => $type]);
+        redirect($detail_url);
+    }
+
+    public function save_wp_connection($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) { set_alert('danger', 'No site record found.'); redirect($detail_url); }
+
+        $wp_url = rtrim(trim((string) $this->input->post('wp_site_url', true)), '/');
+        if (!empty($wp_url) && !filter_var($wp_url, FILTER_VALIDATE_URL)) {
+            set_alert('danger', 'Invalid WordPress site URL.');
+            redirect($detail_url);
+        }
+
+        $updates = ['wp_site_url' => $wp_url];
+        $raw_user = trim((string) $this->input->post('wp_username', true));
+        if ($raw_user !== '') { $updates['wp_username'] = $raw_user; }
+        $raw_pass = (string) $this->input->post('wp_app_password', false);
+        if ($raw_pass !== '' && $raw_pass !== '••••••••') {
+            $updates['wp_app_password'] = trim($raw_pass);
+        }
+
+        $this->pitchsnap_model->update_site($site->id, $updates);
+        log_activity('ClickFuzz Web: WordPress connection saved [Site ID: ' . $site->id . ']');
+        set_alert('success', 'WordPress connection saved.');
+        redirect($detail_url);
+    }
+
+    public function publish_site_wp($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) { set_alert('danger', 'No site record found.'); redirect($detail_url); }
+        if (!function_exists('clickfuzz_web_publish_site_wp')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
+        }
+        $result = clickfuzz_web_publish_site_wp($site->id);
+        if ($result['success']) {
+            if (!function_exists('clickfuzz_web_cleanup_generation_history')) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
+            }
+            $website = $this->pitchsnap_model->get($id);
+            if ($website) { clickfuzz_web_cleanup_generation_history((int) $website->lead_id); }
+            log_activity('ClickFuzz Web: Site published to WordPress [Site ID: ' . $site->id . ', URL: ' . $result['url'] . ']');
+            set_alert('success', 'Site published to WordPress at <a href="' . e($result['url']) . '" target="_blank">' . e($result['url']) . '</a>');
+        } else {
+            set_alert('danger', 'WordPress publish failed: ' . $result['error']);
         }
         redirect($detail_url);
     }
@@ -432,6 +510,13 @@ class Pitchsnap extends AdminController
         }
         $website = $this->pitchsnap_model->get($id);
         if (!$website) { return $this->_json(['success' => false, 'message' => 'Website not found.']); }
+        // Block generation if the primary site is already published
+        $primary_r = $this->pitchsnap_model->get_primary_for_lead((int) $website->lead_id);
+        $check_id  = $primary_r ? $primary_r->id : $id;
+        $pub_site  = $this->pitchsnap_model->get_site_by_website_id($check_id);
+        if ($pub_site && $pub_site->status === 'published') {
+            return $this->_json(['success' => false, 'message' => 'This site is already published. Generation is locked. A full redesign requires a new site record.']);
+        }
         $queued = $this->pitchsnap_model->queue_for_generation($id);
         if (!$queued) { return $this->_json(['success' => false, 'message' => 'Cannot queue — current status does not allow generation (' . $website->status . ').']); }
         log_activity('ClickFuzz Web: Generation queued [Website ID: ' . $id . ']');
@@ -449,6 +534,14 @@ class Pitchsnap extends AdminController
         $primary = get_option('pitchsnap_primary_provider') ?: 'manus';
         if ($primary === 'manus' && !get_option('pitchsnap_manus_api_key')) { set_alert('danger', 'Manus API key not configured. Go to ClickFuzz Web → Settings.'); redirect($lead_url); }
         if ($primary === 'anthropic' && !get_option('pitchsnap_anthropic_api_key')) { set_alert('danger', 'Anthropic API key not configured. Go to ClickFuzz Web → Settings.'); redirect($lead_url); }
+        // Block regeneration if the primary site is already published
+        $primary_r = $this->pitchsnap_model->get_primary_for_lead((int) $original->lead_id);
+        $check_id  = $primary_r ? $primary_r->id : $id;
+        $site_lock = $this->pitchsnap_model->get_site_by_website_id($check_id);
+        if ($site_lock && $site_lock->status === 'published') {
+            set_alert('danger', 'This site is already published. Normal regeneration is locked. A full redesign requires creating a new site record.');
+            redirect($lead_url);
+        }
         $new_id = $this->pitchsnap_model->create([
             'lead_id'             => $original->lead_id,
             'parent_redesign_id'  => $original->id,

@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 14) {
+    if ((int) get_option('pitchsnap_db_version') >= 15) {
         return;
     }
 
@@ -431,11 +431,31 @@ function clickfuzz_web_db_upgrade()
         add_option('pitchsnap_ghl_api_key', '');
     }
 
+    // v15: publishing type + WordPress connection fields on sites table
+    $tsites = db_prefix() . 'pitchsnap_sites';
+    if ($CI->db->table_exists($tsites)) {
+        if (!$CI->db->field_exists('publish_type', $tsites)) {
+            $CI->db->query("ALTER TABLE `{$tsites}` ADD COLUMN `publish_type` VARCHAR(20) NOT NULL DEFAULT 'html' AFTER `status`");
+        }
+        if (!$CI->db->field_exists('wp_site_url', $tsites)) {
+            $CI->db->query("ALTER TABLE `{$tsites}` ADD COLUMN `wp_site_url` VARCHAR(500) DEFAULT NULL AFTER `publish_type`");
+        }
+        if (!$CI->db->field_exists('wp_username', $tsites)) {
+            $CI->db->query("ALTER TABLE `{$tsites}` ADD COLUMN `wp_username` VARCHAR(255) DEFAULT NULL AFTER `wp_site_url`");
+        }
+        if (!$CI->db->field_exists('wp_app_password', $tsites)) {
+            $CI->db->query("ALTER TABLE `{$tsites}` ADD COLUMN `wp_app_password` TEXT DEFAULT NULL AFTER `wp_username`");
+        }
+        if (!$CI->db->field_exists('wp_page_id', $tsites)) {
+            $CI->db->query("ALTER TABLE `{$tsites}` ADD COLUMN `wp_page_id` INT(11) DEFAULT NULL AFTER `wp_app_password`");
+        }
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '14');
+        add_option('pitchsnap_db_version', '15');
     } else {
-        update_option('pitchsnap_db_version', '14');
+        update_option('pitchsnap_db_version', '15');
     }
 }
 

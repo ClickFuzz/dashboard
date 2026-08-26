@@ -404,6 +404,200 @@ function clickfuzz_web_publish_site($site_id)
     return ['success' => true, 'url' => $pub_url, 'error' => null];
 }
 
+// ---------------------------------------------------------------------------
+// WordPress REST API publishing (Phase 1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Publish the generated HTML as a WordPress page via WP REST API.
+ * Two-phase: (1) create/update the page, (2) assign as front page via Settings API.
+ * Site is marked published ONLY after both phases succeed.
+ *
+ * Requires the WP Application Password user to have administrator-level
+ * permissions (manage_options capability) for front-page assignment.
+ *
+ * @return array ['success' => bool, 'url' => string|null, 'error' => string|null]
+ */
+function clickfuzz_web_publish_site_wp($site_id)
+{
+    $CI =& get_instance();
+    if (!isset($CI->pitchsnap_model)) {
+        require_once(FCPATH . 'modules/pitchsnap/models/Pitchsnap_model.php');
+        $CI->pitchsnap_model = new Pitchsnap_model();
+    }
+
+    $site = $CI->pitchsnap_model->get_site_by_id($site_id);
+    if (!$site) {
+        return ['success' => false, 'url' => null, 'error' => 'Site not found.'];
+    }
+    if (empty($site->wp_site_url)) {
+        return ['success' => false, 'url' => null, 'error' => 'WordPress site URL not configured.'];
+    }
+    if (empty($site->wp_username) || empty($site->wp_app_password)) {
+        return ['success' => false, 'url' => null, 'error' => 'WordPress credentials not configured.'];
+    }
+
+    $website = $CI->pitchsnap_model->get($site->source_website_id);
+    if (!$website || !$website->preview_token) {
+        return ['success' => false, 'url' => null, 'error' => 'No preview available for this site.'];
+    }
+
+    $preview_file = dirname(FCPATH) . '/previews/' . $website->preview_token . '/index.html';
+    if (!file_exists($preview_file)) {
+        return ['success' => false, 'url' => null, 'error' => 'Preview file not found on disk.'];
+    }
+
+    $html = file_get_contents($preview_file);
+    if ($html === false) {
+        return ['success' => false, 'url' => null, 'error' => 'Could not read preview file.'];
+    }
+
+    // Strip noindex and normalize copyright year for the live WP page
+    $html = preg_replace('/<meta[^>]+noindex[^>]*>/i', '', $html);
+    $html = clickfuzz_web_normalize_copyright_year($html);
+    // Remove the pitchsnap preview widget — WP sites use their own session handling
+    $html = preg_replace('/<script[^>]+\bsrc=[^>]*pitchsnap[^>]*>\s*<\/script>/i', '', $html);
+
+    $wp_url     = rtrim($site->wp_site_url, '/');
+    $credentials = base64_encode($site->wp_username . ':' . $site->wp_app_password);
+    $headers     = [
+        'Authorization: Basic ' . $credentials,
+        'Content-Type: application/json',
+        'User-Agent: ClickFuzz-Web/1.0',
+    ];
+
+    if (!function_exists('curl_init')) {
+        return ['success' => false, 'url' => null, 'error' => 'cURL is not available on this server.'];
+    }
+
+    // Phase 1: create or update the WordPress page
+    $page_data = json_encode([
+        'title'   => ['raw' => 'Home'],
+        'content' => ['raw' => $html],
+        'status'  => 'publish',
+        'slug'    => 'clickfuzz-homepage',
+    ]);
+
+    $existing_page_id = !empty($site->wp_page_id) ? (int) $site->wp_page_id : 0;
+    $endpoint = $wp_url . '/wp-json/wp/v2/pages' . ($existing_page_id ? '/' . $existing_page_id : '');
+
+    $ch = curl_init($endpoint);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => $page_data,
+        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_SSL_VERIFYPEER => true,
+    ]);
+
+    $resp_body = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_err  = curl_error($ch);
+    curl_close($ch);
+
+    if ($curl_err) {
+        return ['success' => false, 'url' => null, 'error' => 'Connection error: ' . $curl_err];
+    }
+
+    $resp = json_decode($resp_body, true);
+
+    if (!in_array($http_code, [200, 201]) || empty($resp['id'])) {
+        $err_msg = isset($resp['message']) ? $resp['message'] : ('HTTP ' . $http_code);
+        return ['success' => false, 'url' => null, 'error' => 'WordPress API error: ' . $err_msg];
+    }
+
+    $wp_page_id  = (int) $resp['id'];
+    $wp_page_url = $resp['link'] ?? ($wp_url . '/');
+
+    // Phase 2: set the published page as the WordPress front page
+    // Requires the WP user to have administrator-level permissions (manage_options).
+    $ch2 = curl_init($wp_url . '/wp-json/wp/v2/settings');
+    curl_setopt_array($ch2, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode(['show_on_front' => 'page', 'page_on_front' => $wp_page_id]),
+        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_TIMEOUT        => 15,
+        CURLOPT_SSL_VERIFYPEER => true,
+    ]);
+    $set_body = curl_exec($ch2);
+    $set_code = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
+    $set_err  = curl_error($ch2);
+    curl_close($ch2);
+
+    if ($set_err || !in_array($set_code, [200, 201])) {
+        $set_detail = $set_err ?: ('HTTP ' . $set_code);
+        return ['success' => false, 'url' => null, 'error' => 'Page published but front-page assignment failed: ' . $set_detail];
+    }
+
+    // Both phases succeeded — mark site as published
+    $CI->pitchsnap_model->update_site($site_id, [
+        'status'      => 'published',
+        'wp_page_id'  => $wp_page_id,
+        'dateupdated' => date('Y-m-d H:i:s'),
+    ]);
+
+    return ['success' => true, 'url' => $wp_page_url, 'error' => null];
+}
+
+// ---------------------------------------------------------------------------
+// Post-publication history cleanup (Phase 1)
+// ---------------------------------------------------------------------------
+
+/**
+ * After a site is published, delete all non-primary generation history for the lead:
+ * preview files, conversations, and redesign records.
+ * The primary (canonical) version is always preserved.
+ * Returns count of deleted redesign records.
+ */
+function clickfuzz_web_cleanup_generation_history($lead_id)
+{
+    $CI =& get_instance();
+    if (!isset($CI->pitchsnap_model)) {
+        require_once(FCPATH . 'modules/pitchsnap/models/Pitchsnap_model.php');
+        $CI->pitchsnap_model = new Pitchsnap_model();
+    }
+
+    $lead_id = (int) $lead_id;
+    if (!$lead_id) { return 0; }
+
+    $non_primary = $CI->pitchsnap_model->get_non_primary_redesigns_for_lead($lead_id);
+    if (empty($non_primary)) { return 0; }
+
+    $redesign_ids = array_map(function ($r) { return (int) $r->id; }, $non_primary);
+
+    // Remove preview files from disk
+    $base_dir  = dirname(FCPATH) . '/previews';
+    $real_base = realpath($base_dir);
+    foreach ($non_primary as $r) {
+        if (empty($r->preview_token) || !preg_match('/^[a-f0-9]{64}$/', $r->preview_token)) { continue; }
+        $preview_dir = $base_dir . '/' . $r->preview_token;
+        if (!is_dir($preview_dir)) { continue; }
+        $real_dir = realpath($preview_dir);
+        if ($real_base && $real_dir && strpos($real_dir . '/', $real_base . '/') === 0) {
+            foreach (@scandir($preview_dir) ?: [] as $entry) {
+                if ($entry === '.' || $entry === '..') { continue; }
+                @unlink($preview_dir . '/' . $entry);
+            }
+            @rmdir($preview_dir);
+        }
+    }
+
+    // Delete conversations for non-primary redesigns
+    $conv_table = db_prefix() . 'pitchsnap_conversations';
+    if ($CI->db->table_exists($conv_table)) {
+        $CI->db->where_in('redesign_id', $redesign_ids)->delete($conv_table);
+    }
+
+    // Delete non-primary redesign records (double-guard with is_primary=0)
+    $t = db_prefix() . 'pitchsnap_redesigns';
+    $CI->db->where_in('id', $redesign_ids)->where('is_primary', 0)->delete($t);
+
+    return count($redesign_ids);
+}
+
+// ---------------------------------------------------------------------------
 
 function clickfuzz_web_copyright_year_instruction()
 {

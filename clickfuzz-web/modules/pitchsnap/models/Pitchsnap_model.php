@@ -884,4 +884,17 @@ class Pitchsnap_model extends App_Model
         log_activity('PitchSnap: Website profile deleted [Lead ID: ' . $lead_id . ', Versions: ' . count($redesign_ids) . ']');
         return true;
     }
+
+    /**
+     * Return all non-primary redesign records for a lead.
+     * Used by clickfuzz_web_cleanup_generation_history() after publish.
+     */
+    public function get_non_primary_redesigns_for_lead($lead_id)
+    {
+        return $this->db
+            ->where('lead_id', (int) $lead_id)
+            ->where('is_primary', 0)
+            ->get($this->table)
+            ->result();
+    }
 }
