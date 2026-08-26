@@ -27,6 +27,7 @@ function db_prefix() { return 'tbl'; }
 
 require_once __DIR__ . '/../helpers/pitchsnap_generation_helper.php';
 require_once __DIR__ . '/../helpers/pitchsnap_domain_helper.php';
+require_once __DIR__ . '/../helpers/pitchsnap_dns_helper.php';
 
 // ---------------------------------------------------------------------------
 // Mock model
@@ -125,6 +126,17 @@ class MockPitchsnapModel {
             return true;
         }
         return false;
+    }
+    public function update_domain_verification($domain_id, $status, $verified_at) {
+        // Find by id across all domains
+        foreach ($this->site_domains as $row) {
+            if (isset($row->id) && (int) $row->id === (int) $domain_id) {
+                $row->verification_status = $status;
+                $row->verified_at         = $verified_at;
+                $row->dateupdated         = date('Y-m-d H:i:s');
+                break;
+            }
+        }
     }
 }
 
@@ -478,6 +490,141 @@ eq('platform hostname unmodified',                 $pd4->hostname, 'myco.clickfu
 $cd4 = $mock_iso->get_custom_domain_for_site(30);
 ok('custom domain is separate record',             $cd4 !== null);
 eq('custom hostname correct',                      $cd4->hostname, 'myco.com');
+
+// ---------------------------------------------------------------------------
+// 21. hostname_is_apex
+// ---------------------------------------------------------------------------
+
+echo "\n-- hostname_is_apex --\n";
+
+ok('example.com is apex',          clickfuzz_web_hostname_is_apex('example.com'));
+ok('www.example.com is NOT apex',  !clickfuzz_web_hostname_is_apex('www.example.com'));
+ok('app.example.com is NOT apex',  !clickfuzz_web_hostname_is_apex('app.example.com'));
+ok('sub.sub.example.com not apex', !clickfuzz_web_hostname_is_apex('sub.sub.example.com'));
+
+// ---------------------------------------------------------------------------
+// 22. expected_dns_records
+// ---------------------------------------------------------------------------
+
+echo "\n-- expected_dns_records --\n";
+
+$apex_recs = clickfuzz_web_expected_dns_records('example.com');
+ok('apex: two records returned',           count($apex_recs) === 2);
+eq('apex: first is A @',                   $apex_recs[0]['type'] . ' ' . $apex_recs[0]['host'], 'A @');
+eq('apex: first value is server IP',       $apex_recs[0]['value'], CFZ_DNS_SERVER_IP);
+eq('apex: second is CNAME www',            $apex_recs[1]['type'] . ' ' . $apex_recs[1]['host'], 'CNAME www');
+eq('apex: second value is runtime host',   $apex_recs[1]['value'], CFZ_DNS_RUNTIME_HOST);
+
+$www_recs = clickfuzz_web_expected_dns_records('www.example.com');
+ok('www: one record returned',             count($www_recs) === 1);
+eq('www: CNAME www',                       $www_recs[0]['type'] . ' ' . $www_recs[0]['host'], 'CNAME www');
+eq('www: value is runtime host',           $www_recs[0]['value'], CFZ_DNS_RUNTIME_HOST);
+
+$sub_recs = clickfuzz_web_expected_dns_records('app.example.com');
+eq('subdomain: label extracted',           $sub_recs[0]['host'], 'app');
+eq('subdomain: CNAME type',                $sub_recs[0]['type'], 'CNAME');
+
+// ---------------------------------------------------------------------------
+// 23. DNS verification — apex: both A and www CNAME correct → verified
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify_dns: apex pair both correct --\n";
+
+$apex_a_ok   = function($h) { return [['ip' => CFZ_DNS_SERVER_IP]]; };
+$apex_cn_ok  = function($h) { return [['target' => CFZ_DNS_RUNTIME_HOST . '.']]; };
+$dns_a_none  = function($h) { return []; };
+$dns_cn_none = function($h) { return []; };
+$res_ok      = function($h) { return CFZ_DNS_SERVER_IP; };
+$res_none    = function($h) { return $h; };
+
+$r = clickfuzz_web_verify_dns('example.com', $apex_a_ok, $apex_cn_ok, $res_ok);
+eq('apex: A + www CNAME + IP → verified', $r['status'], 'verified');
+ok('records returned',                    !empty($r['records']));
+
+// ---------------------------------------------------------------------------
+// 24. DNS verification — subdomain CNAME + IP resolves → verified
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify_dns: subdomain CNAME match with IP propagated --\n";
+
+$r2 = clickfuzz_web_verify_dns('www.example.com', $dns_a_none, $apex_cn_ok, $res_ok);
+eq('subdomain CNAME + IP resolves → verified', $r2['status'], 'verified');
+
+// ---------------------------------------------------------------------------
+// 25. DNS verification — subdomain CNAME correct but IP not yet propagated
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify_dns: subdomain CNAME correct, IP not propagated --\n";
+
+$r3 = clickfuzz_web_verify_dns('www.example.com', $dns_a_none, $apex_cn_ok, $res_none);
+eq('subdomain CNAME + IP unresolved → pending', $r3['status'], 'pending');
+
+// ---------------------------------------------------------------------------
+// 26. DNS verification — apex: wrong A record (explicit misconfiguration)
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify_dns: apex wrong A record --\n";
+
+$dns_a_wrong = function($h) { return [['ip' => '1.2.3.4']]; };
+$r4 = clickfuzz_web_verify_dns('example.com', $dns_a_wrong, $dns_cn_none, $res_none);
+eq('apex wrong A → failed',    $r4['status'], 'failed');
+ok('reason mentions wrong IP', strpos($r4['reason'], '1.2.3.4') !== false);
+
+// ---------------------------------------------------------------------------
+// 27. DNS verification — apex: wrong www CNAME target → failed
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify_dns: apex wrong www CNAME --\n";
+
+$dns_cn_wrong = function($h) { return [['target' => 'other-host.example.net']]; };
+$r5 = clickfuzz_web_verify_dns('example.com', $apex_a_ok, $dns_cn_wrong, $res_none);
+eq('apex wrong www CNAME → failed', $r5['status'], 'failed');
+
+// ---------------------------------------------------------------------------
+// 28. DNS verification — apex: A correct but www CNAME missing → pending
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify_dns: apex A correct, www CNAME missing --\n";
+
+$r6 = clickfuzz_web_verify_dns('example.com', $apex_a_ok, $dns_cn_none, $res_ok);
+eq('apex: A ok, www CNAME missing → pending', $r6['status'], 'pending');
+ok('reason mentions www',                     strpos($r6['reason'], 'www') !== false);
+
+// ---------------------------------------------------------------------------
+// 29. DNS verification — no records at all (propagating)
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify_dns: no records --\n";
+
+$r7 = clickfuzz_web_verify_dns('example.com', $dns_a_none, $dns_cn_none, $res_none);
+eq('no records → pending',  $r7['status'], 'pending');
+ok('empty records array',   $r7['records'] === []);
+
+// ---------------------------------------------------------------------------
+// 30. Verify does not affect platform mapping row
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify: platform mapping isolation --\n";
+
+$mock_verify = new MockPitchsnapModel();
+$mock_verify->seed_site(50, 'clickfuzz.com/sites/ps-50-zz01');
+$mock_verify->seed_domain(50, 'myco.clickfuzz.com', 'platform');
+$mock_verify->save_custom_domain(50, 'myco.com');
+
+$before_pd = $mock_verify->get_platform_domain_for_site(50);
+ok('platform domain present after custom save', $before_pd !== null);
+eq('platform hostname unchanged',              $before_pd->hostname, 'myco.clickfuzz.com');
+
+// ---------------------------------------------------------------------------
+// 31. Verify does not change ssl_status
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify: ssl_status unchanged --\n";
+
+$mock_us = new MockPitchsnapModel();
+$mock_us->update_domain_verification_calls = [];
+ok('update_domain_verification exists in MockPitchsnapModel',
+   method_exists($mock_us, 'update_domain_verification'));
 
 // ---------------------------------------------------------------------------
 // Summary

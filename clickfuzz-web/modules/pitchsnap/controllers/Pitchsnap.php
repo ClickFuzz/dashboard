@@ -269,6 +269,57 @@ class Pitchsnap extends AdminController
         redirect($detail_url);
     }
 
+    public function verify_custom_domain($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) {
+            set_alert('danger', 'Invalid website ID.');
+            redirect(admin_url('pitchsnap/websites'));
+        }
+        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) {
+            set_alert('danger', 'No site record found.');
+            redirect($detail_url);
+        }
+        $cd = $this->pitchsnap_model->get_custom_domain_for_site($site->id);
+        if (!$cd) {
+            set_alert('warning', 'No custom domain is set for this site.');
+            redirect($detail_url);
+        }
+
+        if (!function_exists('clickfuzz_web_verify_dns')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_dns_helper.php';
+        }
+
+        $result = clickfuzz_web_verify_dns($cd->hostname);
+
+        if ($result['status'] === 'verified') {
+            $this->pitchsnap_model->update_domain_verification(
+                $cd->id, 'verified', date('Y-m-d H:i:s')
+            );
+            log_activity('ClickFuzz Web: Custom domain verified [Site ID: ' . $site->id . ', Hostname: ' . $cd->hostname . ']');
+            set_alert('success', '<strong>' . e($cd->hostname) . '</strong> DNS verified successfully.');
+        } elseif ($result['status'] === 'failed') {
+            $this->pitchsnap_model->update_domain_verification(
+                $cd->id, 'failed', null
+            );
+            set_alert('danger', 'DNS check failed for <strong>' . e($cd->hostname) . '</strong>: ' . e($result['reason']));
+        } else {
+            // pending — do not overwrite a previously-verified status with pending
+            if ($cd->verification_status !== 'verified') {
+                $this->pitchsnap_model->update_domain_verification(
+                    $cd->id, 'pending', null
+                );
+            }
+            set_alert('warning', 'DNS not yet detected for <strong>' . e($cd->hostname) . '</strong>: ' . e($result['reason']));
+        }
+
+        redirect($detail_url);
+    }
+
     public function settings()
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }

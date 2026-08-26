@@ -274,12 +274,31 @@
                 }
                 $_cd_verification = $_cd ? ($_cd->verification_status ?? 'pending') : null;
                 $_cd_ssl          = $_cd ? ($_cd->ssl_status          ?? 'pending') : null;
+
+                // DNS instructions — computed inline, no helper dependency in view
+                $_cd_dns_records  = [];
+                if ($_cd) {
+                    $_cd_is_apex = (substr_count($_cd->hostname, '.') === 1);
+                    if ($_cd_is_apex) {
+                        $_cd_dns_records = [
+                            ['type' => 'A',     'host' => '@',   'value' => '104.152.168.38',    'note' => 'Points your root domain to ClickFuzz'],
+                            ['type' => 'CNAME', 'host' => 'www', 'value' => 'sites.clickfuzz.com', 'note' => 'www → ClickFuzz (required)'],
+                        ];
+                    } else {
+                        $_cd_parts = explode('.', $_cd->hostname);
+                        $_cd_label = $_cd_parts[0];
+                        $_cd_dns_records = [
+                            ['type' => 'CNAME', 'host' => $_cd_label, 'value' => 'sites.clickfuzz.com', 'note' => 'Points your subdomain to ClickFuzz'],
+                        ];
+                    }
+                }
                 ?>
                 <div class="panel_s">
                     <div class="panel-body">
                         <h5 class="tw-font-semibold mbot10">Custom Domain</h5>
 
                         <?php if ($_cd) { ?>
+                        <!-- Status table -->
                         <table class="table table-bordered table-condensed mbot15" style="max-width:520px;">
                             <tbody>
                                 <tr>
@@ -292,12 +311,18 @@
                                         <?php if ($_cd_verification === 'verified') { ?>
                                         <span class="label label-success">Verified</span>
                                         <?php } elseif ($_cd_verification === 'failed') { ?>
-                                        <span class="label label-danger">Failed</span>
+                                        <span class="label label-danger">DNS Misconfigured</span>
                                         <?php } else { ?>
                                         <span class="label label-warning">Pending DNS setup</span>
                                         <?php } ?>
                                     </td>
                                 </tr>
+                                <?php if (!empty($_cd->verified_at) && $_cd_verification === 'verified') { ?>
+                                <tr>
+                                    <th>Verified at</th>
+                                    <td><?php echo _dt($_cd->verified_at); ?></td>
+                                </tr>
+                                <?php } ?>
                                 <tr>
                                     <th>SSL</th>
                                     <td>
@@ -306,20 +331,52 @@
                                         <?php } elseif ($_cd_ssl === 'failed') { ?>
                                         <span class="label label-danger">Failed</span>
                                         <?php } else { ?>
-                                        <span class="label label-default">Pending</span>
+                                        <span class="label label-default">Pending (after verification)</span>
                                         <?php } ?>
                                     </td>
                                 </tr>
                             </tbody>
                         </table>
+
+                        <!-- DNS instructions -->
+                        <?php if ($_cd_verification !== 'verified') { ?>
+                        <div class="well well-sm" style="font-size:12px; margin-bottom:14px; background:#f8fbff; border-color:#c4daf5;">
+                            <p style="margin:0 0 8px; font-weight:600;">Add these DNS records at your domain registrar:</p>
+                            <p style="margin:0 0 8px; color:#555;"><i class="fa fa-shield"></i> Keep your existing nameservers and email/DNS records. Only add or update the records shown below.</p>
+                            <table class="table table-condensed" style="margin:0; font-size:12px; font-family:monospace;">
+                                <thead><tr><th>Type</th><th>Host</th><th>Value</th><th style="font-family:sans-serif; font-weight:400;">Purpose</th></tr></thead>
+                                <tbody>
+                                    <?php foreach ($_cd_dns_records as $_r) { ?>
+                                    <tr>
+                                        <td><strong><?php echo e($_r['type']); ?></strong></td>
+                                        <td><?php echo e($_r['host']); ?></td>
+                                        <td><?php echo e($_r['value']); ?></td>
+                                        <td style="font-family:sans-serif; color:#666;"><?php echo e($_r['note']); ?></td>
+                                    </tr>
+                                    <?php } ?>
+                                </tbody>
+                            </table>
+                            <p style="margin:8px 0 0; color:#666;">DNS changes can take up to 48 hours to propagate. Click <strong>Verify DNS</strong> after adding the records.</p>
+                        </div>
+                        <?php } ?>
+
+                        <!-- Verify DNS button -->
+                        <form method="POST" action="<?php echo admin_url('pitchsnap/verify_custom_domain/' . (int) $redesign->id); ?>" style="display:inline; margin-right:6px;">
+                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                            <button type="submit" class="btn btn-<?php echo $_cd_verification === 'verified' ? 'default' : 'info'; ?> btn-sm">
+                                <i class="fa fa-refresh"></i> Verify DNS
+                            </button>
+                        </form>
+
                         <?php } else { ?>
                         <p class="text-muted" style="font-size:13px; margin-bottom:14px;">
                             No custom domain configured. Enter a domain below to begin setup.
                         </p>
                         <?php } ?>
 
+                        <!-- Save / Update domain form -->
                         <?php if (!empty($site)) { ?>
-                        <form method="POST" action="<?php echo admin_url('pitchsnap/save_custom_domain/' . (int) $redesign->id); ?>" style="max-width:480px;">
+                        <form method="POST" action="<?php echo admin_url('pitchsnap/save_custom_domain/' . (int) $redesign->id); ?>" style="max-width:480px; margin-top:<?php echo $_cd ? '10px' : '0'; ?>;">
                             <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
                             <div class="input-group" style="margin-bottom:10px;">
                                 <input type="text" name="custom_domain" class="form-control input-sm"
@@ -344,7 +401,7 @@
                         <?php } ?>
 
                         <p class="text-muted" style="font-size:12px; margin-top:12px; margin-bottom:0;">
-                            <i class="fa fa-info-circle"></i> DNS verification and SSL provisioning are coming in a future update. The ClickFuzz platform URL remains active throughout.
+                            <i class="fa fa-info-circle"></i> Your ClickFuzz platform URL remains active throughout. SSL provisioning follows after DNS is verified.
                         </p>
                     </div>
                 </div>
