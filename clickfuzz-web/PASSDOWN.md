@@ -69,7 +69,7 @@ Public endpoints must be added to `$app_csrf_exclude_uris` in `application/confi
 
 ## Current Production / Main Baseline
 
-As of 2026-08-26, `main` is at commit `ef02893` (GHL Phase 1). Production is verified hash-identical to main for all 6 GHL-changed files.
+As of 2026-08-26, local `main` is at `739f16e` and `origin/main` is in sync at `739f16e`. This merges GHL Phase 1 and Publishing Phases 1–5B. Production is verified hash-identical to main for all GHL Phase 1 files; Publishing 5B files (DNS helper, controller, model, view) are also deployed to production.
 
 **Items pending production deployment:**
 - Lead-profile tab hooks (restored 2026-08-23) — still not deployed
@@ -104,12 +104,12 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 | Branch | Worktree | Status |
 |---|---|---|
-| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `0fe1d30` |
+| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `739f16e` (origin/main in sync) |
 | `claude/generation` | `worktrees/dashboard/generation` | Active — at `7ade348`, feature changes present |
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test (enter Agency Private Integration Token, link a Location ID, verify Test Connection). |
 | `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
-| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Active** — Phases 1–4 complete. DB v12 + `tblpitchsnap_site_domains` live. Hosted-site runtime at `sites.clickfuzz.com`. `jackrabbit.clickfuzz.com` live. Publishing tab shows correct live URL, Open Site button, Republish state. Pending: merge to main, Phase 5 (custom domains). |
+| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Merged** — Phases 1–5B complete, merged to main at `739f16e`. DB v13 live. Hosted-site runtime, platform hostnames, custom domain CRUD, DNS verification (apex-pair) all deployed. **Phase 5C PAUSED** — awaiting Cloudflare / Cloudflare for SaaS architecture decision. Current DNS instructions (direct A record to 104.152.168.38) are PROVISIONAL. |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
 | `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix + tab extraction. Uncommitted changes: `admin_detail.php` (shell only), `Pitchsnap.php`, `Pitchsnap_model.php`, new `views/admin_detail/tab_*.php` (6 files). New partials not yet deployed to production. Needs deploy + verify + commit + merge to main. |
