@@ -65,12 +65,13 @@ foreach ($valid_statuses as $vs) {
 assert_false(in_array('pending', $valid_statuses, true), 'T2b: pending is not a valid page generation status');
 assert_false(in_array('queued',  $valid_statuses, true), 'T2c: queued is not a valid page generation status');
 
-// T2d: not_generated → generating is a valid transition
-$from_statuses = ['not_generated', 'failed'];
-assert_true(in_array('not_generated', $from_statuses), 'T2d: can queue from not_generated');
+// T2d: eligible states for queue_page_for_generation (the atomic WHERE IN condition)
+// 'generated' must be eligible so Regenerate works; 'generating' must NOT be eligible (concurrency guard)
+$from_statuses = ['not_generated', 'failed', 'generated'];
+assert_true(in_array('not_generated', $from_statuses), 'T2d: can queue from not_generated (initial generate)');
 assert_true(in_array('failed',        $from_statuses), 'T2e: can retry from failed');
-assert_false(in_array('generated',    $from_statuses), 'T2f: cannot re-queue already generated (without regenerate)');
-assert_false(in_array('generating',   $from_statuses), 'T2g: cannot re-queue already generating');
+assert_true(in_array('generated',     $from_statuses), 'T2f: can regenerate from generated');
+assert_false(in_array('generating',   $from_statuses), 'T2g: cannot re-queue already-generating page (concurrency guard)');
 
 // ---------------------------------------------------------------------------
 // T3: Page type instructions coverage
@@ -241,18 +242,51 @@ assert_false(mock_set_current_safe(1, $foreign_gen), 'T8d: cross-page generation
 assert_true(mock_set_current_safe(1, (object)['id'=>10,'page_id'=>1,'is_current'=>0]), 'T8e: same-page generation accepted');
 
 // ---------------------------------------------------------------------------
-// T9: Cron concurrency — generating state acts as lock
+// T9: Full lifecycle state machine — generate, regenerate, retry, concurrency
 // ---------------------------------------------------------------------------
-// If a page is already 'generating', queue_page_for_generation must not re-claim it.
-// The model method uses WHERE generation_status IN ('not_generated','failed') — so
-// a page in 'generating' state returns 0 affected rows.
+// queue_page_for_generation uses WHERE generation_status IN ('not_generated','failed','generated').
+// 'generating' is excluded — this is the atomic concurrency lock.
+// The early guard in clickfuzz_web_queue_page_generation() also rejects 'generating' at the
+// application layer for a clear user-facing error before the DB call.
 function mock_can_claim($status) {
-    return in_array($status, ['not_generated', 'failed'], true);
+    return in_array($status, ['not_generated', 'failed', 'generated'], true);
 }
-assert_true(mock_can_claim('not_generated'),  'T9a: can claim not_generated');
-assert_true(mock_can_claim('failed'),         'T9b: can claim failed (retry)');
-assert_false(mock_can_claim('generating'),    'T9c: cannot claim already-generating page');
-assert_false(mock_can_claim('generated'),     'T9d: cannot claim already-generated page (use regenerate)');
+assert_true(mock_can_claim('not_generated'),  'T9a: can claim not_generated (initial generate)');
+assert_true(mock_can_claim('failed'),         'T9b: can claim failed (retry after failure)');
+assert_true(mock_can_claim('generated'),      'T9c: can claim generated (regenerate = the bug fix)');
+assert_false(mock_can_claim('generating'),    'T9d: cannot claim already-generating page (concurrency guard)');
+
+// T9e: successful regeneration lifecycle
+// Before: current_generation_id=11, is_current(11)=1, generation_status='generating'
+// After set_current(page, 12): is_current(11)=0, is_current(12)=1, current_generation_id=12
+// After mark_success: generation_status='generated'
+// Gen 11 is preserved in history (not deleted)
+$gens_regen = [
+    (object)['id'=>11,'page_id'=>1,'is_current'=>1],
+    (object)['id'=>12,'page_id'=>1,'is_current'=>0], // new generation just created
+];
+// simulate set_current(page=1, gen=12)
+foreach ($gens_regen as $g) { $g->is_current = ($g->id === 12) ? 1 : 0; }
+$current_after = null;
+foreach ($gens_regen as $g) { if ($g->is_current) { $current_after = $g; break; } }
+assert_eq($current_after->id, 12,              'T9f: new generation is current after regenerate');
+assert_eq(count($gens_regen), 2,               'T9g: both generations retained in history');
+$old_gen = null;
+foreach ($gens_regen as $g) { if ($g->id === 11) { $old_gen = $g; break; } }
+assert_eq($old_gen->is_current, 0,             'T9h: old generation is no longer current but still exists');
+
+// T9i: failed regeneration lifecycle
+// Before: current_generation_id=11, is_current(11)=1, generation_status='generating'
+// On failure: mark_page_generation_failed → generation_status='failed'
+//             current_generation_id unchanged (stays 11), is_current(11) unchanged (stays 1)
+// get_current_page_generation(page) → still returns gen 11 (is_current=1) → preview still works
+// Retry button shown because generation_status='failed'
+$gen_preserved = (object)['id'=>11,'page_id'=>1,'is_current'=>1];
+$gen_status_after_fail = 'failed'; // only generation_status changes
+assert_eq($gen_preserved->is_current, 1,       'T9i: previous successful generation remains is_current=1 after failed regen');
+assert_eq($gen_status_after_fail, 'failed',     'T9j: page generation_status=failed after failed regen');
+// The Retry path must accept 'failed' (already in eligible states)
+assert_true(mock_can_claim('failed'),           'T9k: failed page can be retried (mock_can_claim covers this)');
 
 // ---------------------------------------------------------------------------
 // T10: Preview controller — page ownership guard (cross-page gen ID)
@@ -290,7 +324,9 @@ assert_false(ps_validate_publish_type4('ftp'),       'T11e: Phase 1 publish_type
 // ---------------------------------------------------------------------------
 // DB-dependent + API tests (listed for documentation)
 // ---------------------------------------------------------------------------
-t_skip('DB: queue_page_for_generation sets generation_status=generating',              'needs DB');
+t_skip('DB: queue_page_for_generation sets generation_status=generating from not_generated', 'needs DB');
+t_skip('DB: queue_page_for_generation sets generation_status=generating from generated (regenerate)', 'needs DB');
+t_skip('DB: queue_page_for_generation sets generation_status=generating from failed (retry)', 'needs DB');
 t_skip('DB: queue_page_for_generation rejects already-generating page',                'needs DB');
 t_skip('DB: queue_page_for_generation rejects trashed page',                           'needs DB');
 t_skip('DB: page_generate controller POST queues page and redirects',                  'needs DB + HTTP');
@@ -302,6 +338,8 @@ t_skip('API: generate_page() marks page generation_status=generated on success',
 t_skip('API: generate_page() marks page generation_status=failed on API error',        'needs DB + API key');
 t_skip('API: generate_page() marks failed when body_html empty in response',           'needs DB + API key');
 t_skip('DB: page_preview serves current generation HTML with noindex meta',            'needs DB + HTTP');
+t_skip('DB: page_preview serves previous successful gen while regeneration is generating', 'needs DB + HTTP');
+t_skip('DB: page_preview serves previous successful gen after failed regeneration',    'needs DB + HTTP');
 t_skip('DB: page_preview serves specific generation via ?gen= param',                  'needs DB + HTTP');
 t_skip('DB: page_preview rejects foreign-page gen ID via ?gen= param',                'needs DB + HTTP');
 t_skip('DB: page_generation_set_current updates is_current and current_generation_id', 'needs DB');

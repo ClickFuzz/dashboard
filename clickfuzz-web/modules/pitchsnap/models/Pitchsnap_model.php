@@ -1219,7 +1219,7 @@ class Pitchsnap_model extends App_Model
         $now = date('Y-m-d H:i:s');
         $this->db
             ->where('id', (int) $page_id)
-            ->where_in('generation_status', ['not_generated', 'failed'])
+            ->where_in('generation_status', ['not_generated', 'failed', 'generated'])
             ->update($this->pages_table, [
                 'generation_status' => 'generating',
                 'dateupdated'       => $now,
