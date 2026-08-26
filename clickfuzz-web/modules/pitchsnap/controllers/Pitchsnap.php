@@ -1330,7 +1330,9 @@ class Pitchsnap extends AdminController
     }
 
     // GET pitchsnap/page_preview/{page_id}
-    // Serve the current generated page HTML for in-browser preview.
+    // Serve the generated page HTML for in-browser preview using the canonical
+    // approved site header and footer. Supports ?gen= to preview specific versions.
+    // Always noindex. No filesystem writes. Admin-only rendering.
     public function page_preview($page_id = '')
     {
         if (!is_staff_member()) { access_denied('ClickFuzz Web'); }
@@ -1353,29 +1355,66 @@ class Pitchsnap extends AdminController
             show_error('No generated content available for this page yet.', 404);
         }
 
-        $site     = $this->pitchsnap_model->get_site_by_id($page->site_id);
-        $redesign = ($site && !empty($site->source_website_id))
-            ? $this->pitchsnap_model->get((int) $site->source_website_id)
-            : null;
+        $site = $this->pitchsnap_model->get_site_by_id($page->site_id);
 
-        // Build a minimal full HTML page around the stored body_html
-        $css_block = !empty($gen->css_content) ? '<style>' . $gen->css_content . '</style>' : '';
-        $js_block  = !empty($gen->js_content)  ? '<script>' . $gen->js_content . '</script>' : '';
+        // Load rendering helpers — reuse Phase 5 publish functions, no duplication
+        require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_page_publish_helper.php';
+        require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_page_generation_helper.php';
+        if (!function_exists('clickfuzz_web_normalize_copyright_year')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
+        }
 
-        $meta_title = htmlspecialchars($gen->meta_title_generated ?: $page->title, ENT_QUOTES, 'UTF-8');
-        $meta_desc  = htmlspecialchars($gen->meta_description_generated ?: '', ENT_QUOTES, 'UTF-8');
+        // Extract canonical site chrome from the approved published homepage
+        $canonical_header = '';
+        $canonical_footer = '';
+        $shared_head      = '';
 
-        $html = '<!DOCTYPE html><html lang="en"><head>'
-              . '<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-              . '<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">'
-              . '<title>' . $meta_title . '</title>'
-              . ($meta_desc ? '<meta name="description" content="' . $meta_desc . '">' : '')
-              . $css_block
-              . '</head><body>'
-              . $gen->html_content
-              . $js_block
-              . '</body></html>';
+        if ($site) {
+            $domain    = $site->domain ?? '';
+            $site_slug = ltrim(strstr($domain, '/sites/'), '/sites/');
+            if ($site_slug && preg_match('/^[a-z0-9\-]+$/', $site_slug)) {
+                $homepage_file = dirname(FCPATH) . '/sites/' . $site_slug . '/index.html';
+                if (file_exists($homepage_file)) {
+                    $homepage_html = @file_get_contents($homepage_file);
+                    $chrome        = clickfuzz_web_extract_site_chrome((string) $homepage_html);
+                    $canonical_footer = $chrome['footer'];
+                    $shared_head      = $chrome['head_inner'];
 
+                    // Build nav from current published page registry
+                    $domain_row    = $this->pitchsnap_model->get_platform_domain_for_site($site->id);
+                    $site_base_url = $domain_row ? 'https://' . $domain_row->hostname : null;
+
+                    if ($site_base_url && !empty($chrome['header'])) {
+                        $all_pages     = $this->pitchsnap_model->get_pages_for_site($site->id, true);
+                        $pages_indexed = [];
+                        foreach ($all_pages as $p) { $pages_indexed[(int) $p->id] = $p; }
+
+                        $nav_data = clickfuzz_web_build_nav_items($pages_indexed, $site_base_url);
+                        $nav_html = clickfuzz_web_render_primary_nav_html($nav_data['primary'], $site_base_url . '/');
+
+                        // Update nav links in the extracted canonical header
+                        $canonical_header = clickfuzz_web_update_html_nav($chrome['header'], $nav_html);
+                    } else {
+                        $canonical_header = $chrome['header'];
+                    }
+                }
+            }
+        }
+
+        // Force noindex on preview — never influence search indexing
+        $preview_page             = clone $page;
+        $preview_page->index_page = 0;
+
+        // No canonical URL on preview (page may not yet be published)
+        $html = clickfuzz_web_render_full_page_html(
+            $preview_page, $site, $gen,
+            '', // no canonical URL
+            $canonical_header,
+            $canonical_footer,
+            $shared_head
+        );
+
+        // Output directly — no filesystem writes, no status changes, no cleanup
         $this->output
             ->set_content_type('text/html')
             ->set_output($html);

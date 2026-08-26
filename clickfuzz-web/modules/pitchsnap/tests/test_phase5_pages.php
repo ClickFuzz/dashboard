@@ -631,6 +631,94 @@ assert_true5(array_key_exists('wp_primary_menu_item_id', $wp_result19), 'T19f: w
 assert_true5(array_key_exists('wp_footer_menu_item_id',  $wp_result19), 'T19g: wp_footer_menu_item_id key in WP publish result');
 
 // ---------------------------------------------------------------------------
+// T20: Preview rendering — canonical chrome + noindex + no-write
+// ---------------------------------------------------------------------------
+// These tests validate the pure rendering path used by page_preview().
+// The controller calls clickfuzz_web_render_full_page_html() with:
+//   - canonical header/footer extracted from the site homepage
+//   - $preview_page->index_page = 0 (forced noindex)
+//   - empty canonical URL (page may not be published yet)
+// No filesystem writes occur.
+
+$preview_page20 = make_page5(['id'=>3,'slug'=>'contact','meta_title'=>'Contact Us','index_page'=>0]);
+$preview_site20 = make_site5([]);
+$preview_gen20  = make_gen5(['html_content'=>'<p>Contact page body.</p>']);
+$canonical_header20 = '<header class="site-header"><!-- cf-nav-start --><nav><a href="/">Home</a></nav><!-- cf-nav-end --></header>';
+$canonical_footer20 = '<footer class="site-footer"><p>&copy; Bobs Plumbing</p></footer>';
+$shared_head20      = '<link rel="stylesheet" href="/sites/bobs-plumbing/style.css">';
+
+$preview_html20 = clickfuzz_web_render_full_page_html(
+    $preview_page20, $preview_site20, $preview_gen20,
+    '',                  // no canonical URL
+    $canonical_header20,
+    $canonical_footer20,
+    $shared_head20
+);
+
+// T20a: canonical site header present in preview output
+assert_true5(strpos($preview_html20, 'site-header') !== false,
+    'T20a: canonical site header in preview output');
+
+// T20b: canonical site footer present in preview output
+assert_true5(strpos($preview_html20, 'site-footer') !== false,
+    'T20b: canonical site footer in preview output');
+
+// T20c: page body content present
+assert_true5(strpos($preview_html20, 'Contact page body.') !== false,
+    'T20c: page body content present in preview');
+
+// T20d: body wrapped in cf-page-content
+assert_true5(strpos($preview_html20, 'cf-page-content') !== false,
+    'T20d: page body wrapped in cf-page-content in preview');
+
+// T20e: shared stylesheet from canonical chrome included in <head>
+assert_true5(strpos($preview_html20, 'bobs-plumbing/style.css') !== false,
+    'T20e: shared site stylesheet included in preview <head>');
+
+// T20f: noindex meta tag present (index_page = 0)
+assert_true5(strpos($preview_html20, 'noindex') !== false,
+    'T20f: noindex meta tag present in preview (index_page=0 forced)');
+
+// T20g: no <link rel="canonical"> emitted when URL is empty
+assert_false5(strpos($preview_html20, 'rel="canonical"') !== false,
+    'T20g: no canonical link tag emitted when URL is empty');
+
+// T20h: header appears before body content in document order
+$header_pos20 = strpos($preview_html20, 'site-header');
+$body_pos20   = strpos($preview_html20, 'Contact page body.');
+assert_true5($header_pos20 !== false && $body_pos20 !== false && $header_pos20 < $body_pos20,
+    'T20h: canonical header appears before body content');
+
+// T20i: footer appears after body content in document order
+$footer_pos20 = strpos($preview_html20, 'site-footer');
+assert_true5($footer_pos20 !== false && $body_pos20 !== false && $footer_pos20 > $body_pos20,
+    'T20i: canonical footer appears after body content');
+
+// T20j: preview with no site chrome still renders body (graceful fallback)
+$no_chrome_html = clickfuzz_web_render_full_page_html(
+    $preview_page20, $preview_site20, $preview_gen20,
+    '', '', '', ''
+);
+assert_true5(strpos($no_chrome_html, 'Contact page body.') !== false,
+    'T20j: body renders even with no canonical chrome (fallback path)');
+
+// T20k: render reuses normalization — AI chrome already stripped from stored gen
+$gen_with_chrome20 = make_gen5(['html_content' =>
+    '<header class="site-header"><nav>AI nav</nav></header>' .
+    '<p>Contact page body.</p>' .
+    '<footer class="site-footer">AI footer</footer>'
+]);
+$preview_chrome20 = clickfuzz_web_render_full_page_html(
+    $preview_page20, $preview_site20, $gen_with_chrome20,
+    '', $canonical_header20, $canonical_footer20, $shared_head20
+);
+// Canonical header/footer must appear; AI-injected ones are normalised out
+assert_true5(strpos($preview_chrome20, 'Contact page body.') !== false,
+    'T20k: body content preserved after normalization in preview render');
+assert_true5(strpos($preview_chrome20, 'cf-page-content') !== false,
+    'T20l: cf-page-content wrapper present after AI chrome normalization');
+
+// ---------------------------------------------------------------------------
 // DB-dependent, filesystem, and API tests (listed for documentation)
 // ---------------------------------------------------------------------------
 t_skip5('DB: eligible page -> page_publish HTML -> published successfully',                 'needs DB + filesystem');
