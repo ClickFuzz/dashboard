@@ -29,3 +29,4 @@ $route['pitchsnap/page_media_detach/(:num)'] = 'pitchsnap/pitchsnap/page_media_d
 $route['pitchsnap/page_generate/(:num)']               = 'pitchsnap/pitchsnap/page_generate/$1';
 $route['pitchsnap/page_preview/(:num)']                = 'pitchsnap/pitchsnap/page_preview/$1';
 $route['pitchsnap/page_generation_set_current/(:num)'] = 'pitchsnap/pitchsnap/page_generation_set_current/$1';
+$route['pitchsnap/page_publish/(:num)']                = 'pitchsnap/pitchsnap/page_publish/$1';

@@ -142,9 +142,9 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
   - `clickfuzz_web_extract_page_output($raw)` — parses `<body_html>`, `<page_css>`, `<page_js>`, `<meta_title>`, `<meta_description>` delimiters; fallback for undelimited HTML
 - **Model additions** (Phase 4 section):
   - `get_pages_for_generation($limit=5)` — pages with `generation_status='generating'`, ordered by `dateupdated ASC`
-  - `queue_page_for_generation($page_id)` — atomic UPDATE WHERE `generation_status IN ('not_generated','failed')`; returns affected rows > 0
+  - `queue_page_for_generation($page_id)` — atomic UPDATE WHERE `generation_status IN ('not_generated','failed','generated')`; returns affected rows > 0; `'generating'` excluded as concurrency lock
   - `mark_page_generation_success($page_id)` — sets `generation_status='generated'`
-  - `mark_page_generation_failed($page_id, $error)` — sets `generation_status='failed'`; logs to `tblpitchsnap_logs`
+  - `mark_page_generation_failed($page_id, $error)` — sets `generation_status='failed'`; logs to `tblpitchsnap_logs`; preserves `current_generation_id` so prior successful generation remains usable
 - **Cron extended**: Phase 4 block appended to `clickfuzz_web_cron_run()` — loads page generation helper; processes up to 5 pages per cron tick
 - **Controller additions** (3 new methods):
   - `page_generate($page_id)` — POST; queues page; flash+redirect to page_edit
@@ -160,14 +160,61 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ---
 
+## Phase 5 — Internal Page Publishing (2026-08-26, committed, server deployment pending)
+
+- **New helper**: `modules/pitchsnap/helpers/pitchsnap_page_publish_helper.php` — all HTML and WordPress publishing logic
+  - `clickfuzz_web_validate_slug_for_publish($slug)` — regex `^[a-z0-9][a-z0-9\-]*[a-z0-9]$|^[a-z0-9]$`
+  - `clickfuzz_web_page_url_path($page, $pages_indexed)` — hierarchical URL path builder; loop/cross-site/traversal protection
+  - `clickfuzz_web_page_publish_eligible($page, $site, $gen)` — pre-flight guard (not_generated, no gen, wrong publish_type, WP missing creds, etc.)
+  - `clickfuzz_web_build_nav_items($pages_indexed, $base_url)` — nav tree with primary/footer split, draft/trash exclusion
+  - `clickfuzz_web_render_primary_nav_html($primary, $home_url)` — HTML `<nav>` with CF markers; 1-level nesting
+  - `clickfuzz_web_render_footer_nav_html($footer)` — flat footer nav
+  - `clickfuzz_web_update_html_nav($html, $nav_html)` — marker → `<nav>` regex → `<body>` insertion fallback chain
+  - `clickfuzz_web_render_full_page_html($page, $site, $gen, $canonical, $nav)` — full HTML document; noindex, CSS, JS, meta title/description
+  - `clickfuzz_web_write_sitemap($site_dir, $base_url, $published_pages, $pages_indexed)` — XML sitemap; noindex pages excluded
+  - `clickfuzz_web_publish_page_html($page, $site, $gen)` — full HTML publish flow: slug validate → path resolve → realpath guard → nav build → write index.html → verify → update all site navs → sitemap → return `[success, url, published_path, error]`
+  - `clickfuzz_web_update_all_site_navs(...)` — updates nav in homepage + all published page HTML files
+  - `clickfuzz_web_update_nav_in_file($file, $site_dir, $nav)` — single file nav update with realpath guard
+  - `clickfuzz_web_wp_call($site, $method, $endpoint, $body, $timeout)` — WP REST API helper
+  - `clickfuzz_web_wp_get_menu_id($site, $location)` — finds WP menu ID by registered location
+  - `clickfuzz_web_wp_upsert_menu_item($site, $menu_id, $wp_page_id, $label, $parent_item, $order)` — create/update menu item
+  - `clickfuzz_web_publish_page_wp($page, $site, $gen, $parent_wp_page_id)` — full WP publish: create/update page → 5 post meta keys → primary menu → footer menu → return `[success, url, wp_page_id, error]`
+- **Publish dispatch**: controller reads `site->publish_type`; routes to HTML or WP path; mixed types not possible per site
+- **Success order enforced**: publish target → verify existence/response → then `publish_page()` in model (DB write last)
+- **Version cleanup on publish**: `cleanup_page_generations($page_id, $keep_gen_id)` deletes all but the just-published generation
+- **Model additions** (Phase 5 section, before Phase 4 section):
+  - `get_published_pages_for_site($site_id)` — `status='published'`, `menu_order ASC`
+  - `publish_page($page_id, $published_path, $wp_page_id=null)` — sets `status='published'`, `published_path`, `published_at`, optionally `wp_page_id`
+  - `cleanup_page_generations($page_id, $keep_gen_id)` — deletes all generation records for page except `keep_gen_id`
+- **Controller**: `page_publish($page_id)` — POST; eligibility check; WP parent hierarchy guard (parent must have `wp_page_id`); dispatch; flash with live URL; redirect to page_edit
+- **`page_edit()` extended**: passes `live_url` (from platform hostname + `published_path` or WP site URL + slug), `has_newer_gen` (`current_gen->dateadded > page->published_at`)
+- **Admin sidebar 6 states** in `admin_page_edit.php`:
+  1. **Generating** — spinner; View Current Live (if published)
+  2. **Published + up to date** — View Live (green); Regenerate (warning)
+  3. **Published + newer generation ready** — View Current Live; Preview Draft (info); Publish Update (primary); Regenerate Again (warning-xs)
+  4. **Generated (draft, not yet published)** — Preview (info); Publish Page (primary); Regenerate (warning-xs)
+  5. **Failed** — View Live/Preview Previous (if available); Retry Generation (danger)
+  6. **Not generated** — Generate (primary, enabled only if ready; disabled + checklist if not)
+- **Page Info table** updated: Published date and Live URL link columns added
+- **Routes**: `pitchsnap/page_publish/(:num)` added to `modules/pitchsnap/config/routes.php` and `application/config/my_routes.php`
+- **HTML internal pages**: `{site_dir}/{url_path}/index.html` served at `https://{hostname}/{url_path}/`; hierarchical paths from parent chain
+- **WP pages**: create (`POST /wp-json/wp/v2/pages`) or update (`PUT .../pages/{wp_page_id}`); 5 meta keys: `_clickfuzz_page_css`, `_clickfuzz_page_js`, `_clickfuzz_meta_title`, `_clickfuzz_meta_description`, `_clickfuzz_noindex`; menu managed via `wp/v2/menu-items`
+- **No Anthropic calls during publish** — consumes existing `current_generation_id` only
+- **Live page preserved until replacement succeeds** — no downtime on republish
+- **WP body note**: AI-generated HTML includes nav/footer from the page prompt (since `body_html` in Phase 4 includes full page chrome). WP theme also renders its own chrome. For WP sites this causes duplicate nav/footer — flagged as known issue; acceptable for Phase 5.
+- **Tests**: `test_phase5_pages.php` — 14 test groups, 60+ pure-PHP assertions, 30+ DB/API/filesystem SKIPs. Groups: T1 slug validation, T2 URL path building, T3 eligibility, T4 nav building, T5 nav HTML, T6 nav injection, T7 menu exclusion, T8 full HTML doc, T9 sitemap, T10 version cleanup, T11 WP hierarchy, T12 publish type consistency, T13 Phase 4 lifecycle regression, T14 Phase 3 SVG regression
+
+---
+
 ## In Progress
 
-- Nothing in progress. Phase 4 code complete (2026-08-26); server deployment pending DA recovery.
+- Nothing in progress. Phase 5 code complete (2026-08-26); server deployment pending DA recovery.
 
 ---
 
 ## Known Issues / Risks
 
+- **WP body chrome duplication**: Phase 4 AI prompt generates full page HTML including nav and footer. When published to WordPress, WP theme renders its own nav/footer too — causing duplicate chrome. Future improvement: strip nav/footer from WP-destined page content, or use a dedicated WP page template.
 - **Body background in external CSS not captured.** Lenka's cream body background is in an external stylesheet — `$bg_colors` is empty. Visual character derived from white nav background only. Acceptable for now; logo vision adds temperature at generation time if logo has warm colors.
 - **`ps_colorprobe.php` lives in server root** (not in admin UI). PASSDOWN flagged: move to ClickFuzz Web admin as Source Diagnostics page.
 - **Test 5 scoring anomaly:** `--wp--preset--color--primary` also matches the semantic CSS variable regex, giving 5 pts instead of 2 for that preset. Pre-existing behavior, not a regression.
@@ -190,6 +237,14 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 | File | Purpose |
 |---|---|
+| `modules/pitchsnap/helpers/pitchsnap_page_publish_helper.php` | Phase 5: HTML + WP page publishing, nav, sitemap |
+| `modules/pitchsnap/helpers/pitchsnap_page_generation_helper.php` | Phase 4: readiness, queue, generate, prompt, extract |
+| `modules/pitchsnap/helpers/pitchsnap_media_helper.php` | Phase 3: media upload, delete, URL, dir |
+| `modules/pitchsnap/views/admin_page_edit.php` | Page configuration view (6-state sidebar) |
+| `modules/pitchsnap/tests/test_phase5_pages.php` | Phase 5 test suite |
+| `modules/pitchsnap/tests/test_phase4_pages.php` | Phase 4 test suite |
+| `modules/pitchsnap/tests/test_phase3_pages.php` | Phase 3 test suite |
+| `modules/pitchsnap/tests/test_phase2_pages.php` | Phase 2 test suite |
 | `modules/pitchsnap/pitchsnap.php` | Module root: hooks, activation, DB migrations |
 | `modules/pitchsnap/controllers/Pitchsnap.php` | Admin controller |
 | `modules/pitchsnap/controllers/Pitchsnap_intake.php` | Public intake form |
@@ -215,14 +270,14 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ## Production Status
 
-Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 + Phase 3 + Phase 4 code committed and pushed (2026-08-26); server at v15 pending deployment to v16. DA file manager was unavailable — deploy when DA recovers or via SSH (`git pull origin claude/generation` from server dashboard directory).
+Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 + Phase 3 + Phase 4 + Phase 5 code committed and pushed (2026-08-26); server at v15 pending deployment to v16. DA file manager was unavailable — deploy when DA recovers or via SSH (`git pull origin claude/generation` from server dashboard directory).
 
 ---
 
 ## Next
 
-- **Deploy Phase 2 + Phase 3 + Phase 4 to server** — when DA file manager recovers (or via SSH `git pull origin claude/generation`), upload all changed files; run v16 migration probe; verify syntax + run test_phase2_pages.php + test_phase3_pages.php + test_phase4_pages.php
-- Begin Phase 5: AI page publishing (HTML export or WordPress REST) — do NOT begin until instructed
+- **Deploy Phase 2–5 to server** — when DA file manager recovers (or via SSH `git pull origin claude/generation`), upload all changed files; run v16 migration probe; verify syntax + run test_phase2_pages.php through test_phase5_pages.php
+- Fix WP chrome duplication (strip nav/footer from WP page body, or dedicated WP page template) — Phase 6 candidate
 - Run end-to-end Lenka generation to verify Level B guardrail prevents navy/orange output
 - Move `ps_colorprobe.php` into admin as Source Diagnostics page
 - Investigate capturing body background from external CSS (fetch first same-origin `<link rel="stylesheet">`)
@@ -231,6 +286,8 @@ Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 + Phase 3 + P
 
 ## History
 
+- **2026-08-26** — Phase 5: page publishing helper (HTML + WP flows); model publish/cleanup methods; page_publish controller + route; 6-state sidebar in admin_page_edit; test_phase5_pages.php; DA file manager down, server deployment pending
+- **2026-08-26** — Phase 4 lifecycle fix: `queue_page_for_generation` WHERE IN extended to include `'generated'`; Regenerate from generated state now works; failed regen preserves prior successful generation
 - **2026-08-26** — Phase 4: SVG security fix; page generation helper (readiness, queue, generate, prompt, extract); model Phase 4 methods; cron Phase 4 block; page_generate/page_preview/page_generation_set_current controller+routes; admin_page_edit updated; test_phase4_pages.php; DA file manager down, server deployment pending
 - **2026-08-26** — Phase 3: pages + media admin UI; 11 controller methods; media helper; page_edit full view; test_phase3_pages.php; DA file manager down, server deployment pending
 - **2026-08-26** — Phase 2 data foundation: v16 migration (4 tables), Pitchsnap_model Phase 2 methods, test_phase2_pages.php; DA file manager down, server deployment pending

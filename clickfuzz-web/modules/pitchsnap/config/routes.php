@@ -37,3 +37,6 @@ $route['pitchsnap/page_media_detach/(:num)'] = 'pitchsnap/page_media_detach/$1';
 $route['pitchsnap/page_generate/(:num)']               = 'pitchsnap/page_generate/$1';
 $route['pitchsnap/page_preview/(:num)']                = 'pitchsnap/page_preview/$1';
 $route['pitchsnap/page_generation_set_current/(:num)'] = 'pitchsnap/page_generation_set_current/$1';
+
+// Phase 5 — page publishing
+$route['pitchsnap/page_publish/(:num)'] = 'pitchsnap/page_publish/$1';

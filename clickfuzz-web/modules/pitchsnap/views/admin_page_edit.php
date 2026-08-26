@@ -330,44 +330,125 @@ $_is_trashed = $page->status === 'trash';
                 <!-- ── Sidebar ──────────────────────────────────────────── -->
                 <div class="col-md-4">
 
-                    <!-- Page Generation panel -->
+                    <!-- Page Generation + Publishing panel -->
                     <div class="panel_s">
                         <div class="panel-body">
-                            <h5 class="tw-font-semibold mbot10">Page Generation</h5>
+                            <h5 class="tw-font-semibold mbot10">Page Status</h5>
 
-                            <?php if ($page->generation_status === 'generating') { ?>
-                            <!-- Generating in progress -->
+                            <?php
+                            // Determine composite state for UI
+                            $_is_published   = ($page->status === 'published');
+                            $_is_generating  = ($page->generation_status === 'generating');
+                            $_is_generated   = ($page->generation_status === 'generated' && $current_gen);
+                            $_is_failed      = ($page->generation_status === 'failed');
+                            // "has_newer_gen" = published but current gen was created after last publish
+                            ?>
+
+                            <?php if ($_is_generating) { ?>
+                            <!-- ── Generating in progress ─────────────────── -->
                             <div class="alert alert-info" style="font-size:12px; padding:8px 12px;">
-                                <i class="fa fa-spinner fa-spin"></i> Generation in progress — the cron runner is working on this page.
+                                <i class="fa fa-spinner fa-spin"></i> Generation in progress.
                             </div>
+                            <?php if ($_is_published && $live_url) { ?>
+                            <a href="<?php echo e($live_url); ?>" target="_blank" class="btn btn-default btn-block mbot5">
+                                <i class="fa fa-globe"></i> View Current Live
+                            </a>
+                            <?php } ?>
                             <button type="button" class="btn btn-default btn-block" disabled>
                                 <i class="fa fa-spinner fa-spin"></i> Generating…
                             </button>
 
-                            <?php } elseif ($page->generation_status === 'generated' && $current_gen) { ?>
-                            <!-- Generated: show preview + regenerate -->
+                            <?php } elseif ($_is_published && !$has_newer_gen) { ?>
+                            <!-- ── Published, no newer draft ──────────────── -->
                             <p class="text-success" style="font-size:12px; margin-bottom:8px;">
-                                <i class="fa fa-check-circle"></i> Page generated successfully.
+                                <i class="fa fa-check-circle"></i> Page is live.
+                            </p>
+                            <?php if ($live_url) { ?>
+                            <a href="<?php echo e($live_url); ?>" target="_blank" class="btn btn-success btn-block mbot5">
+                                <i class="fa fa-globe"></i> View Live Page
+                            </a>
+                            <?php } ?>
+                            <?php if (!$_is_trashed) { ?>
+                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-warning btn-block"
+                                        onclick="return confirm('Regenerate this page? The live page stays up until you publish the new version.');">
+                                    <i class="fa fa-refresh"></i> Regenerate
+                                </button>
+                            </form>
+                            <?php } ?>
+
+                            <?php } elseif ($_is_published && $has_newer_gen && $_is_generated) { ?>
+                            <!-- ── Published + newer generation ready ─────── -->
+                            <p class="text-warning" style="font-size:12px; margin-bottom:8px;">
+                                <i class="fa fa-upload"></i> New version ready to publish.
+                            </p>
+                            <?php if ($live_url) { ?>
+                            <a href="<?php echo e($live_url); ?>" target="_blank" class="btn btn-default btn-block mbot5">
+                                <i class="fa fa-globe"></i> View Current Live
+                            </a>
+                            <?php } ?>
+                            <a href="<?php echo admin_url('pitchsnap/page_preview/' . (int)$page->id); ?>"
+                               target="_blank" class="btn btn-info btn-block mbot5">
+                                <i class="fa fa-eye"></i> Preview Draft
+                            </a>
+                            <?php if (!$_is_trashed) { ?>
+                            <form action="<?php echo admin_url('pitchsnap/page_publish/' . (int)$page->id); ?>" method="post">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-primary btn-block"
+                                        onclick="return confirm('Publish this updated version? The live page will be replaced.');">
+                                    <i class="fa fa-upload"></i> Publish Update
+                                </button>
+                            </form>
+                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post" style="margin-top:4px;">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-warning btn-block btn-xs"
+                                        onclick="return confirm('Regenerate again? This will replace the current unpublished draft.');">
+                                    <i class="fa fa-refresh"></i> Regenerate Again
+                                </button>
+                            </form>
+                            <?php } ?>
+
+                            <?php } elseif ($_is_generated && !$_is_published) { ?>
+                            <!-- ── Generated (draft) — show preview + publish ─ -->
+                            <p class="text-success" style="font-size:12px; margin-bottom:8px;">
+                                <i class="fa fa-check-circle"></i> Page generated — ready to publish.
                             </p>
                             <a href="<?php echo admin_url('pitchsnap/page_preview/' . (int)$page->id); ?>"
                                target="_blank" class="btn btn-info btn-block mbot5">
                                 <i class="fa fa-eye"></i> Preview Page
                             </a>
                             <?php if (!$_is_trashed) { ?>
-                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post">
+                            <form action="<?php echo admin_url('pitchsnap/page_publish/' . (int)$page->id); ?>" method="post">
                                 <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                <button type="submit" class="btn btn-warning btn-block"
-                                        onclick="return confirm('Regenerate this page? A new version will be created.');">
+                                <button type="submit" class="btn btn-primary btn-block">
+                                    <i class="fa fa-upload"></i> Publish Page
+                                </button>
+                            </form>
+                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post" style="margin-top:4px;">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-warning btn-block btn-xs"
+                                        onclick="return confirm('Regenerate this page? The current draft will be replaced.');">
                                     <i class="fa fa-refresh"></i> Regenerate
                                 </button>
                             </form>
                             <?php } ?>
 
-                            <?php } elseif ($page->generation_status === 'failed') { ?>
-                            <!-- Failed: show retry -->
+                            <?php } elseif ($_is_failed) { ?>
+                            <!-- ── Failed generation ──────────────────────── -->
                             <div class="alert alert-danger" style="font-size:12px; padding:8px 12px; margin-bottom:8px;">
                                 <i class="fa fa-exclamation-triangle"></i> Last generation failed.
                             </div>
+                            <?php if ($_is_published && $live_url) { ?>
+                            <a href="<?php echo e($live_url); ?>" target="_blank" class="btn btn-default btn-block mbot5">
+                                <i class="fa fa-globe"></i> View Live Page
+                            </a>
+                            <?php } elseif ($_is_published && $current_gen) { ?>
+                            <a href="<?php echo admin_url('pitchsnap/page_preview/' . (int)$page->id); ?>"
+                               target="_blank" class="btn btn-default btn-block mbot5">
+                                <i class="fa fa-eye"></i> Preview Previous Version
+                            </a>
+                            <?php } ?>
                             <?php if (!$_is_trashed && $generate_ready) { ?>
                             <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post">
                                 <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
@@ -378,10 +459,10 @@ $_is_trashed = $page->status === 'trash';
                             <?php } ?>
 
                             <?php } else { ?>
-                            <!-- Not yet generated -->
+                            <!-- ── Not yet generated ──────────────────────── -->
                             <?php if ($generate_ready) { ?>
                             <p class="text-success" style="font-size:12px; margin-bottom:10px;">
-                                <i class="fa fa-check-circle"></i> This page is ready to generate.
+                                <i class="fa fa-check-circle"></i> Ready to generate.
                             </p>
                             <?php } else { ?>
                             <p class="text-muted" style="font-size:12px; margin-bottom:6px;">Missing before generation:</p>
@@ -446,9 +527,15 @@ $_is_trashed = $page->status === 'trash';
                             <h5 class="tw-font-semibold mbot10">Page Info</h5>
                             <table class="table table-condensed" style="font-size:12px; margin-bottom:0;">
                                 <tr><th width="45%">ID</th><td>#<?php echo (int)$page->id; ?></td></tr>
-                                <tr><th>Site</th><td>#<?php echo (int)$page->site_id; ?></td></tr>
+                                <tr><th>Status</th><td><?php echo ucfirst($page->status); ?></td></tr>
                                 <tr><th>Created</th><td><?php echo _dt($page->dateadded); ?></td></tr>
                                 <tr><th>Updated</th><td><?php echo _dt($page->dateupdated); ?></td></tr>
+                                <?php if ($page->status === 'published' && !empty($page->published_at)) { ?>
+                                <tr><th>Published</th><td><?php echo _dt($page->published_at); ?></td></tr>
+                                <?php } ?>
+                                <?php if ($live_url) { ?>
+                                <tr><th>Live URL</th><td><a href="<?php echo e($live_url); ?>" target="_blank" style="word-break:break-all;"><?php echo e($live_url); ?></a></td></tr>
+                                <?php } ?>
                             </table>
                         </div>
                     </div>

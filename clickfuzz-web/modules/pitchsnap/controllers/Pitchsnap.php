@@ -911,6 +911,26 @@ class Pitchsnap extends AdminController
         $data['missing']        = $missing;
         $data['generations']    = $this->pitchsnap_model->get_page_generations($page_id);
         $data['current_gen']    = $this->pitchsnap_model->get_current_page_generation($page_id);
+
+        // Phase 5: live URL + has-newer-generation flag for UI
+        $live_url       = '';
+        $has_newer_gen  = false;
+        if ($page->status === 'published') {
+            if ($site->publish_type === 'wordpress' && !empty($site->wp_site_url)) {
+                $live_url = rtrim($site->wp_site_url, '/') . '/' . $page->slug . '/';
+            } elseif (!empty($page->published_path)) {
+                $domain_row = $this->pitchsnap_model->get_platform_domain_for_site($site->id);
+                if ($domain_row) {
+                    $live_url = 'https://' . $domain_row->hostname . '/' . $page->published_path . '/';
+                }
+            }
+            if ($data['current_gen'] && !empty($page->published_at)) {
+                $has_newer_gen = ($data['current_gen']->dateadded > $page->published_at);
+            }
+        }
+        $data['live_url']      = $live_url;
+        $data['has_newer_gen'] = $has_newer_gen;
+
         $this->load->view('admin_page_edit', $data);
     }
 
@@ -1194,6 +1214,76 @@ class Pitchsnap extends AdminController
 
         $ok = $this->pitchsnap_model->detach_media_from_page($page_id, $media_id);
         return $this->_json(['success' => true, 'message' => 'Media detached.']);
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 5 — Internal page publishing
+    // -----------------------------------------------------------------------
+
+    // POST pitchsnap/page_publish/{page_id}
+    public function page_publish($page_id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+
+        $page_id  = (int) $page_id;
+        $page     = $this->pitchsnap_model->get_page($page_id);
+        if (!$page) { show_404(); }
+
+        $site     = $this->pitchsnap_model->get_site_by_id($page->site_id);
+        $edit_url = admin_url('pitchsnap/page_edit/' . $page_id);
+
+        $gen = $this->pitchsnap_model->get_current_page_generation($page_id);
+
+        // Eligibility
+        require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_page_publish_helper.php';
+        $eligibility_error = clickfuzz_web_page_publish_eligible($page, $site, $gen);
+        if ($eligibility_error) {
+            set_alert('danger', $eligibility_error);
+            redirect($edit_url);
+        }
+
+        $publish_type = $site->publish_type ?? 'html';
+
+        // For WordPress: resolve parent WP page ID before publishing
+        $parent_wp_page_id = null;
+        if ($publish_type === 'wordpress' && !empty($page->parent_page_id)) {
+            $parent_page = $this->pitchsnap_model->get_page((int) $page->parent_page_id);
+            if ($parent_page) {
+                if ($parent_page->status !== 'published' || empty($parent_page->wp_page_id)) {
+                    set_alert('danger', 'Parent page "' . e($parent_page->title) . '" must be published to WordPress first before this child page can be published.');
+                    redirect($edit_url);
+                }
+                $parent_wp_page_id = (int) $parent_page->wp_page_id;
+            }
+        }
+
+        // Dispatch by publish type
+        if ($publish_type === 'wordpress') {
+            $result = clickfuzz_web_publish_page_wp($page, $site, $gen, $parent_wp_page_id);
+        } else {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
+            $result = clickfuzz_web_publish_page_html($page, $site, $gen);
+        }
+
+        if (!$result['success']) {
+            set_alert('danger', 'Publish failed: ' . $result['error']);
+            redirect($edit_url);
+        }
+
+        // Mark page published in DB
+        $wp_page_id_to_store = ($publish_type === 'wordpress') ? ($result['wp_page_id'] ?? null) : null;
+        $this->pitchsnap_model->publish_page($page_id, $result['published_path'] ?? '', $wp_page_id_to_store);
+
+        // Purge obsolete generation history — keep only the current generation
+        $gen_id = (int) $gen->id;
+        $this->pitchsnap_model->cleanup_page_generations($page_id, $gen_id);
+
+        $live_url = $result['url'] ?? '';
+        $url_html = $live_url ? ' <a href="' . e($live_url) . '" target="_blank">' . e($live_url) . '</a>' : '';
+        log_activity('ClickFuzz Web: Internal page published [Page #' . $page_id . ', URL: ' . $live_url . ']');
+        set_alert('success', 'Page published successfully.' . $url_html);
+        redirect($edit_url);
     }
 
     // -----------------------------------------------------------------------

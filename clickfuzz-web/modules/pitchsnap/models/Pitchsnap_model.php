@@ -1192,6 +1192,61 @@ class Pitchsnap_model extends App_Model
     }
 
     // -----------------------------------------------------------------------
+    // Page publishing (Phase 5)
+    // -----------------------------------------------------------------------
+
+    public function get_published_pages_for_site($site_id)
+    {
+        return $this->db
+            ->where('site_id', (int) $site_id)
+            ->where('status', 'published')
+            ->order_by('menu_order', 'ASC')
+            ->order_by('title', 'ASC')
+            ->get($this->pages_table)->result();
+    }
+
+    /**
+     * Marks a page as published, storing its live path and optional WP page ID.
+     * Updates status, published_path, published_at, and wp_page_id.
+     */
+    public function publish_page($page_id, $published_path, $wp_page_id = null)
+    {
+        $data = [
+            'status'         => 'published',
+            'published_path' => $published_path,
+            'published_at'   => date('Y-m-d H:i:s'),
+        ];
+        if ($wp_page_id !== null) {
+            $data['wp_page_id'] = (int) $wp_page_id;
+        }
+        return $this->update_page((int) $page_id, $data);
+    }
+
+    /**
+     * Deletes all page generation records for a page except the specified one.
+     * Returns the number of deleted records.
+     */
+    public function cleanup_page_generations($page_id, $keep_gen_id)
+    {
+        $page_id     = (int) $page_id;
+        $keep_gen_id = (int) $keep_gen_id;
+
+        $to_delete = $this->db
+            ->where('page_id', $page_id)
+            ->where('id !=', $keep_gen_id)
+            ->count_all_results($this->page_generations_table);
+
+        if ($to_delete > 0) {
+            $this->db
+                ->where('page_id', $page_id)
+                ->where('id !=', $keep_gen_id)
+                ->delete($this->page_generations_table);
+        }
+
+        return $to_delete;
+    }
+
+    // -----------------------------------------------------------------------
     // Page generation lifecycle (Phase 4)
     // -----------------------------------------------------------------------
 
