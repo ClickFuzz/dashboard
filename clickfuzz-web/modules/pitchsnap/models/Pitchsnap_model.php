@@ -910,6 +910,27 @@ class Pitchsnap_model extends App_Model
     // Pages — internal site pages (Phase 2)
     // -----------------------------------------------------------------------
 
+    public function page_slug_available($site_id, $slug, $exclude_page_id = null)
+    {
+        $this->db->where('site_id', (int) $site_id)
+                 ->where('slug', $slug)
+                 ->where('status !=', 'trash');
+        if ($exclude_page_id) {
+            $this->db->where('id !=', (int) $exclude_page_id);
+        }
+        return $this->db->count_all_results($this->pages_table) === 0;
+    }
+
+    public function get_active_pages_for_site($site_id)
+    {
+        return $this->db
+            ->where('site_id', (int) $site_id)
+            ->where('status !=', 'trash')
+            ->order_by('menu_order', 'ASC')
+            ->order_by('title', 'ASC')
+            ->get($this->pages_table)->result();
+    }
+
     public function create_page($site_id, $data)
     {
         $now = date('Y-m-d H:i:s');

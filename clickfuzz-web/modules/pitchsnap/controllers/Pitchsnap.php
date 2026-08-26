@@ -65,6 +65,13 @@ class Pitchsnap extends AdminController
         } else {
             $data['ghl_link'] = null;
         }
+        if (!empty($data['site']) && $data['site']->status === 'published') {
+            $data['pages']      = $this->pitchsnap_model->get_pages_for_site($data['site']->id, true);
+            $data['site_media'] = $this->pitchsnap_model->get_media_for_site($data['site']->id);
+        } else {
+            $data['pages']      = [];
+            $data['site_media'] = [];
+        }
         $this->load->view('admin_detail', $data);
     }
 
@@ -798,6 +805,393 @@ class Pitchsnap extends AdminController
         $location_name = $result['data']['location']['name'] ?? $ghl_link->ghl_location_id;
         $this->pitchsnap_ghl_model->mark_connected($site_id, $ghl_link->ghl_location_id, $location_name);
         return $this->_json(['success' => true, 'message' => 'Connection verified. Location: ' . $location_name]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 3 — Pages
+    // -----------------------------------------------------------------------
+
+    // POST pitchsnap/page_add/{site_id}
+    public function page_add($site_id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+
+        $site_id = (int) $site_id;
+        $site    = $this->pitchsnap_model->get_site_by_id($site_id);
+        if (!$site || $site->status !== 'published') {
+            set_alert('danger', 'Site not found or not published.');
+            redirect(admin_url('pitchsnap/websites'));
+        }
+
+        $detail_url = admin_url('pitchsnap/detail/' . (int) $site->source_website_id);
+
+        $title = trim($this->input->post('title', true));
+        $type  = trim($this->input->post('page_type', true));
+        $slug  = trim($this->input->post('slug', true));
+        $parent_id = (int) $this->input->post('parent_page_id');
+
+        $valid_types = ['about','service','service_area','contact','gallery','financing','faq','custom'];
+        if ($title === '' || $slug === '' || !in_array($type, $valid_types, true)) {
+            set_alert('danger', 'Page name, type, and slug are required.');
+            redirect($detail_url);
+        }
+
+        // Sanitise slug
+        $slug = strtolower(preg_replace('/[^a-z0-9\-]/', '', str_replace(' ', '-', $slug)));
+        if ($slug === '') {
+            set_alert('danger', 'Slug is invalid after sanitisation.');
+            redirect($detail_url);
+        }
+
+        if (!$this->pitchsnap_model->page_slug_available($site_id, $slug)) {
+            set_alert('danger', 'A page with that slug already exists on this site.');
+            redirect($detail_url);
+        }
+
+        // Validate parent
+        $validated_parent = null;
+        if ($parent_id) {
+            if ($this->pitchsnap_model->validate_page_parent(0, $parent_id, $site_id)) {
+                $validated_parent = $parent_id;
+            }
+        }
+
+        $new_id = $this->pitchsnap_model->create_page($site_id, [
+            'title'          => $title,
+            'slug'           => $slug,
+            'page_type'      => $type,
+            'parent_page_id' => $validated_parent,
+        ]);
+
+        if (!$new_id) {
+            set_alert('danger', 'Failed to create page.');
+            redirect($detail_url);
+        }
+
+        log_activity('ClickFuzz Web: Page created [Page ID: ' . $new_id . ', Site: ' . $site_id . ']');
+        redirect(admin_url('pitchsnap/page_edit/' . $new_id));
+    }
+
+    // GET pitchsnap/page_edit/{page_id}
+    public function page_edit($page_id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        $page_id = (int) $page_id;
+        $page    = $this->pitchsnap_model->get_page($page_id);
+        if (!$page) { show_404(); }
+
+        $site = $this->pitchsnap_model->get_site_by_id($page->site_id);
+        if (!$site || $site->status !== 'published') {
+            set_alert('danger', 'Site not accessible.');
+            redirect(admin_url('pitchsnap/websites'));
+        }
+
+        $parent_options = $this->pitchsnap_model->get_active_pages_for_site($page->site_id);
+        $page_media     = $this->pitchsnap_model->get_media_for_page($page_id);
+        $site_media     = $this->pitchsnap_model->get_media_for_site($page->site_id);
+
+        $missing = [];
+        if (empty($page->title))        { $missing[] = 'Page Name'; }
+        if (empty($page->slug))         { $missing[] = 'Slug'; }
+        if (empty($page->page_type))    { $missing[] = 'Page Type'; }
+        if (empty($page->primary_keyword) && empty($page->instructions)) {
+            $missing[] = 'Primary Keyword or Generation Instructions';
+        }
+        $generate_ready = empty($missing);
+
+        $data['title']          = 'Configure Page — ' . e($page->title);
+        $data['page']           = $page;
+        $data['site']           = $site;
+        $data['detail_url']     = admin_url('pitchsnap/detail/' . (int) $site->source_website_id);
+        $data['parent_options'] = $parent_options;
+        $data['page_media']     = $page_media;
+        $data['site_media']     = $site_media;
+        $data['generate_ready'] = $generate_ready;
+        $data['missing']        = $missing;
+        $this->load->view('admin_page_edit', $data);
+    }
+
+    // POST pitchsnap/page_save/{page_id}
+    public function page_save($page_id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+
+        $page_id = (int) $page_id;
+        $page    = $this->pitchsnap_model->get_page($page_id);
+        if (!$page) { show_404(); }
+
+        $site = $this->pitchsnap_model->get_site_by_id($page->site_id);
+        if (!$site || $site->status !== 'published') {
+            set_alert('danger', 'Site not accessible.');
+            redirect(admin_url('pitchsnap/websites'));
+        }
+
+        $edit_url = admin_url('pitchsnap/page_edit/' . $page_id);
+
+        $title     = trim($this->input->post('title', true));
+        $slug      = strtolower(preg_replace('/[^a-z0-9\-]/', '', str_replace(' ', '-', trim($this->input->post('slug', true)))));
+        $type      = trim($this->input->post('page_type', true));
+        $parent_id = (int) $this->input->post('parent_page_id');
+
+        $valid_types = ['about','service','service_area','contact','gallery','financing','faq','custom'];
+        if ($title === '' || $slug === '' || !in_array($type, $valid_types, true)) {
+            set_alert('danger', 'Page name, type, and slug are required.');
+            redirect($edit_url);
+        }
+
+        if (!$this->pitchsnap_model->page_slug_available($page->site_id, $slug, $page_id)) {
+            set_alert('danger', 'A page with that slug already exists on this site.');
+            redirect($edit_url);
+        }
+
+        $validated_parent = null;
+        if ($parent_id) {
+            if ($this->pitchsnap_model->validate_page_parent($page_id, $parent_id, $page->site_id)) {
+                $validated_parent = $parent_id;
+            }
+        }
+
+        $fields = [
+            'title'               => $title,
+            'slug'                => $slug,
+            'page_type'           => $type,
+            'parent_page_id'      => $validated_parent,
+            'meta_title'          => trim($this->input->post('meta_title', true)) ?: null,
+            'meta_description'    => trim($this->input->post('meta_description', true)) ?: null,
+            'primary_keyword'     => trim($this->input->post('primary_keyword', true)) ?: null,
+            'supporting_keywords' => trim($this->input->post('supporting_keywords', true)) ?: null,
+            'instructions'        => trim($this->input->post('instructions', true)) ?: null,
+            'index_page'          => $this->input->post('index_page') ? 1 : 0,
+            'menu_primary'        => $this->input->post('menu_primary') ? 1 : 0,
+            'menu_footer'         => $this->input->post('menu_footer') ? 1 : 0,
+            'menu_label'          => trim($this->input->post('menu_label', true)) ?: null,
+            'menu_order'          => max(0, (int) $this->input->post('menu_order')),
+        ];
+
+        $this->pitchsnap_model->update_page($page_id, $fields);
+        log_activity('ClickFuzz Web: Page updated [Page ID: ' . $page_id . ']');
+        set_alert('success', 'Page saved.');
+        redirect($edit_url);
+    }
+
+    // POST pitchsnap/page_trash/{page_id}
+    public function page_trash($page_id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+
+        $page_id = (int) $page_id;
+        $page    = $this->pitchsnap_model->get_page($page_id);
+        if (!$page) { show_404(); }
+
+        $site       = $this->pitchsnap_model->get_site_by_id($page->site_id);
+        $detail_url = $site ? admin_url('pitchsnap/detail/' . (int) $site->source_website_id) : admin_url('pitchsnap/websites');
+
+        $this->pitchsnap_model->trash_page($page_id);
+        log_activity('ClickFuzz Web: Page trashed [Page ID: ' . $page_id . ']');
+        set_alert('success', 'Page moved to trash.');
+        redirect($detail_url);
+    }
+
+    // POST pitchsnap/page_restore/{page_id}
+    public function page_restore($page_id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+
+        $page_id = (int) $page_id;
+        $page    = $this->pitchsnap_model->get_page($page_id);
+        if (!$page) { show_404(); }
+
+        $site       = $this->pitchsnap_model->get_site_by_id($page->site_id);
+        $detail_url = $site ? admin_url('pitchsnap/detail/' . (int) $site->source_website_id) : admin_url('pitchsnap/websites');
+
+        $this->pitchsnap_model->restore_page($page_id);
+        log_activity('ClickFuzz Web: Page restored [Page ID: ' . $page_id . ']');
+        set_alert('success', 'Page restored.');
+        redirect($detail_url);
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 3 — Media Library
+    // -----------------------------------------------------------------------
+
+    // POST pitchsnap/media_upload/{site_id}
+    public function media_upload($site_id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+
+        $site_id = (int) $site_id;
+        $site    = $this->pitchsnap_model->get_site_by_id($site_id);
+        if (!$site || $site->status !== 'published') {
+            set_alert('danger', 'Site not found or not published.');
+            redirect(admin_url('pitchsnap/websites'));
+        }
+
+        $detail_url = admin_url('pitchsnap/detail/' . (int) $site->source_website_id);
+
+        if (!function_exists('clickfuzz_web_upload_media')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_media_helper.php';
+        }
+
+        $result = clickfuzz_web_upload_media($site_id);
+        if (!$result['success']) {
+            set_alert('danger', 'Upload failed: ' . $result['error']);
+            redirect($detail_url);
+        }
+
+        $title    = trim($this->input->post('title', true));
+        $alt_text = trim($this->input->post('alt_text', true));
+        $category = trim($this->input->post('category', true));
+
+        $valid_cats = ['logo','team','project','equipment','award','certification','before_after','general'];
+        if (!in_array($category, $valid_cats, true)) { $category = 'general'; }
+
+        $this->pitchsnap_model->create_media($site_id, [
+            'filename'          => $result['filename'],
+            'original_filename' => $result['original_filename'],
+            'title'             => $title !== '' ? $title : $result['original_filename'],
+            'alt_text'          => $alt_text !== '' ? $alt_text : null,
+            'category'          => $category,
+            'mime_type'         => $result['mime_type'],
+            'file_size'         => $result['file_size'],
+        ]);
+
+        log_activity('ClickFuzz Web: Media uploaded [Site: ' . $site_id . ', File: ' . $result['filename'] . ']');
+        set_alert('success', 'Media uploaded successfully.');
+        redirect($detail_url);
+    }
+
+    // POST pitchsnap/media_save/{media_id}  — update metadata
+    public function media_save($media_id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+
+        $media_id = (int) $media_id;
+        $media    = $this->pitchsnap_model->get_media($media_id);
+        if (!$media) { show_404(); }
+
+        $site       = $this->pitchsnap_model->get_site_by_id($media->site_id);
+        $detail_url = $site ? admin_url('pitchsnap/detail/' . (int) $site->source_website_id) : admin_url('pitchsnap/websites');
+
+        $category   = trim($this->input->post('category', true));
+        $valid_cats = ['logo','team','project','equipment','award','certification','before_after','general'];
+        if (!in_array($category, $valid_cats, true)) { $category = $media->category; }
+
+        $this->pitchsnap_model->update_media($media_id, [
+            'title'       => trim($this->input->post('title', true)) ?: $media->title,
+            'description' => trim($this->input->post('description', true)) ?: null,
+            'alt_text'    => trim($this->input->post('alt_text', true)) ?: null,
+            'category'    => $category,
+        ]);
+
+        log_activity('ClickFuzz Web: Media metadata updated [Media ID: ' . $media_id . ']');
+        set_alert('success', 'Media updated.');
+        redirect($detail_url);
+    }
+
+    // POST pitchsnap/media_delete/{media_id}
+    public function media_delete($media_id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+
+        $media_id = (int) $media_id;
+        $media    = $this->pitchsnap_model->get_media($media_id);
+        if (!$media) { show_404(); }
+
+        $site       = $this->pitchsnap_model->get_site_by_id($media->site_id);
+        $detail_url = $site ? admin_url('pitchsnap/detail/' . (int) $site->source_website_id) : admin_url('pitchsnap/websites');
+
+        // Check if media is attached to any pages
+        $in_use = $this->db->where('media_id', $media_id)->count_all_results(db_prefix() . 'pitchsnap_page_media');
+        if ($in_use > 0) {
+            set_alert('danger', 'This media is attached to ' . $in_use . ' page(s). Detach it from all pages before deleting.');
+            redirect($detail_url);
+        }
+
+        if (!function_exists('clickfuzz_web_delete_media_file')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_media_helper.php';
+        }
+        clickfuzz_web_delete_media_file($media->site_id, $media->filename);
+        $this->pitchsnap_model->delete_media($media_id);
+
+        log_activity('ClickFuzz Web: Media deleted [Media ID: ' . $media_id . ', Site: ' . $media->site_id . ']');
+        set_alert('success', 'Media removed.');
+        redirect($detail_url);
+    }
+
+    // GET pitchsnap/media_json/{site_id}  — for AJAX pickers
+    public function media_json($site_id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false]); }
+        $site_id = (int) $site_id;
+        $site    = $this->pitchsnap_model->get_site_by_id($site_id);
+        if (!$site) { return $this->_json(['success' => false, 'media' => []]); }
+
+        if (!function_exists('clickfuzz_web_media_url')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_media_helper.php';
+        }
+
+        $items = $this->pitchsnap_model->get_media_for_site($site_id);
+        $out   = [];
+        foreach ($items as $m) {
+            $out[] = [
+                'id'       => (int) $m->id,
+                'title'    => $m->title,
+                'alt_text' => $m->alt_text,
+                'category' => $m->category,
+                'url'      => clickfuzz_web_media_url($m->site_id, $m->filename),
+            ];
+        }
+        return $this->_json(['success' => true, 'media' => $out]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 3 — Page ↔ Media relationships
+    // -----------------------------------------------------------------------
+
+    // POST pitchsnap/page_media_attach/{page_id}
+    public function page_media_attach($page_id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+        if (!$this->input->post()) { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+
+        $page_id  = (int) $page_id;
+        $media_id = (int) $this->input->post('media_id');
+        $page     = $this->pitchsnap_model->get_page($page_id);
+        $media    = $this->pitchsnap_model->get_media($media_id);
+
+        if (!$page || !$media) {
+            return $this->_json(['success' => false, 'message' => 'Page or media not found.']);
+        }
+        if ((int) $page->site_id !== (int) $media->site_id) {
+            return $this->_json(['success' => false, 'message' => 'Cross-site media attachment is not allowed.']);
+        }
+
+        $ok = $this->pitchsnap_model->attach_media_to_page($page_id, $media_id);
+        return $this->_json(['success' => $ok, 'message' => $ok ? 'Media attached.' : 'Attachment failed.']);
+    }
+
+    // POST pitchsnap/page_media_detach/{page_id}
+    public function page_media_detach($page_id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+        if (!$this->input->post()) { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+
+        $page_id  = (int) $page_id;
+        $media_id = (int) $this->input->post('media_id');
+        $page     = $this->pitchsnap_model->get_page($page_id);
+        if (!$page) {
+            return $this->_json(['success' => false, 'message' => 'Page not found.']);
+        }
+
+        $ok = $this->pitchsnap_model->detach_media_from_page($page_id, $media_id);
+        return $this->_json(['success' => true, 'message' => 'Media detached.']);
     }
 
     private function _json($data)

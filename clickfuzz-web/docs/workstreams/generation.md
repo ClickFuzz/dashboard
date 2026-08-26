@@ -94,6 +94,26 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ---
 
+## Phase 3 — Pages & Media Admin UI (2026-08-26, committed, server deployment pending)
+
+- **Generate Pages section** in Website tab (visible only when `site.status === 'published'`); shows hierarchical page list with indent, type, status, generation status, slug, Configure/Trash/Restore actions
+- **Add Page modal**: name, type, parent (active same-site only), slug (auto-suggested from name); POSTs to `page_add/{site_id}`; redirects to page_edit
+- **Page configuration page** (`admin_page_edit.php`): four panels — Page (name/slug/type/parent), SEO (keyword, meta, index), Navigation (primary/footer menus, label, order), Generation Instructions (textarea); plus Page Media picker sidebar
+- **Disabled Generate Page button** with readiness checklist: requires title, slug, type, and (primary_keyword OR instructions)
+- **Media Library section** in Website tab: upload form (JPEG/PNG/GIF/WebP/SVG, 10MB max, MIME validated via finfo, random hex filename); grid of thumbnails with Edit modal and Delete button
+- **Upload security**: `finfo` server-side MIME detection, `is_uploaded_file()` check, site-id directory isolation, path traversal guard in delete
+- **Media storage**: `dashboard/media/{site_id}/{filename}` — follows same convention as `dashboard/previews/` and `dashboard/sites/`
+- **Media deletion guard**: blocked with error message if media is attached to any pages; unused media removes file + DB record
+- **Page media selection**: in page_edit view, site library grid with attach/detach via AJAX; green border = attached, gray = unattached
+- **Controller**: 11 new methods — `page_add`, `page_edit`, `page_save`, `page_trash`, `page_restore`, `media_upload`, `media_save`, `media_delete`, `media_json`, `page_media_attach`, `page_media_detach`
+- **Routes**: 11 new routes in `config/routes.php` + fallbacks in `my_routes.php`
+- **Model**: `page_slug_available()`, `get_active_pages_for_site()` added
+- **Helper**: `modules/pitchsnap/helpers/pitchsnap_media_helper.php` — upload, delete, URL, dir functions
+- **Tests**: `test_phase3_pages.php` — 50+ pure-PHP assertions (T1-T15); 20 DB-dependent SKIPs documented
+- **Server deployment blocked** by DA file manager 500 error — code committed and pushed; deploy when DA recovers or via SSH
+
+---
+
 ## Phase 2 — Internal Pages + Media Library Data Foundation (2026-08-26, committed, server deployment pending)
 
 - DB migration v16: 4 new tables created with `CREATE TABLE IF NOT EXISTS` guards; v15 ALTERs preserved for servers still at v14
@@ -171,8 +191,8 @@ Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 code committe
 
 ## Next
 
-- **Deploy Phase 2 to server** — when DA file manager recovers, upload `pitchsnap.php`, `Pitchsnap_model.php`, `test_phase2_pages.php`; run v16 migration probe; verify syntax + test output
-- Begin Phase 3: admin UI for pages and media library (tab_pages.php in admin_detail)
+- **Deploy Phase 2 + Phase 3 to server** — when DA file manager recovers, upload all changed files; run v16 migration probe; verify syntax + run test_phase2_pages.php + test_phase3_pages.php
+- Begin Phase 4: AI page generation (Anthropic, prompt construction, per-page generation_status lifecycle)
 - Run end-to-end Lenka generation to verify Level B guardrail prevents navy/orange output
 - Move `ps_colorprobe.php` into admin as Source Diagnostics page
 - Investigate capturing body background from external CSS (fetch first same-origin `<link rel="stylesheet">`)
@@ -181,6 +201,7 @@ Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 code committe
 
 ## History
 
+- **2026-08-26** — Phase 3: pages + media admin UI; 11 controller methods; media helper; page_edit full view; test_phase3_pages.php; DA file manager down, server deployment pending
 - **2026-08-26** — Phase 2 data foundation: v16 migration (4 tables), Pitchsnap_model Phase 2 methods, test_phase2_pages.php; DA file manager down, server deployment pending
 - **2026-08-26** — Phase 1 deployed: v15 migration confirmed, all 42 unit tests passing, WordPress two-phase publish, canonical lock, cleanup on publish
 - **2026-08-23** — Lead-profile tab hooks restored (regression from HMVC restructuring); conversation empty state fixed in admin_lead.php
