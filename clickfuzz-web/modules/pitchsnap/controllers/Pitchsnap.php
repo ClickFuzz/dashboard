@@ -57,7 +57,7 @@ class Pitchsnap extends AdminController
         $data['versions']      = $versions;
         $data['lead']          = $lead;
         $data['conversations'] = $this->pitchsnap_model->get_conversations($website->id);
-        $data['site']          = $this->pitchsnap_model->get_site_by_website_id((int) $website->id);
+        $data['site']          = $this->pitchsnap_model->get_site_by_website_id((int) $entry->id);
         $data['agreement']     = !empty($data['site']) ? $this->pitchsnap_model->get_agreement_by_site($data['site']->id) : null;
         if (!empty($data['site'])) {
             $this->load->model('pitchsnap_ghl_model');
