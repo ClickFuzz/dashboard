@@ -308,7 +308,9 @@ function clickfuzz_web_remote_put(string $relative_path, string $content): array
     // Base is an absolute server path (e.g. /home/xqsfhrlj/.../sites).
     // Keeping the leading '/' produces a double-slash after the host in the URL,
     // which tells cURL to treat the path as absolute (not relative to FTP root).
-    $url = 'ftps://' . rtrim($host, '/') . '/' . rtrim($base, '/') . '/' . ltrim($relative_path, '/');
+    // ftp:// with CURLUSESSL_ALL = Explicit FTPS (AUTH TLS on port 21).
+    // ftps:// would be Implicit FTPS on port 990, which DirectAdmin does not use.
+    $url = 'ftp://' . rtrim($host, '/') . '/' . rtrim($base, '/') . '/' . ltrim($relative_path, '/');
 
     $fp = fopen('php://temp', 'r+');
     if ($fp === false) {
@@ -325,6 +327,7 @@ function clickfuzz_web_remote_put(string $relative_path, string $content): array
         CURLOPT_INFILE                  => $fp,
         CURLOPT_INFILESIZE              => strlen($content),
         CURLOPT_FTP_CREATE_MISSING_DIRS => 2,   // CURLFTP_CREATE_DIR_RETRY
+        CURLOPT_USE_SSL                 => CURLUSESSL_ALL,  // require TLS — no plaintext fallback
         CURLOPT_SSL_VERIFYPEER          => false,
         CURLOPT_SSL_VERIFYHOST          => 0,
         CURLOPT_FTPSSLAUTH              => CURLFTPAUTH_TLS,
