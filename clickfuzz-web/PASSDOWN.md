@@ -69,13 +69,19 @@ Public endpoints must be added to `$app_csrf_exclude_uris` in `application/confi
 
 ## Current Production / Main Baseline
 
-As of 2026-08-23, `main` is at commit `4e85bde` and is in sync with `origin/main` on GitHub.
-
-Production is verified identical to the pre-recovery-audit main baseline. The recovery commit (`4e85bde`) adds the lead-profile tab and conversation empty-state fix — these must be deployed to production.
+As of 2026-08-26, `main` is at commit `ef02893` (GHL Phase 1). Production is verified hash-identical to main for all 6 GHL-changed files.
 
 **Items pending production deployment:**
-- Lead-profile tab hooks (restored 2026-08-23)
-- Conversation empty state fix in admin_lead.php (2026-08-23)
+- Lead-profile tab hooks (restored 2026-08-23) — still not deployed
+- Conversation empty state fix in admin_lead.php (2026-08-23) — still not deployed
+
+**GHL Phase 1 deployed 2026-08-26 (hash-verified):**
+- `modules/pitchsnap/controllers/Pitchsnap.php`
+- `modules/pitchsnap/pitchsnap.php`
+- `modules/pitchsnap/views/admin_detail/tab_ghl.php`
+- `modules/pitchsnap/views/admin_settings.php`
+- `modules/pitchsnap/libraries/Pitchsnap_ghl.php` (new)
+- `modules/pitchsnap/models/Pitchsnap_ghl_model.php` (new)
 
 ---
 
@@ -100,7 +106,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 |---|---|---|
 | `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `0fe1d30` |
 | `claude/generation` | `worktrees/dashboard/generation` | Active — at `7ade348`, feature changes present |
-| `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | Ready — from `0fe1d30`, no feature changes yet |
+| `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test (enter Agency Private Integration Token, link a Location ID, verify Test Connection). |
 | `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
 | `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Active** — Phases 1–4 complete. DB v12 + `tblpitchsnap_site_domains` live. Hosted-site runtime at `sites.clickfuzz.com`. `jackrabbit.clickfuzz.com` live. Publishing tab shows correct live URL, Open Site button, Republish state. Pending: merge to main, Phase 5 (custom domains). |
