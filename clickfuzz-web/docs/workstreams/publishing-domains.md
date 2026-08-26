@@ -155,8 +155,11 @@ Custom domains come later.
 **DNS helper** (`pitchsnap_dns_helper.php`):
 - Constants: `CFZ_DNS_SERVER_IP = 104.152.168.38`, `CFZ_DNS_RUNTIME_HOST = sites.clickfuzz.com`
 - `clickfuzz_web_hostname_is_apex($hostname)` — true when exactly one dot (root domain)
-- `clickfuzz_web_expected_dns_records($hostname)` — apex: `[A @ → IP, CNAME www → runtime]`; subdomain: `[CNAME {label} → runtime]`
-- `clickfuzz_web_verify_dns($hostname, $a_lookup, $cname_lookup, $resolver)` — injectable callables for testability; checks A record match, CNAME→sites.clickfuzz.com with IP chain follow; `verified/pending/failed` result with reason and observed records; wrong records → failed, absent → pending
+- `clickfuzz_web_expected_dns_records($hostname)` — apex: `[A @ → IP, CNAME www → runtime]` (both required); subdomain: `[CNAME {label} → runtime]`
+- `clickfuzz_web_verify_dns($hostname, $a_lookup, $cname_lookup, $resolver)` — injectable callables for testability
+  - Apex: `_cfz_verify_dns_apex_pair()` — BOTH `A @` and `CNAME www` must be correct to reach 'verified'; wrong record on either → failed; absent → pending
+  - Subdomain: `_cfz_verify_dns_single()` — single hostname check (CNAME or A)
+  - Architecture: customer keeps their nameservers/email DNS; only website records change
 
 **Model** (`Pitchsnap_model`):
 - `update_domain_verification($domain_id, $status, $verified_at)` — narrow update, never touches `ssl_status`
@@ -166,17 +169,27 @@ Custom domains come later.
 
 **Publishing tab**:
 - DNS record instructions table shown when custom domain is pending/failed (hidden when verified)
+- www CNAME shown as "required" (not "recommended")
+- Nameserver safety note: "Keep your existing nameservers and email/DNS records. Only add or update the records shown below."
 - Verify DNS button (POST form) alongside Remove Domain
 - Verified-at timestamp shown when verified
 - SSL label reads "Pending (after verification)" when ssl_status=pending
 
-**Tests**: 102/102 pass — 27 new assertions in sections 21–31
+**Tests**: 103/103 pass — apex-pair tests in sections 23–29 (both correct → verified; A ok + www missing → pending; wrong www CNAME → failed; wrong A → failed; subdomain CNAME tests unchanged)
 
 ---
 
+## Architecture Decisions (DNS)
+
+- Customer **keeps existing nameservers** — do NOT ask them to change nameservers or transfer DNS
+- Only website-specific DNS records are modified
+- Apex domain is canonical; `www` should ultimately redirect to apex (redirect not yet implemented)
+- Apex requires BOTH `A @ → 104.152.168.38` AND `CNAME www → sites.clickfuzz.com` — both are required, not optional
+- Existing MX/TXT/email records must remain untouched
+
 ## In Progress
 
-Nothing — Phases 1–5B are complete.
+Nothing — Phases 1–5B (including apex-pair adjustment) are complete.
 
 ---
 
@@ -209,3 +222,4 @@ Phase 5C: Real DNS test + SSL provisioning
 - 2026-08-25: Phase 4 complete — first real site published (jackrabbit.clickfuzz.com, site_id=6), Publishing tab updated with live URL, Open Site button, and Republish state.
 - 2026-08-25: Phase 5A complete — custom domain data model, normalization/validation helper, save/remove controller actions, Custom Domain UI in Publishing tab. 75/75 tests pass. DB at v13.
 - 2026-08-26: Phase 5B complete — DNS helper with injectable lookups, verify_custom_domain controller action, DNS record instructions table in Publishing tab. 102/102 tests pass.
+- 2026-08-26: Phase 5B adjustment — apex-pair DNS verification (both A @ and CNAME www required; 'verified' only when both pass). Nameserver safety note added to UI. 103/103 tests pass.
