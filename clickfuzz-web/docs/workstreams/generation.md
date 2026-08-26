@@ -130,9 +130,39 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ---
 
+## Phase 4 — Internal Page AI Generation (2026-08-26, committed, server deployment pending)
+
+- **Security fix**: SVG removed from `PS_MEDIA_ALLOWED_MIMES` in `pitchsnap_media_helper.php`; T6e in `test_phase3_pages.php` updated to assert SVG is rejected
+- **New helper**: `modules/pitchsnap/helpers/pitchsnap_page_generation_helper.php`
+  - `clickfuzz_web_page_is_ready_to_generate($page)` — readiness check (title, slug, type, keyword or instructions)
+  - `clickfuzz_web_queue_page_generation($page_id)` — validates readiness; atomically sets `generation_status='generating'`
+  - `clickfuzz_web_generate_page($page)` — cron entry point; calls Anthropic, parses output, stores generation record
+  - `clickfuzz_web_build_page_prompt($page, $site, $lead, $redesign, $parent_pages, $page_media)` — full prompt: business context, page details, type instructions, media list, main site HTML excerpt
+  - `clickfuzz_web_get_page_type_instructions($page_type)` — 8 type modules: about, service, service_area, contact, gallery, financing, faq, custom
+  - `clickfuzz_web_extract_page_output($raw)` — parses `<body_html>`, `<page_css>`, `<page_js>`, `<meta_title>`, `<meta_description>` delimiters; fallback for undelimited HTML
+- **Model additions** (Phase 4 section):
+  - `get_pages_for_generation($limit=5)` — pages with `generation_status='generating'`, ordered by `dateupdated ASC`
+  - `queue_page_for_generation($page_id)` — atomic UPDATE WHERE `generation_status IN ('not_generated','failed')`; returns affected rows > 0
+  - `mark_page_generation_success($page_id)` — sets `generation_status='generated'`
+  - `mark_page_generation_failed($page_id, $error)` — sets `generation_status='failed'`; logs to `tblpitchsnap_logs`
+- **Cron extended**: Phase 4 block appended to `clickfuzz_web_cron_run()` — loads page generation helper; processes up to 5 pages per cron tick
+- **Controller additions** (3 new methods):
+  - `page_generate($page_id)` — POST; queues page; flash+redirect to page_edit
+  - `page_preview($page_id)` — GET; serves current generation HTML; supports `?gen=` for viewing specific versions; noindex meta injected
+  - `page_generation_set_current($generation_id)` — POST; calls `set_current_page_generation`; rejects cross-page IDs
+- **Routes**: 3 new routes added to both `modules/pitchsnap/config/routes.php` and `application/config/my_routes.php`
+- **`admin_page_edit.php` updated**: Sidebar generation panel now status-aware — generating spinner, generated→preview+regenerate, failed→retry, not_generated→generate (active/disabled based on readiness). Version history panel added (visible when generations exist): table with version number, date, Preview link, Use button for non-current versions. Controller now passes `$generations` and `$current_gen` to view. `page_edit()` passes both to view
+- **`page_edit()` updated**: passes `$data['generations']` and `$data['current_gen']` to view
+- **Tests**: `test_phase4_pages.php` — 11 test groups, 50+ pure-PHP assertions, 20 DB/API SKIPs
+- **Provider**: Anthropic only (no Manus, no fallback)
+- **Storage**: `tblpitchsnap_page_generations` DB only; no filesystem preview files
+- **Generation lifecycle**: `not_generated → generating → generated / failed`
+
+---
+
 ## In Progress
 
-- Nothing in progress. Phase 2 code complete (2026-08-26); server deployment pending DA recovery.
+- Nothing in progress. Phase 4 code complete (2026-08-26); server deployment pending DA recovery.
 
 ---
 
@@ -185,14 +215,14 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ## Production Status
 
-Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 code committed and pushed (2026-08-26); server at v15 pending deployment to v16. DA file manager was unavailable at time of Phase 2 commit — deploy when DA recovers or via SSH.
+Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 + Phase 3 + Phase 4 code committed and pushed (2026-08-26); server at v15 pending deployment to v16. DA file manager was unavailable — deploy when DA recovers or via SSH (`git pull origin claude/generation` from server dashboard directory).
 
 ---
 
 ## Next
 
-- **Deploy Phase 2 + Phase 3 to server** — when DA file manager recovers, upload all changed files; run v16 migration probe; verify syntax + run test_phase2_pages.php + test_phase3_pages.php
-- Begin Phase 4: AI page generation (Anthropic, prompt construction, per-page generation_status lifecycle)
+- **Deploy Phase 2 + Phase 3 + Phase 4 to server** — when DA file manager recovers (or via SSH `git pull origin claude/generation`), upload all changed files; run v16 migration probe; verify syntax + run test_phase2_pages.php + test_phase3_pages.php + test_phase4_pages.php
+- Begin Phase 5: AI page publishing (HTML export or WordPress REST) — do NOT begin until instructed
 - Run end-to-end Lenka generation to verify Level B guardrail prevents navy/orange output
 - Move `ps_colorprobe.php` into admin as Source Diagnostics page
 - Investigate capturing body background from external CSS (fetch first same-origin `<link rel="stylesheet">`)
@@ -201,6 +231,7 @@ Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 code committe
 
 ## History
 
+- **2026-08-26** — Phase 4: SVG security fix; page generation helper (readiness, queue, generate, prompt, extract); model Phase 4 methods; cron Phase 4 block; page_generate/page_preview/page_generation_set_current controller+routes; admin_page_edit updated; test_phase4_pages.php; DA file manager down, server deployment pending
 - **2026-08-26** — Phase 3: pages + media admin UI; 11 controller methods; media helper; page_edit full view; test_phase3_pages.php; DA file manager down, server deployment pending
 - **2026-08-26** — Phase 2 data foundation: v16 migration (4 tables), Pitchsnap_model Phase 2 methods, test_phase2_pages.php; DA file manager down, server deployment pending
 - **2026-08-26** — Phase 1 deployed: v15 migration confirmed, all 42 unit tests passing, WordPress two-phase publish, canonical lock, cleanup on publish

@@ -26,3 +26,6 @@ $route['pitchsnap/media_delete/(:num)']      = 'pitchsnap/pitchsnap/media_delete
 $route['pitchsnap/media_json/(:num)']        = 'pitchsnap/pitchsnap/media_json/$1';
 $route['pitchsnap/page_media_attach/(:num)'] = 'pitchsnap/pitchsnap/page_media_attach/$1';
 $route['pitchsnap/page_media_detach/(:num)'] = 'pitchsnap/pitchsnap/page_media_detach/$1';
+$route['pitchsnap/page_generate/(:num)']               = 'pitchsnap/pitchsnap/page_generate/$1';
+$route['pitchsnap/page_preview/(:num)']                = 'pitchsnap/pitchsnap/page_preview/$1';
+$route['pitchsnap/page_generation_set_current/(:num)'] = 'pitchsnap/pitchsnap/page_generation_set_current/$1';

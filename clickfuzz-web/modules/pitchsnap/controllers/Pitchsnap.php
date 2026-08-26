@@ -909,6 +909,8 @@ class Pitchsnap extends AdminController
         $data['site_media']     = $site_media;
         $data['generate_ready'] = $generate_ready;
         $data['missing']        = $missing;
+        $data['generations']    = $this->pitchsnap_model->get_page_generations($page_id);
+        $data['current_gen']    = $this->pitchsnap_model->get_current_page_generation($page_id);
         $this->load->view('admin_page_edit', $data);
     }
 
@@ -1192,6 +1194,113 @@ class Pitchsnap extends AdminController
 
         $ok = $this->pitchsnap_model->detach_media_from_page($page_id, $media_id);
         return $this->_json(['success' => true, 'message' => 'Media detached.']);
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 4 — Internal page AI generation
+    // -----------------------------------------------------------------------
+
+    // POST pitchsnap/page_generate/{page_id}
+    // Queue a page for Anthropic generation via the cron runner.
+    public function page_generate($page_id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+
+        $page_id  = (int) $page_id;
+        $page     = $this->pitchsnap_model->get_page($page_id);
+        if (!$page) { show_404(); }
+
+        $site     = $this->pitchsnap_model->get_site_by_id($page->site_id);
+        $edit_url = admin_url('pitchsnap/page_edit/' . $page_id);
+
+        require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_page_generation_helper.php';
+        $queued = clickfuzz_web_queue_page_generation($page_id);
+
+        if (!$queued['success']) {
+            set_alert('danger', $queued['error']);
+            redirect($edit_url);
+        }
+
+        log_activity('ClickFuzz Web: Page queued for generation [Page #' . $page_id . ']');
+        set_alert('success', 'Page queued for generation. The cron runner will generate it shortly.');
+        redirect($edit_url);
+    }
+
+    // GET pitchsnap/page_preview/{page_id}
+    // Serve the current generated page HTML for in-browser preview.
+    public function page_preview($page_id = '')
+    {
+        if (!is_staff_member()) { access_denied('ClickFuzz Web'); }
+
+        $page_id = (int) $page_id;
+        $page    = $this->pitchsnap_model->get_page($page_id);
+        if (!$page) { show_404(); }
+
+        $gen_id = (int) $this->input->get('gen');
+        $gen    = $gen_id
+            ? $this->pitchsnap_model->get_page_generation($gen_id)
+            : $this->pitchsnap_model->get_current_page_generation($page_id);
+
+        // Verify the requested generation belongs to this page
+        if ($gen && (int) $gen->page_id !== $page_id) {
+            $gen = null;
+        }
+
+        if (!$gen || empty($gen->html_content)) {
+            show_error('No generated content available for this page yet.', 404);
+        }
+
+        $site     = $this->pitchsnap_model->get_site_by_id($page->site_id);
+        $redesign = ($site && !empty($site->source_website_id))
+            ? $this->pitchsnap_model->get((int) $site->source_website_id)
+            : null;
+
+        // Build a minimal full HTML page around the stored body_html
+        $css_block = !empty($gen->css_content) ? '<style>' . $gen->css_content . '</style>' : '';
+        $js_block  = !empty($gen->js_content)  ? '<script>' . $gen->js_content . '</script>' : '';
+
+        $meta_title = htmlspecialchars($gen->meta_title_generated ?: $page->title, ENT_QUOTES, 'UTF-8');
+        $meta_desc  = htmlspecialchars($gen->meta_description_generated ?: '', ENT_QUOTES, 'UTF-8');
+
+        $html = '<!DOCTYPE html><html lang="en"><head>'
+              . '<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+              . '<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">'
+              . '<title>' . $meta_title . '</title>'
+              . ($meta_desc ? '<meta name="description" content="' . $meta_desc . '">' : '')
+              . $css_block
+              . '</head><body>'
+              . $gen->html_content
+              . $js_block
+              . '</body></html>';
+
+        $this->output
+            ->set_content_type('text/html')
+            ->set_output($html);
+    }
+
+    // POST pitchsnap/page_generation_set_current/{generation_id}
+    // Make a specific version the current generation for its page.
+    public function page_generation_set_current($generation_id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+
+        $generation_id = (int) $generation_id;
+        $gen           = $this->pitchsnap_model->get_page_generation($generation_id);
+        if (!$gen) { show_404(); }
+
+        $page     = $this->pitchsnap_model->get_page($gen->page_id);
+        $edit_url = admin_url('pitchsnap/page_edit/' . $gen->page_id);
+
+        $ok = $this->pitchsnap_model->set_current_page_generation($gen->page_id, $generation_id);
+        if ($ok) {
+            log_activity('ClickFuzz Web: Page generation version set [Page #' . $gen->page_id . ', Gen #' . $generation_id . ']');
+            set_alert('success', 'Version set as current.');
+        } else {
+            set_alert('danger', 'Could not set version — it may not belong to this page.');
+        }
+        redirect($edit_url);
     }
 
     private function _json($data)

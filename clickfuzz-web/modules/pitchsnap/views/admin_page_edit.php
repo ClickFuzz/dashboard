@@ -330,31 +330,115 @@ $_is_trashed = $page->status === 'trash';
                 <!-- ── Sidebar ──────────────────────────────────────────── -->
                 <div class="col-md-4">
 
-                    <!-- Generate button (disabled — Phase 4) -->
+                    <!-- Page Generation panel -->
                     <div class="panel_s">
                         <div class="panel-body">
                             <h5 class="tw-font-semibold mbot10">Page Generation</h5>
+
+                            <?php if ($page->generation_status === 'generating') { ?>
+                            <!-- Generating in progress -->
+                            <div class="alert alert-info" style="font-size:12px; padding:8px 12px;">
+                                <i class="fa fa-spinner fa-spin"></i> Generation in progress — the cron runner is working on this page.
+                            </div>
+                            <button type="button" class="btn btn-default btn-block" disabled>
+                                <i class="fa fa-spinner fa-spin"></i> Generating…
+                            </button>
+
+                            <?php } elseif ($page->generation_status === 'generated' && $current_gen) { ?>
+                            <!-- Generated: show preview + regenerate -->
+                            <p class="text-success" style="font-size:12px; margin-bottom:8px;">
+                                <i class="fa fa-check-circle"></i> Page generated successfully.
+                            </p>
+                            <a href="<?php echo admin_url('pitchsnap/page_preview/' . (int)$page->id); ?>"
+                               target="_blank" class="btn btn-info btn-block mbot5">
+                                <i class="fa fa-eye"></i> Preview Page
+                            </a>
+                            <?php if (!$_is_trashed) { ?>
+                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-warning btn-block"
+                                        onclick="return confirm('Regenerate this page? A new version will be created.');">
+                                    <i class="fa fa-refresh"></i> Regenerate
+                                </button>
+                            </form>
+                            <?php } ?>
+
+                            <?php } elseif ($page->generation_status === 'failed') { ?>
+                            <!-- Failed: show retry -->
+                            <div class="alert alert-danger" style="font-size:12px; padding:8px 12px; margin-bottom:8px;">
+                                <i class="fa fa-exclamation-triangle"></i> Last generation failed.
+                            </div>
+                            <?php if (!$_is_trashed && $generate_ready) { ?>
+                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-danger btn-block">
+                                    <i class="fa fa-bolt"></i> Retry Generation
+                                </button>
+                            </form>
+                            <?php } ?>
+
+                            <?php } else { ?>
+                            <!-- Not yet generated -->
                             <?php if ($generate_ready) { ?>
                             <p class="text-success" style="font-size:12px; margin-bottom:10px;">
                                 <i class="fa fa-check-circle"></i> This page is ready to generate.
                             </p>
                             <?php } else { ?>
-                            <p class="text-muted" style="font-size:12px; margin-bottom:8px;">Missing before generation:</p>
+                            <p class="text-muted" style="font-size:12px; margin-bottom:6px;">Missing before generation:</p>
                             <ul style="font-size:12px; padding-left:18px; margin-bottom:10px; color:#888;">
                                 <?php foreach ($missing as $_miss) { ?>
                                 <li><?php echo e($_miss); ?></li>
                                 <?php } ?>
                             </ul>
                             <?php } ?>
-                            <button type="button" class="btn btn-primary btn-block" disabled
-                                    title="AI page generation is not yet available (Phase 4).">
+                            <?php if (!$_is_trashed && $generate_ready) { ?>
+                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-primary btn-block">
+                                    <i class="fa fa-bolt"></i> Generate Page
+                                </button>
+                            </form>
+                            <?php } else { ?>
+                            <button type="button" class="btn btn-primary btn-block" disabled>
                                 <i class="fa fa-bolt"></i> Generate Page
                             </button>
-                            <small class="text-muted" style="display:block; margin-top:6px; font-size:11px;">
-                                AI generation coming in Phase 4.
-                            </small>
+                            <?php } ?>
+                            <?php } ?>
+
                         </div>
                     </div>
+
+                    <?php if (!empty($generations)) { ?>
+                    <!-- Version history panel -->
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h5 class="tw-font-semibold mbot10">Version History</h5>
+                            <table class="table table-condensed" style="font-size:12px; margin-bottom:0;">
+                                <thead><tr><th>#</th><th>Date</th><th>Actions</th></tr></thead>
+                                <tbody>
+                                <?php foreach ($generations as $_gi => $_gen) { ?>
+                                <tr class="<?php echo $_gen->is_current ? 'success' : ''; ?>">
+                                    <td><?php echo count($generations) - $_gi; ?><?php echo $_gen->is_current ? ' <span class="label label-success">current</span>' : ''; ?></td>
+                                    <td><?php echo _dt($_gen->dateadded); ?></td>
+                                    <td>
+                                        <a href="<?php echo admin_url('pitchsnap/page_preview/' . (int)$page->id . '?gen=' . (int)$_gen->id); ?>"
+                                           target="_blank" title="Preview" style="margin-right:4px;">
+                                            <i class="fa fa-eye"></i>
+                                        </a>
+                                        <?php if (!$_gen->is_current) { ?>
+                                        <form action="<?php echo admin_url('pitchsnap/page_generation_set_current/' . (int)$_gen->id); ?>" method="post" style="display:inline;">
+                                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                            <button type="submit" class="btn btn-xs btn-default" title="Set as current">Use</button>
+                                        </form>
+                                        <?php } ?>
+                                    </td>
+                                </tr>
+                                <?php } ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <?php } ?>
 
                     <!-- Page info -->
                     <div class="panel_s">

@@ -7,7 +7,6 @@ define('PS_MEDIA_ALLOWED_MIMES', [
     'image/png'     => 'png',
     'image/gif'     => 'gif',
     'image/webp'    => 'webp',
-    'image/svg+xml' => 'svg',
 ]);
 
 define('PS_MEDIA_MAX_BYTES', 10 * 1024 * 1024); // 10 MB

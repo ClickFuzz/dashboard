@@ -287,6 +287,24 @@ function clickfuzz_web_cron_run()
             log_activity('ClickFuzz Web: Publish poll exception [Website ID: ' . $website->id . '] ' . $e->getMessage());
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Phase 4: Generate internal pages queued for AI generation
+    //          Pages with generation_status='generating' → Anthropic sync
+    // -----------------------------------------------------------------------
+
+    require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_page_generation_helper.php';
+
+    $pages_to_generate = $CI->pitchsnap_model->get_pages_for_generation(5);
+
+    foreach ($pages_to_generate as $page) {
+        try {
+            clickfuzz_web_generate_page($page);
+        } catch (Exception $e) {
+            $CI->pitchsnap_model->mark_page_generation_failed($page->id, $e->getMessage());
+            log_activity('ClickFuzz Web: Page generation exception [Page #' . $page->id . '] ' . $e->getMessage());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

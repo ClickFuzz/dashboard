@@ -32,3 +32,8 @@ $route['pitchsnap/media_json/(:num)']        = 'pitchsnap/media_json/$1';
 // Phase 3 — page ↔ media relationships
 $route['pitchsnap/page_media_attach/(:num)'] = 'pitchsnap/page_media_attach/$1';
 $route['pitchsnap/page_media_detach/(:num)'] = 'pitchsnap/page_media_detach/$1';
+
+// Phase 4 — page AI generation
+$route['pitchsnap/page_generate/(:num)']               = 'pitchsnap/page_generate/$1';
+$route['pitchsnap/page_preview/(:num)']                = 'pitchsnap/page_preview/$1';
+$route['pitchsnap/page_generation_set_current/(:num)'] = 'pitchsnap/page_generation_set_current/$1';

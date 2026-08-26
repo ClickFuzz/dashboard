@@ -1190,4 +1190,59 @@ class Pitchsnap_model extends App_Model
             ->where('is_current', 1)
             ->get($this->page_generations_table)->row();
     }
+
+    // -----------------------------------------------------------------------
+    // Page generation lifecycle (Phase 4)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns pages queued for generation (generation_status='generating', not trashed).
+     * Called by the cron runner.
+     */
+    public function get_pages_for_generation($limit = 5)
+    {
+        return $this->db
+            ->where('generation_status', 'generating')
+            ->where('status !=', 'trash')
+            ->order_by('dateupdated', 'ASC')
+            ->limit((int) $limit)
+            ->get($this->pages_table)->result();
+    }
+
+    /**
+     * Atomically queues a page for generation.
+     * Only succeeds if the page is currently not_generated or failed.
+     * Returns true if the row was updated (i.e., this caller "won" the claim).
+     */
+    public function queue_page_for_generation($page_id)
+    {
+        $now = date('Y-m-d H:i:s');
+        $this->db
+            ->where('id', (int) $page_id)
+            ->where_in('generation_status', ['not_generated', 'failed'])
+            ->update($this->pages_table, [
+                'generation_status' => 'generating',
+                'dateupdated'       => $now,
+            ]);
+        return $this->db->affected_rows() > 0;
+    }
+
+    /**
+     * Marks a page generation as successful.
+     * Updates the page's generation_status; the generation record and
+     * current_generation_id are updated by set_current_page_generation().
+     */
+    public function mark_page_generation_success($page_id)
+    {
+        return $this->update_page((int) $page_id, ['generation_status' => 'generated']);
+    }
+
+    /**
+     * Marks a page generation as failed and logs the error.
+     */
+    public function mark_page_generation_failed($page_id, $error = '')
+    {
+        $this->update_page((int) $page_id, ['generation_status' => 'failed']);
+        $this->create_log('page_generation', 'Page generation failed [Page #' . (int) $page_id . ']', ['error' => substr((string) $error, 0, 1000)]);
+    }
 }

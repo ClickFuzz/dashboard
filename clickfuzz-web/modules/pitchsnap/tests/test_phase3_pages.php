@@ -129,7 +129,7 @@ assert_true( array_key_exists('image/jpeg', $allowed_mimes), 'T6a: JPEG allowed'
 assert_true( array_key_exists('image/png',  $allowed_mimes), 'T6b: PNG allowed');
 assert_true( array_key_exists('image/gif',  $allowed_mimes), 'T6c: GIF allowed');
 assert_true( array_key_exists('image/webp', $allowed_mimes), 'T6d: WebP allowed');
-assert_true( array_key_exists('image/svg+xml', $allowed_mimes), 'T6e: SVG allowed');
+assert_false(array_key_exists('image/svg+xml', $allowed_mimes), 'T6e: SVG rejected (XSS risk — not sanitized)');
 assert_false(array_key_exists('application/php', $allowed_mimes), 'T6f: PHP executable rejected');
 assert_false(array_key_exists('text/html',       $allowed_mimes), 'T6g: HTML rejected');
 assert_false(array_key_exists('application/zip', $allowed_mimes), 'T6h: ZIP rejected');
