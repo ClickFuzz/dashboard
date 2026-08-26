@@ -78,7 +78,7 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ---
 
-## Phase 1 — Publishing Type + Primary Site Lock (2026-08-26, needs server validation)
+## Phase 1 — Publishing Type + Primary Site Lock (2026-08-26, deployed)
 
 - DB migration v15: `publish_type`, `wp_site_url`, `wp_username`, `wp_app_password`, `wp_page_id` on `tblpitchsnap_sites`; v12–v14 already present (identical to main)
 - `save_publish_type` controller: persists `html` or `wordpress`; blocked after publish
@@ -94,9 +94,25 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ---
 
+## Phase 2 — Internal Pages + Media Library Data Foundation (2026-08-26, committed, server deployment pending)
+
+- DB migration v16: 4 new tables created with `CREATE TABLE IF NOT EXISTS` guards; v15 ALTERs preserved for servers still at v14
+- `tblpitchsnap_pages`: full schema — site_id, title, slug, page_type, parent_page_id, status (draft/published/trash), generation_status (not_generated/generating/generated/failed), SEO fields (meta_title, meta_description, primary_keyword, supporting_keywords, instructions), menu config (menu_primary, menu_footer, menu_label, menu_order), index_page, current_generation_id, published_path, wp_page_id, published_at
+- `tblpitchsnap_site_media`: site-level media library — filename, original_filename, title, description, alt_text, category, mime_type, file_size
+- `tblpitchsnap_page_media`: join table (page ↔ media); UNIQUE on (page_id, media_id)
+- `tblpitchsnap_page_generations`: version history per page — html_content, css_content, js_content, meta_title_generated, meta_description_generated, prompt_snapshot, is_current, status; site_id denormalized for ownership checks
+- Model: 4 new table properties in `Pitchsnap_model` constructor; full CRUD for pages, media, page-media, and page generations
+- Page parent validation: rejects self-reference, cross-site parents, trashed parents
+- Media attachment: enforces same-site ownership; detach removes join row only (media item preserved)
+- `set_current_page_generation`: clears is_current on all siblings, updates pages.current_generation_id atomically; verifies generation belongs to page before acting
+- Tests: `modules/pitchsnap/tests/test_phase2_pages.php` — pure-PHP suite (T1-T14, ~40 assertions), 13 DB-dependent SKIPs documented
+- **Server deployment blocked by DA file manager 500 error** — code is committed and pushed; deploy when DA recovers or via SSH
+
+---
+
 ## In Progress
 
-- Nothing in progress. Phase 1 complete and deployed (2026-08-26).
+- Nothing in progress. Phase 2 code complete (2026-08-26); server deployment pending DA recovery.
 
 ---
 
@@ -141,7 +157,7 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 | `modules/pitchsnap/views/lead_section.php` | Lead profile tab content |
 | `modules/pitchsnap/views/intake_form.php` | Public intake form |
 
-**DB tables:** `tblpitchsnap_redesigns`, `tblpitchsnap_logs`
+**DB tables:** `tblpitchsnap_redesigns`, `tblpitchsnap_logs`, `tblpitchsnap_pages`, `tblpitchsnap_site_media`, `tblpitchsnap_page_media`, `tblpitchsnap_page_generations`
 
 **Key options:** `pitchsnap_ai_provider`, `pitchsnap_primary_provider`, `pitchsnap_fallback_provider`, `pitchsnap_anthropic_api_key`, `pitchsnap_manus_api_key`, `pitchsnap_model`, `pitchsnap_generation_prompt`, `pitchsnap_manus_prompt`, `pitchsnap_db_version`, `pitchsnap_logging_enabled`
 
@@ -149,22 +165,24 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ## Production Status
 
-All generation pipeline code is deployed to production (`clickfuzz.com/dashboard`). Module is active (tblmodules id=23, active=1). DB schema at v11. Production is in sync with main as of 2026-08-23.
+Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 code committed and pushed (2026-08-26); server at v15 pending deployment to v16. DA file manager was unavailable at time of Phase 2 commit — deploy when DA recovers or via SSH.
 
 ---
 
 ## Next
 
+- **Deploy Phase 2 to server** — when DA file manager recovers, upload `pitchsnap.php`, `Pitchsnap_model.php`, `test_phase2_pages.php`; run v16 migration probe; verify syntax + test output
+- Begin Phase 3: admin UI for pages and media library (tab_pages.php in admin_detail)
 - Run end-to-end Lenka generation to verify Level B guardrail prevents navy/orange output
 - Move `ps_colorprobe.php` into admin as Source Diagnostics page
 - Investigate capturing body background from external CSS (fetch first same-origin `<link rel="stylesheet">`)
-- Attach generated HTML preview to redesign record + host via pitchsnap route
-- Email prospect preview link (trigger on `review_required`)
 
 ---
 
 ## History
 
+- **2026-08-26** — Phase 2 data foundation: v16 migration (4 tables), Pitchsnap_model Phase 2 methods, test_phase2_pages.php; DA file manager down, server deployment pending
+- **2026-08-26** — Phase 1 deployed: v15 migration confirmed, all 42 unit tests passing, WordPress two-phase publish, canonical lock, cleanup on publish
 - **2026-08-23** — Lead-profile tab hooks restored (regression from HMVC restructuring); conversation empty state fixed in admin_lead.php
 - **~2026-08** — Phase B logo vision fallback added; three-level visual identity guardrail implemented
 - **~2026-08** — Brand color Phase A CSS scoring system implemented; visual character detection added
