@@ -9,7 +9,7 @@ ClickFuzz Web is a custom Perfex CRM module. It handles website generation, pros
 **DB:** `clgorman_clickfuzzdashboard` (table prefix: `tbl`)
 **Stack:** Perfex CRM 3.1.4 / CodeIgniter 3.1.11 / PHP 8.3.33
 **Module:** `pitchsnap` (slug), active (tblmodules id=23, active=1)
-**DB schema version:** 12 (publishing-domains branch; not yet deployed to production)
+**DB schema version:** 17 (production, as of 2026-08-26)
 
 ---
 
@@ -69,9 +69,12 @@ Public endpoints must be added to `$app_csrf_exclude_uris` in `application/confi
 
 ## Current Production / Main Baseline
 
-As of 2026-08-26, local `main` is at `739f16e` and `origin/main` is in sync at `739f16e`. This merges GHL Phase 1 and Publishing Phases 1–5B. Production is verified hash-identical to main for all GHL Phase 1 files; Publishing 5B files (DNS helper, controller, model, view) are also deployed to production.
+As of 2026-08-26, local `main` is at `739f16e` and `origin/main` is in sync at `739f16e`. This merges GHL Phase 1 and Publishing Phases 1–5B.
 
-**Items pending production deployment:**
+**`claude/generation` branch is at `14f2436` (latest commit) — NOT YET merged to main.**
+All generation branch changes are deployed to production and validated. Merge to main is the next step once UI testing is complete.
+
+**Items pending production deployment (from main):**
 - Lead-profile tab hooks (restored 2026-08-23) — still not deployed
 - Conversation empty state fix in admin_lead.php (2026-08-23) — still not deployed
 
@@ -89,7 +92,7 @@ As of 2026-08-26, local `main` is at `739f16e` and `origin/main` is in sync at `
 
 | Workstream | Status | Worktree |
 |---|---|---|
-| Generation | Live in production, needs retesting on a few paths | `claude/generation` |
+| Generation | **Active** — internal page pipeline (Phases 1–5) deployed + tested, UI validation in progress | `claude/generation` |
 | Sales Flow | Implemented, purchase path needs end-to-end test | `claude/sales-flow` |
 | Onboarding | Not started | `claude/onboarding` |
 | Lead Connect | Not started | task worktrees created as needed |
@@ -105,7 +108,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 | Branch | Worktree | Status |
 |---|---|---|
 | `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `739f16e` (origin/main in sync) |
-| `claude/generation` | `worktrees/dashboard/generation` | Active — at `7ade348`, feature changes present |
+| `claude/generation` | `worktrees/dashboard/generation` | **Active** — at `14f2436`; Phases 1–5 internal page pipeline fully committed. All 30 changed files deployed to production. DB at v17. 537 pure-PHP unit tests pass. UI validation in progress (needs published site). **NOT merged to main yet.** |
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test (enter Agency Private Integration Token, link a Location ID, verify Test Connection). |
 | `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
@@ -122,6 +125,62 @@ See `docs/workstreams/` for detailed subsystem history and status.
 - Production deployment of 2026-08-23 recovery changes (lead tab + conversation empty state)
 - End-to-end purchase path not confirmed tested
 - Lead Connect not started (gating Reviews and full Reporting)
+
+---
+
+## Generation Workstream — Session State (2026-08-26)
+
+### What we built (Phases 1–5, branch `claude/generation`)
+
+The complete internal-page pipeline is implemented and deployed. Commits on branch:
+- `74b6306` — Phase 4 internal page AI generation (Anthropic, cron-based)
+- `1a14711` — allow regeneration from generated state
+- `e4dbc28` — Phase 5 hardening (body-only, canonical chrome, WP menus)
+- `4dc54f9` — rewrite page_preview to use canonical site chrome
+- `14f2436` — resolve 8 test failures across Phase 3/4/5 test suites
+
+### What was deployed to production
+
+All 30 changed files uploaded via DA MCP. DB migrated from v15 → v17:
+- v16: created `tblpitchsnap_pages`, `tblpitchsnap_site_media`, `tblpitchsnap_page_media`, `tblpitchsnap_page_generations`
+- v17: added `wp_primary_menu_item_id` + `wp_footer_menu_item_id` columns on `tblpitchsnap_pages`
+
+**GOTCHA — migration anomaly (2026-08-26):** The `pitchsnap_db_version` is stored in `tbloptions` (via Perfex `add_option`/`update_option`), NOT in `tblsettings`. The v16 tables were created but `pitchsnap_db_version` was already set to `17` in a prior migration run (before the v17 ALTER TABLE code was deployed). The v17 gate fired early and skipped the column adds. Fixed by running `ps_migrate_v17.php` directly to add the two columns. Future migrations: verify tbloptions not tblsettings; be careful if deploying new migration code to a server that already ran part of the migration.
+
+**GOTCHA — test runner and exit():** Phase 1/2/3 test files call `exit()` at the end. Using ob_start()/ob_get_clean() in a combined runner does NOT capture the output — exit() flushes all buffers and kills the process. Run each test file via a separate HTTP request (WebFetch per file, not via the runner).
+
+### Validation status
+
+| Item | Status |
+|---|---|
+| DB migration v16/v17 | ✓ Complete |
+| PHP syntax (24 files) | ✓ All pass |
+| Unit tests — Phase 1 Publishing (42) | ✓ Pass |
+| Unit tests — Phase 2 Pages (51) | ✓ Pass |
+| Unit tests — Phase 3 Pages (76) | ✓ Pass |
+| Unit tests — Phase 4 Pages (97) | ✓ Pass |
+| Unit tests — Phase 5 Pages (168) | ✓ Pass |
+| Unit tests — Publishing Domains (103) | ✓ Pass |
+| UI — Pages tab visible | ⚠ Blocked — Pages section is inside Website tab, only visible for **published** sites |
+| UI — Create page, configure, generate | Pending |
+| UI — Preview (canonical chrome) | Pending |
+| UI — Regenerate / version history | Pending |
+| UI — HTML publish | Pending |
+| UI — WordPress publish | Pending |
+
+### What to do next (in order)
+
+1. **Complete UI validation** — open a published site's detail page → Website tab → "Generate Pages" section. Test the full CRUD + generate + preview + publish flow. If no published site is available, either publish a test site first or temporarily relax the `$site->status === 'published'` guard in `views/admin_detail/tab_website.php` for testing.
+
+2. **Clean up diagnostic scripts** — remove from production server `modules/pitchsnap/tests/`:
+   - `ps_dbcheck.php`, `ps_dbcheck2.php`, `ps_dbcheck3.php`, `ps_dbcheck4.php`
+   - `ps_migrate_v17.php`
+   - `ps_ping.php`, `ps_run_all_tests.php`, `ps_summary.php`, `ps_syntax.php`
+   (Keep the phase test files — they're source code.)
+
+3. **Update `docs/workstreams/generation.md`** — move Phases 2–5 to "Confirmed Working" after UI validation; add session history entry.
+
+4. **Merge `claude/generation` to `main`** — after UI validation is satisfactory and workstream doc is updated.
 
 ---
 
