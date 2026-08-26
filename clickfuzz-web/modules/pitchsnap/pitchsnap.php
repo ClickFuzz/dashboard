@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 11) {
+    if ((int) get_option('pitchsnap_db_version') >= 14) {
         return;
     }
 
@@ -369,11 +369,73 @@ function clickfuzz_web_db_upgrade()
         ");
     }
 
+    // v12: site-domain mapping table
+    $td = db_prefix() . 'pitchsnap_site_domains';
+    if (!$CI->db->table_exists($td)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$td}` (
+                `id`          INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `site_id`     INT(11) NOT NULL,
+                `hostname`    VARCHAR(255) NOT NULL,
+                `domain_type` VARCHAR(50)  NOT NULL DEFAULT 'platform',
+                `is_primary`  TINYINT(1)   NOT NULL DEFAULT 1,
+                `status`      VARCHAR(50)  NOT NULL DEFAULT 'active',
+                `dateadded`   DATETIME     NOT NULL,
+                `dateupdated` DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_hostname` (`hostname`),
+                KEY `idx_site_domains_site` (`site_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    // v13: verification + SSL status columns on site-domain table
+    if ($CI->db->table_exists($td)) {
+        if (!$CI->db->field_exists('verification_status', $td)) {
+            $CI->db->query("ALTER TABLE `{$td}` ADD COLUMN `verification_status` VARCHAR(50) NOT NULL DEFAULT 'pending' AFTER `status`");
+            // Existing platform rows are already live on *.clickfuzz.com — mark them verified.
+            $CI->db->query("UPDATE `{$td}` SET `verification_status` = 'verified' WHERE `domain_type` = 'platform'");
+        }
+        if (!$CI->db->field_exists('verified_at', $td)) {
+            $CI->db->query("ALTER TABLE `{$td}` ADD COLUMN `verified_at` DATETIME DEFAULT NULL AFTER `verification_status`");
+            $CI->db->query("UPDATE `{$td}` SET `verified_at` = `dateadded` WHERE `domain_type` = 'platform' AND `verified_at` IS NULL");
+        }
+        if (!$CI->db->field_exists('ssl_status', $td)) {
+            $CI->db->query("ALTER TABLE `{$td}` ADD COLUMN `ssl_status` VARCHAR(50) NOT NULL DEFAULT 'pending' AFTER `verified_at`");
+            // Platform rows are covered by the *.clickfuzz.com wildcard cert.
+            $CI->db->query("UPDATE `{$td}` SET `ssl_status` = 'active' WHERE `domain_type` = 'platform'");
+        }
+    }
+
+    // v14: GHL location mapping table + API token option
+    $tg = db_prefix() . 'pitchsnap_ghl_locations';
+    if (!$CI->db->table_exists($tg)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tg}` (
+                `id`                INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `site_id`           INT(11) NOT NULL,
+                `ghl_location_id`   VARCHAR(50)  NOT NULL DEFAULT '',
+                `ghl_location_name` VARCHAR(255) DEFAULT NULL,
+                `status`            VARCHAR(20)  NOT NULL DEFAULT 'pending',
+                `last_error`        VARCHAR(500) DEFAULT NULL,
+                `last_verified_at`  DATETIME DEFAULT NULL,
+                `created_at`        DATETIME NOT NULL,
+                `updated_at`        DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_ghl_site` (`site_id`),
+                KEY `idx_ghl_location` (`ghl_location_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+    if (get_option('pitchsnap_ghl_api_key') === false) {
+        add_option('pitchsnap_ghl_api_key', '');
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '11');
+        add_option('pitchsnap_db_version', '14');
     } else {
-        update_option('pitchsnap_db_version', '11');
+        update_option('pitchsnap_db_version', '14');
     }
 }
 

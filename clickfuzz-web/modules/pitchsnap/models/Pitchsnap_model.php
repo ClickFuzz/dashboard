@@ -7,6 +7,7 @@ class Pitchsnap_model extends App_Model
     private $site_table;
     private $agreement_table;
     private $log_table;
+    private $domain_table;
 
     public function __construct()
     {
@@ -15,6 +16,7 @@ class Pitchsnap_model extends App_Model
         $this->site_table       = db_prefix() . 'pitchsnap_sites';
         $this->agreement_table  = db_prefix() . 'pitchsnap_agreements';
         $this->log_table        = db_prefix() . 'pitchsnap_logs';
+        $this->domain_table     = db_prefix() . 'pitchsnap_site_domains';
     }
 
     // -----------------------------------------------------------------------
@@ -531,6 +533,106 @@ class Pitchsnap_model extends App_Model
     }
 
     // -----------------------------------------------------------------------
+    // Site-domain mapping helpers (tblpitchsnap_site_domains)
+    // -----------------------------------------------------------------------
+
+    public function get_site_domain_by_hostname($hostname)
+    {
+        return $this->db->where('hostname', $hostname)
+                        ->get($this->domain_table)
+                        ->row();
+    }
+
+    public function get_platform_domain_for_site($site_id)
+    {
+        return $this->db->where('site_id', (int) $site_id)
+                        ->where('domain_type', 'platform')
+                        ->where('is_primary', 1)
+                        ->get($this->domain_table)
+                        ->row();
+    }
+
+    public function hostname_available($hostname)
+    {
+        return $this->db->where('hostname', $hostname)
+                        ->count_all_results($this->domain_table) === 0;
+    }
+
+    public function create_site_domain($data)
+    {
+        if (empty($data['dateadded'])) {
+            $data['dateadded'] = date('Y-m-d H:i:s');
+        }
+        $this->db->insert($this->domain_table, $data);
+        $id = $this->db->insert_id();
+        return $id ? (int) $id : false;
+    }
+
+    public function get_custom_domain_for_site($site_id)
+    {
+        return $this->db->where('site_id', (int) $site_id)
+                        ->where('domain_type', 'custom')
+                        ->get($this->domain_table)
+                        ->row();
+    }
+
+    public function hostname_available_for_site($hostname, $site_id)
+    {
+        return $this->db->where('hostname', $hostname)
+                        ->where('site_id !=', (int) $site_id)
+                        ->count_all_results($this->domain_table) === 0;
+    }
+
+    public function save_custom_domain($site_id, $hostname)
+    {
+        $site_id  = (int) $site_id;
+        $existing = $this->get_custom_domain_for_site($site_id);
+        $now      = date('Y-m-d H:i:s');
+        if ($existing) {
+            $this->db->where('id', (int) $existing->id)
+                     ->update($this->domain_table, [
+                         'hostname'             => $hostname,
+                         'verification_status'  => 'pending',
+                         'verified_at'          => null,
+                         'ssl_status'           => 'pending',
+                         'dateupdated'          => $now,
+                     ]);
+            return (int) $existing->id;
+        }
+        return $this->create_site_domain([
+            'site_id'             => $site_id,
+            'hostname'            => $hostname,
+            'domain_type'         => 'custom',
+            'is_primary'          => 0,
+            'status'              => 'active',
+            'verification_status' => 'pending',
+            'verified_at'         => null,
+            'ssl_status'          => 'pending',
+            'dateadded'           => $now,
+        ]);
+    }
+
+    public function remove_custom_domain($site_id)
+    {
+        $existing = $this->get_custom_domain_for_site((int) $site_id);
+        if (!$existing) {
+            return false;
+        }
+        $this->db->where('id', (int) $existing->id)->delete($this->domain_table);
+        return $this->db->affected_rows() > 0;
+    }
+
+    public function update_domain_verification($domain_id, $status, $verified_at)
+    {
+        $this->db->where('id', (int) $domain_id)
+                 ->update($this->domain_table, [
+                     'verification_status' => $status,
+                     'verified_at'         => $verified_at,
+                     'dateupdated'         => date('Y-m-d H:i:s'),
+                 ]);
+    }
+
+    // -----------------------------------------------------------------------
     // Lead source / status helpers
     // -----------------------------------------------------------------------
 
@@ -741,9 +843,30 @@ class Pitchsnap_model extends App_Model
             $this->db->where_in('redesign_id', $redesign_ids)->delete($conv_table);
         }
 
-        // Collect site IDs for this lead's redesigns
+        // Collect site records for this lead's redesigns
         $sites    = $this->db->where_in('source_website_id', $redesign_ids)->get($this->site_table)->result();
         $site_ids = array_map(function ($s) { return (int) $s->id; }, $sites);
+
+        // Remove published site directories from disk
+        $sites_base      = dirname(FCPATH) . '/sites';
+        $real_sites_base = realpath($sites_base);
+        foreach ($sites as $s) {
+            $domain = $s->domain ?? '';
+            $after  = strstr($domain, '/sites/');
+            if (!$after) { continue; }
+            $slug = ltrim($after, '/sites/');
+            if (!$slug || !preg_match('/^[a-z0-9\-]+$/', $slug)) { continue; }
+            $site_dir = $sites_base . '/' . $slug;
+            if (!is_dir($site_dir)) { continue; }
+            $real_dir = realpath($site_dir);
+            if ($real_sites_base && $real_dir && strpos($real_dir . '/', $real_sites_base . '/') === 0) {
+                foreach (@scandir($site_dir) ?: [] as $entry) {
+                    if ($entry === '.' || $entry === '..') { continue; }
+                    @unlink($site_dir . '/' . $entry);
+                }
+                @rmdir($site_dir);
+            }
+        }
 
         // Delete agreements
         if (!empty($site_ids) && $this->db->table_exists($this->agreement_table)) {

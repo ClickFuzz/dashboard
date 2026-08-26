@@ -73,6 +73,26 @@
                             </p>
                         </div>
 
+                        <hr>
+
+                        <h5 class="tw-font-semibold mtop20 mbot10">GoHighLevel</h5>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_ghl_api_key">Agency Private Integration Token</label>
+                            <input type="password"
+                                   name="pitchsnap_ghl_api_key"
+                                   id="pitchsnap_ghl_api_key"
+                                   class="form-control"
+                                   autocomplete="new-password"
+                                   style="max-width:480px;"
+                                   placeholder="<?php echo get_option('pitchsnap_ghl_api_key') ? '●●●●●●●●●● (saved — leave blank to keep current token)' : 'eyJ...'; ?>">
+                            <p class="text-muted" style="margin-top:4px;font-size:12px;">
+                                Agency Private Integration Token. Stored server-side only. Leave blank to keep the existing token.
+                                Found in GHL → Settings → Integrations → Private Integrations. Required scope: <code>locations.readonly</code>.
+                            </p>
+                        </div>
+                        <input type="hidden" name="active_tab" value="ghl">
+
                         <div class="mbot20">
                             <button type="submit" class="btn btn-primary">Save Settings</button>
                             <a href="<?php echo admin_url('pitchsnap/redesigns'); ?>" class="btn btn-default mls">Cancel</a>

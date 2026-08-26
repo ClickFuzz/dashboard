@@ -9,7 +9,7 @@ ClickFuzz Web is a custom Perfex CRM module. It handles website generation, pros
 **DB:** `clgorman_clickfuzzdashboard` (table prefix: `tbl`)
 **Stack:** Perfex CRM 3.1.4 / CodeIgniter 3.1.11 / PHP 8.3.33
 **Module:** `pitchsnap` (slug), active (tblmodules id=23, active=1)
-**DB schema version:** 11
+**DB schema version:** 12 (publishing-domains branch; not yet deployed to production)
 
 ---
 
@@ -49,6 +49,14 @@ if (!class_exists('Pitchsnap_model')) {
 }
 ```
 
+### Key GOTCHA: CI3 CSRF strips POST data — guard forms correctly
+
+CI3's CSRF middleware **unsets the CSRF token from `$_POST` after validation**. If a form contains only the CSRF token field (no other fields), `$_POST` is empty by the time the controller runs. The common pattern `if (!$this->input->post()) { redirect(...); }` will then silently bail out.
+
+**Fix:** Always include at least one non-CSRF field in any form that uses this guard. For action-confirmation forms, use `<input type="hidden" name="confirm_delete" value="1">` (or similar) and check `$this->input->post('confirm_delete') !== '1'` in the controller.
+
+This bit the `delete_profile` action — fixed 2026-08-24 in `site-management` workstream.
+
 ### Key GOTCHA: Route value format
 
 Module route values must NOT include the module prefix. `Modules::parse_routes()` prepends it automatically.
@@ -61,13 +69,19 @@ Public endpoints must be added to `$app_csrf_exclude_uris` in `application/confi
 
 ## Current Production / Main Baseline
 
-As of 2026-08-23, `main` is at commit `4e85bde` and is in sync with `origin/main` on GitHub.
-
-Production is verified identical to the pre-recovery-audit main baseline. The recovery commit (`4e85bde`) adds the lead-profile tab and conversation empty-state fix — these must be deployed to production.
+As of 2026-08-26, local `main` is at `739f16e` and `origin/main` is in sync at `739f16e`. This merges GHL Phase 1 and Publishing Phases 1–5B. Production is verified hash-identical to main for all GHL Phase 1 files; Publishing 5B files (DNS helper, controller, model, view) are also deployed to production.
 
 **Items pending production deployment:**
-- Lead-profile tab hooks (restored 2026-08-23)
-- Conversation empty state fix in admin_lead.php (2026-08-23)
+- Lead-profile tab hooks (restored 2026-08-23) — still not deployed
+- Conversation empty state fix in admin_lead.php (2026-08-23) — still not deployed
+
+**GHL Phase 1 deployed 2026-08-26 (hash-verified):**
+- `modules/pitchsnap/controllers/Pitchsnap.php`
+- `modules/pitchsnap/pitchsnap.php`
+- `modules/pitchsnap/views/admin_detail/tab_ghl.php`
+- `modules/pitchsnap/views/admin_settings.php`
+- `modules/pitchsnap/libraries/Pitchsnap_ghl.php` (new)
+- `modules/pitchsnap/models/Pitchsnap_ghl_model.php` (new)
 
 ---
 
@@ -75,9 +89,9 @@ Production is verified identical to the pre-recovery-audit main baseline. The re
 
 | Workstream | Status | Worktree |
 |---|---|---|
-| Generation | Live in production, needs retesting on a few paths | `claude/generation` (to be created) |
-| Sales Flow | Implemented, purchase path needs end-to-end test | `claude/sales-flow` (to be created) |
-| Onboarding | Not started | `claude/onboarding` (recreate from main) |
+| Generation | Live in production, needs retesting on a few paths | `claude/generation` |
+| Sales Flow | Implemented, purchase path needs end-to-end test | `claude/sales-flow` |
+| Onboarding | Not started | `claude/onboarding` |
 | Lead Connect | Not started | task worktrees created as needed |
 | Reviews | Not started | no worktree yet |
 | Reporting | View tracking only, no dashboard | no worktree yet |
@@ -90,11 +104,16 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 | Branch | Worktree | Status |
 |---|---|---|
-| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical |
-| `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after confirmation |
-| `claude/onboarding` | `worktrees/dashboard/onboarding` | Empty/outdated — recreate from main |
-| `claude/generation` | `worktrees/dashboard/generation` | To be created from current main |
-| `claude/sales-flow` | `worktrees/dashboard/sales-flow` | To be created from current main |
+| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `739f16e` (origin/main in sync) |
+| `claude/generation` | `worktrees/dashboard/generation` | Active — at `7ade348`, feature changes present |
+| `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test (enter Agency Private Integration Token, link a Location ID, verify Test Connection). |
+| `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
+| `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
+| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Merged** — Phases 1–5B complete, merged to main at `739f16e`. DB v13 live. Hosted-site runtime, platform hostnames, custom domain CRUD, DNS verification (apex-pair) all deployed. **Phase 5C PAUSED** — awaiting Cloudflare / Cloudflare for SaaS architecture decision. Current DNS instructions (direct A record to 104.152.168.38) are PROVISIONAL. |
+| `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
+| `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
+| `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix + tab extraction. Uncommitted changes: `admin_detail.php` (shell only), `Pitchsnap.php`, `Pitchsnap_model.php`, new `views/admin_detail/tab_*.php` (6 files). New partials not yet deployed to production. Needs deploy + verify + commit + merge to main. |
+| `claude/convert-to-wp` | `worktrees/dashboard/convert-to-wp` | Fresh — from `0fe1d30`, no feature changes yet |
 
 ---
 
