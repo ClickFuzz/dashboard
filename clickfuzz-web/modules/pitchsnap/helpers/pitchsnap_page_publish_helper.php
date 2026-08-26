@@ -287,20 +287,114 @@ function clickfuzz_web_update_html_nav($html, $new_nav_html)
 }
 
 // ---------------------------------------------------------------------------
+// Canonical site chrome extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Extracts the canonical header, footer, and shared head content from the
+ * approved site's homepage HTML.
+ *
+ * Returns:
+ *   head_inner — <head> content with page-specific meta stripped (fonts/stylesheets)
+ *   header     — body content from start to end of first nav block (site header + nav)
+ *   footer     — body content from last site footer signal to end
+ *
+ * The header is used for internal page rendering after its nav is updated with
+ * clickfuzz_web_update_html_nav(). The footer is appended verbatim.
+ * head_inner is merged into the internal page's <head> for shared assets.
+ *
+ * If any section cannot be extracted, an empty string is returned for that section
+ * so callers can fall back gracefully.
+ *
+ * @param  string $homepage_html  Full HTML of the published homepage
+ * @return array  ['head_inner' => string, 'header' => string, 'footer' => string]
+ */
+function clickfuzz_web_extract_site_chrome($homepage_html)
+{
+    $result = ['head_inner' => '', 'header' => '', 'footer' => ''];
+    if (empty($homepage_html)) { return $result; }
+
+    // Extract shared <head> content (shared assets: fonts, stylesheets, etc.)
+    if (preg_match('/<head[^>]*>([\s\S]*?)<\/head>/i', $homepage_html, $m)) {
+        $head_inner = $m[1];
+        // Strip elements we replace with page-specific versions
+        $head_inner = preg_replace('/<title[^>]*>[\s\S]*?<\/title>/i', '', $head_inner);
+        $head_inner = preg_replace('/<meta\s+name=["\']description["\'][^>]*>/i', '', $head_inner);
+        $head_inner = preg_replace('/<meta\s+name=["\']robots["\'][^>]*>/i', '', $head_inner);
+        $head_inner = preg_replace('/<link\s+rel=["\']canonical["\'][^>]*>/i', '', $head_inner);
+        $head_inner = preg_replace('/<meta\s+charset[^>]*>/i', '', $head_inner);
+        $head_inner = preg_replace('/<meta\s+name=["\']viewport["\'][^>]*>/i', '', $head_inner);
+        // Strip inline <style> blocks — we use page-specific CSS from gen->css_content
+        $head_inner = preg_replace('/<style[^>]*>[\s\S]*?<\/style>/i', '', $head_inner);
+        $result['head_inner'] = trim($head_inner);
+    }
+
+    // Extract <body> inner content
+    if (!preg_match('/<body[^>]*>([\s\S]*?)<\/body>/i', $homepage_html, $m)) {
+        return $result;
+    }
+    $body = $m[1];
+
+    // --- Header block: from body start to end of primary nav ---
+    // Strategy 1: CF nav end marker (reliable for CF-published sites)
+    if (strpos($body, CF_NAV_END) !== false) {
+        $pos = strpos($body, CF_NAV_END);
+        $result['header'] = substr($body, 0, $pos + strlen(CF_NAV_END));
+    } elseif (preg_match('/<\/nav>/i', $body, $nm, PREG_OFFSET_CAPTURE)) {
+        // Strategy 2: end of first </nav> tag
+        $result['header'] = substr($body, 0, $nm[0][1] + 6); // strlen('</nav>') = 6
+    }
+    // else: no nav found — $result['header'] remains ''
+
+    // --- Footer block: from last site-footer signal to end of body ---
+    // Strategy 1: CF footer nav marker
+    $cf_footer_pos = strpos($body, '<!-- cf-footer-nav-start -->');
+    if ($cf_footer_pos !== false) {
+        $result['footer'] = substr($body, $cf_footer_pos);
+    } else {
+        // Strategy 2: last <footer> element (site footer is typically the outermost/last)
+        $search_pos   = 0;
+        $last_footer  = null;
+        while (($found = stripos($body, '<footer', $search_pos)) !== false) {
+            $next = isset($body[$found + 7]) ? $body[$found + 7] : '';
+            if ($next === '>' || ctype_space($next)) {
+                $last_footer = $found;
+            }
+            $search_pos = $found + 1;
+        }
+        if ($last_footer !== null) {
+            $result['footer'] = substr($body, $last_footer);
+        }
+    }
+
+    return $result;
+}
+
+// ---------------------------------------------------------------------------
 // Full HTML document rendering
 // ---------------------------------------------------------------------------
 
 /**
- * Builds a complete HTML document from a page generation and its context.
+ * Builds a complete HTML document for an internal page.
  *
- * @param  object $page           Page row
- * @param  object $site           Site row
- * @param  object $gen            Page generation row
- * @param  string $canonical_url  Full canonical URL for this page
- * @param  string $nav_html       Ready-to-inject primary nav HTML (with markers)
- * @return string  Complete HTML document
+ * The approved site's canonical header (with updated nav) and footer are used
+ * so the internal page is visually another page of the same approved website.
+ * The generated page body is placed inside <main class="cf-page-content"> between them.
+ *
+ * Normalization is applied to $gen->html_content at render time so existing
+ * stored generations (which may contain accidental site chrome) are handled
+ * safely without rewriting DB records.
+ *
+ * @param  object $page          Page row
+ * @param  object $site          Site row
+ * @param  object $gen           Page generation row
+ * @param  string $canonical_url Full canonical URL for this page
+ * @param  string $header_html   Canonical site header (with nav already updated by caller)
+ * @param  string $footer_html   Canonical site footer
+ * @param  string $shared_head   Shared <head> content from approved homepage (fonts/stylesheets)
+ * @return string Complete HTML document
  */
-function clickfuzz_web_render_full_page_html($page, $site, $gen, $canonical_url, $nav_html)
+function clickfuzz_web_render_full_page_html($page, $site, $gen, $canonical_url, $header_html, $footer_html = '', $shared_head = '')
 {
     $meta_title = '';
     if (!empty($page->meta_title)) {
@@ -323,25 +417,26 @@ function clickfuzz_web_render_full_page_html($page, $site, $gen, $canonical_url,
     $css_block = !empty($gen->css_content)
         ? '<style>' . $gen->css_content . '</style>'
         : '';
-
     $js_block = !empty($gen->js_content)
         ? '<script>' . $gen->js_content . '</script>'
         : '';
 
-    // Inject ClickFuzz nav into body content (replaces AI-generated nav)
-    $body_html = clickfuzz_web_update_html_nav($gen->html_content, $nav_html);
+    // Normalize body content at render time — handles existing stored generations
+    // that may contain site chrome from the old prompt.
+    require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_page_generation_helper.php';
+    $body_content = clickfuzz_web_normalize_page_body_html($gen->html_content);
 
-    // Normalize copyright year for live page
+    // Normalize copyright year in page body
     if (function_exists('clickfuzz_web_normalize_copyright_year')) {
-        $body_html = clickfuzz_web_normalize_copyright_year($body_html);
+        $body_content = clickfuzz_web_normalize_copyright_year($body_content);
     }
 
+    // Build <head>: page-specific meta first, then shared assets, then page CSS
     $head_parts = [
         '<meta charset="UTF-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
         '<title>' . htmlspecialchars($meta_title, ENT_QUOTES, 'UTF-8') . '</title>',
     ];
-
     if ($noindex) {
         $head_parts[] = '<meta name="robots" content="noindex, nofollow">';
     }
@@ -351,14 +446,29 @@ function clickfuzz_web_render_full_page_html($page, $site, $gen, $canonical_url,
     if ($canonical_url) {
         $head_parts[] = '<link rel="canonical" href="' . htmlspecialchars($canonical_url, ENT_QUOTES, 'UTF-8') . '">';
     }
+    if ($shared_head) {
+        $head_parts[] = $shared_head;
+    }
     if ($css_block) {
         $head_parts[] = $css_block;
+    }
+
+    // Build <body>: canonical header + page content wrapper + canonical footer
+    $body_parts = [];
+    if ($header_html) {
+        $body_parts[] = $header_html;
+    }
+    $body_parts[] = '<main class="cf-page-content">';
+    $body_parts[] = $body_content;
+    $body_parts[] = '</main>';
+    if ($footer_html) {
+        $body_parts[] = $footer_html;
     }
 
     return "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
         . implode("\n", $head_parts)
         . "\n</head>\n<body>\n"
-        . $body_html
+        . implode("\n", $body_parts)
         . ($js_block ? "\n" . $js_block : '')
         . "\n</body>\n</html>";
 }
@@ -471,29 +581,52 @@ function clickfuzz_web_publish_page_html($page, $site, $gen)
     $in_published = false;
     foreach ($for_nav as $pp) { if ((int)$pp->id === (int)$page->id) { $in_published = true; break; } }
     if (!$in_published && $page->menu_primary) {
-        // Clone page object and mark as published for nav building
         $temp_page = clone $page;
         $temp_page->status = 'published';
         $temp_page->published_path = $url_path;
         $for_nav[] = $temp_page;
-        // Reindex
         $nav_pages_indexed = $pages_indexed;
         $nav_pages_indexed[(int)$temp_page->id] = $temp_page;
     } else {
         $nav_pages_indexed = $pages_indexed;
     }
 
-    $nav_data  = clickfuzz_web_build_nav_items($nav_pages_indexed, $site_base_url);
-    $nav_html  = clickfuzz_web_render_primary_nav_html($nav_data['primary'], $site_base_url . '/');
+    $nav_data = clickfuzz_web_build_nav_items($nav_pages_indexed, $site_base_url);
+    $nav_html = clickfuzz_web_render_primary_nav_html($nav_data['primary'], $site_base_url . '/');
 
     // Canonical URL
     $canonical_url = rtrim($site_base_url, '/') . '/' . $url_path . '/';
 
-    // Render full HTML document
+    // Load shared generation helper for copyright normalization (used inside render_full_page_html)
     if (!function_exists('clickfuzz_web_normalize_copyright_year')) {
         require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
     }
-    $html = clickfuzz_web_render_full_page_html($page, $site, $gen, $canonical_url, $nav_html);
+
+    // Extract canonical site chrome from the approved homepage
+    // The header block is updated with the current page registry's nav before rendering.
+    // If the homepage file is unreadable, header/footer fall back to empty strings.
+    $homepage_html = '';
+    $homepage_file = $site_dir . '/index.html';
+    if (file_exists($homepage_file)) {
+        $homepage_html = @file_get_contents($homepage_file);
+    }
+    $chrome = clickfuzz_web_extract_site_chrome((string) $homepage_html);
+
+    // Update the nav in the extracted canonical header so link set is current
+    $canonical_header = !empty($chrome['header'])
+        ? clickfuzz_web_update_html_nav($chrome['header'], $nav_html)
+        : $nav_html; // Fallback: no canonical header found — use CF nav block alone
+
+    $canonical_footer   = $chrome['footer'];
+    $canonical_head_ext = $chrome['head_inner'];
+
+    // Render full HTML document using canonical approved site chrome
+    $html = clickfuzz_web_render_full_page_html(
+        $page, $site, $gen, $canonical_url,
+        $canonical_header,
+        $canonical_footer,
+        $canonical_head_ext
+    );
 
     // Write page file
     if (!is_dir($page_dir) && !mkdir($page_dir, 0755, true)) {
@@ -648,31 +781,38 @@ function clickfuzz_web_wp_call($site, $method, $endpoint, array $body = [], $tim
  * Adds or updates a ClickFuzz page as a menu item in the specified WP menu.
  * Uses the WP REST API menus/menu-items endpoint (WordPress 5.9+).
  *
- * @param  object $site         Site row
- * @param  int    $menu_id      WP menu ID
- * @param  int    $wp_page_id   WP page ID for this page
- * @param  string $label        Menu item label
- * @param  int    $parent_item  WP menu-item ID of the parent item (0 = top-level)
- * @param  int    $order        Menu item order
+ * If $existing_item_id > 0 (a stored WP menu-item ID), it is used directly
+ * for the update request — the search-by-object_id query is skipped, preventing
+ * duplicate menu items on republish.
+ *
+ * @param  object $site             Site row
+ * @param  int    $menu_id          WP menu ID
+ * @param  int    $wp_page_id       WP page ID for this page
+ * @param  string $label            Menu item label
+ * @param  int    $parent_item      WP menu-item ID of the parent item (0 = top-level)
+ * @param  int    $order            Menu item order
+ * @param  int    $existing_item_id Previously stored WP menu-item ID (0 = unknown/new)
  * @return array  ['ok', 'item_id', 'error']
  */
-function clickfuzz_web_wp_upsert_menu_item($site, $menu_id, $wp_page_id, $label, $parent_item = 0, $order = 0)
+function clickfuzz_web_wp_upsert_menu_item($site, $menu_id, $wp_page_id, $label, $parent_item = 0, $order = 0, $existing_item_id = 0)
 {
-    // Find existing menu item for this WP page in this menu
-    $existing = clickfuzz_web_wp_call($site, 'GET',
-        '/wp-json/wp/v2/menu-items?menus=' . $menu_id . '&object_id=' . $wp_page_id . '&per_page=5');
+    $method   = 'POST';
+    $endpoint = '/wp-json/wp/v2/menu-items';
 
-    $item_id   = null;
-    $put_method = 'POST';
-    $endpoint   = '/wp-json/wp/v2/menu-items';
+    if ($existing_item_id > 0) {
+        // Use the stored ID directly — deterministic update, no duplicate risk
+        $endpoint = '/wp-json/wp/v2/menu-items/' . (int) $existing_item_id;
+    } else {
+        // Search for an existing menu item for this WP page in this menu
+        $existing = clickfuzz_web_wp_call($site, 'GET',
+            '/wp-json/wp/v2/menu-items?menus=' . $menu_id . '&object_id=' . $wp_page_id . '&per_page=5', [], 15);
 
-    if ($existing['ok'] && !empty($existing['body'])) {
-        foreach ($existing['body'] as $mi) {
-            if ((int)($mi['object_id'] ?? 0) === (int) $wp_page_id) {
-                $item_id    = (int) $mi['id'];
-                $put_method = 'POST'; // PATCH not always available; POST to /{id} acts as update
-                $endpoint   = '/wp-json/wp/v2/menu-items/' . $item_id;
-                break;
+        if ($existing['ok'] && !empty($existing['body'])) {
+            foreach ($existing['body'] as $mi) {
+                if ((int)($mi['object_id'] ?? 0) === (int) $wp_page_id) {
+                    $endpoint = '/wp-json/wp/v2/menu-items/' . (int) $mi['id'];
+                    break;
+                }
             }
         }
     }
@@ -688,7 +828,7 @@ function clickfuzz_web_wp_upsert_menu_item($site, $menu_id, $wp_page_id, $label,
         'menu_order'       => (int) $order,
     ];
 
-    $resp = clickfuzz_web_wp_call($site, $put_method, $endpoint, $item_body, 20);
+    $resp = clickfuzz_web_wp_call($site, $method, $endpoint, $item_body, 20);
     return [
         'ok'      => $resp['ok'],
         'item_id' => $resp['ok'] ? (int)($resp['body']['id'] ?? 0) : 0,
@@ -697,20 +837,56 @@ function clickfuzz_web_wp_upsert_menu_item($site, $menu_id, $wp_page_id, $label,
 }
 
 /**
- * Gets the WP menu ID for a named location (primary, footer).
- * Returns menu ID int or 0 if not found/endpoint not available.
+ * Resolves a WP menu ID by trying multiple registered location slugs in order.
+ *
+ * WordPress themes register menu locations using arbitrary slugs. This function
+ * accepts a prioritised list of candidate slugs and returns the first menu that
+ * is assigned to any of them.
+ *
+ * Returns:
+ *   menu_id   — WP menu ID (0 if not found)
+ *   location  — the location slug that matched, or null
+ *   error     — human-readable reason if not found, or null on success
+ *
+ * @param  object $site        Site row
+ * @param  array  $candidates  Ordered list of location slugs to try
+ * @return array  ['menu_id' => int, 'location' => string|null, 'error' => string|null]
+ */
+function clickfuzz_web_wp_resolve_menu_location($site, array $candidates)
+{
+    $resp = clickfuzz_web_wp_call($site, 'GET', '/wp-json/wp/v2/menus?per_page=50', [], 15);
+    if (!$resp['ok'] || empty($resp['body'])) {
+        $code = $resp['code'] ?? 0;
+        return ['menu_id' => 0, 'location' => null,
+            'error' => 'Could not fetch WP menus' . ($code ? ' (HTTP ' . $code . ')' : '') . '. WP 5.9+ required for menu REST support.'];
+    }
+
+    foreach ($candidates as $loc) {
+        foreach ($resp['body'] as $menu) {
+            $locs = $menu['locations'] ?? [];
+            if (in_array($loc, $locs, true)) {
+                return ['menu_id' => (int) $menu['id'], 'location' => $loc, 'error' => null];
+            }
+        }
+    }
+
+    return [
+        'menu_id'  => 0,
+        'location' => null,
+        'error'    => 'No menu is assigned to any of the candidate locations: ' . implode(', ', $candidates) . '. Assign a menu to one of those locations in the WordPress Appearance → Menus screen.',
+    ];
+}
+
+/**
+ * Gets the WP menu ID for a named location — backward-compat thin wrapper.
+ * Prefer clickfuzz_web_wp_resolve_menu_location() for new code.
+ *
+ * @return int  Menu ID, or 0 if not found.
  */
 function clickfuzz_web_wp_get_menu_id($site, $location = 'primary')
 {
-    $resp = clickfuzz_web_wp_call($site, 'GET', '/wp-json/wp/v2/menus?per_page=20', [], 15);
-    if (!$resp['ok'] || empty($resp['body'])) { return 0; }
-    foreach ($resp['body'] as $menu) {
-        $locs = $menu['locations'] ?? [];
-        if (in_array($location, $locs, true)) {
-            return (int) $menu['id'];
-        }
-    }
-    return 0;
+    $result = clickfuzz_web_wp_resolve_menu_location($site, [$location]);
+    return $result['menu_id'];
 }
 
 // ---------------------------------------------------------------------------
@@ -722,25 +898,32 @@ function clickfuzz_web_wp_get_menu_id($site, $location = 'primary')
  *
  * Steps:
  *   1. Validate WP credentials configured
- *   2. Validate parent WP page ID if page has a parent
- *   3. Create or update the WP page
+ *   2. Normalize page body (strip any site chrome from stored generation)
+ *   3. Create or update the WP page (WP theme provides header/footer/nav)
  *   4. Store page meta (CSS, JS, meta title, meta description, noindex)
- *   5. Update WP menu if menu_primary or menu_footer is set
- *   6. Return success with wp_page_id and URL
+ *   5. Update WP primary menu via resolved location (fallback chain), using stored
+ *      menu-item ID to prevent duplicate items on republish
+ *   6. Update WP footer menu via resolved location (fallback chain)
+ *   7. Return success with wp_page_id, menu item IDs, and URL
  *
- * @param  object   $page             ClickFuzz page row
- * @param  object   $site             Site row
- * @param  object   $gen              Current generation row
- * @param  int|null $parent_wp_page_id WP page ID of parent (null if no parent)
- * @return array    ['success', 'url', 'wp_page_id', 'error']
+ * @param  object   $page                      ClickFuzz page row
+ * @param  object   $site                      Site row
+ * @param  object   $gen                       Current generation row
+ * @param  int|null $parent_wp_page_id         WP page ID of CF parent page (null if no parent)
+ * @param  int      $parent_primary_menu_item  WP menu-item ID of parent in primary menu (0 if unknown)
+ * @return array    ['success', 'url', 'wp_page_id', 'wp_primary_menu_item_id', 'wp_footer_menu_item_id', 'error']
  */
-function clickfuzz_web_publish_page_wp($page, $site, $gen, $parent_wp_page_id = null)
+function clickfuzz_web_publish_page_wp($page, $site, $gen, $parent_wp_page_id = null, $parent_primary_menu_item = 0)
 {
     if (empty($site->wp_site_url)) {
-        return ['success' => false, 'url' => null, 'wp_page_id' => null, 'error' => 'WordPress site URL not configured on this site.'];
+        return ['success' => false, 'url' => null, 'wp_page_id' => null,
+            'wp_primary_menu_item_id' => null, 'wp_footer_menu_item_id' => null,
+            'error' => 'WordPress site URL not configured on this site.'];
     }
     if (empty($site->wp_username) || empty($site->wp_app_password)) {
-        return ['success' => false, 'url' => null, 'wp_page_id' => null, 'error' => 'WordPress credentials not configured.'];
+        return ['success' => false, 'url' => null, 'wp_page_id' => null,
+            'wp_primary_menu_item_id' => null, 'wp_footer_menu_item_id' => null,
+            'error' => 'WordPress credentials not configured.'];
     }
 
     $meta_title = !empty($page->meta_title) ? $page->meta_title
@@ -748,36 +931,42 @@ function clickfuzz_web_publish_page_wp($page, $site, $gen, $parent_wp_page_id = 
     $meta_desc  = !empty($page->meta_description) ? $page->meta_description
         : ($gen->meta_description_generated ?? '');
 
-    // Build WP page payload (body content only — WP theme owns header/footer/nav)
+    // Normalize body content — strip any site chrome in stored generation records.
+    // WP theme provides header/footer/nav; only page-specific body content goes to WP.
+    require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_page_generation_helper.php';
+    $body_content = clickfuzz_web_normalize_page_body_html($gen->html_content);
+
+    // Build WP page payload (normalized body only — WP theme owns header/footer/nav)
     $page_payload = [
         'title'   => ['raw' => $meta_title],
-        'content' => ['raw' => $gen->html_content],
+        'content' => ['raw' => $body_content],
         'status'  => 'publish',
         'slug'    => $page->slug,
     ];
     if ($parent_wp_page_id) {
+        // WP page parent ID (hierarchy in WP page tree — separate from menu-item parent)
         $page_payload['parent'] = (int) $parent_wp_page_id;
     }
 
     // Create or update WP page
     $existing_wp_id = !empty($page->wp_page_id) ? (int) $page->wp_page_id : 0;
-    if ($existing_wp_id) {
-        $endpoint = '/wp-json/wp/v2/pages/' . $existing_wp_id;
-        $method   = 'POST'; // REST API uses POST to endpoint/{id} for update
-    } else {
-        $endpoint = '/wp-json/wp/v2/pages';
-        $method   = 'POST';
-    }
+    $endpoint = $existing_wp_id
+        ? '/wp-json/wp/v2/pages/' . $existing_wp_id
+        : '/wp-json/wp/v2/pages';
 
-    $resp = clickfuzz_web_wp_call($site, $method, $endpoint, $page_payload, 30);
+    $resp = clickfuzz_web_wp_call($site, 'POST', $endpoint, $page_payload, 30);
     if (!$resp['ok']) {
-        return ['success' => false, 'url' => null, 'wp_page_id' => $existing_wp_id ?: null, 'error' => 'WordPress API error: ' . $resp['error']];
+        return ['success' => false, 'url' => null, 'wp_page_id' => $existing_wp_id ?: null,
+            'wp_primary_menu_item_id' => null, 'wp_footer_menu_item_id' => null,
+            'error' => 'WordPress API error: ' . $resp['error']];
     }
 
-    $new_wp_id  = (int) ($resp['body']['id'] ?? 0);
+    $new_wp_id   = (int) ($resp['body']['id'] ?? 0);
     $wp_page_url = $resp['body']['link'] ?? (rtrim($site->wp_site_url, '/') . '/' . $page->slug . '/');
     if (!$new_wp_id) {
-        return ['success' => false, 'url' => null, 'wp_page_id' => $existing_wp_id ?: null, 'error' => 'WordPress API did not return a page ID.'];
+        return ['success' => false, 'url' => null, 'wp_page_id' => $existing_wp_id ?: null,
+            'wp_primary_menu_item_id' => null, 'wp_footer_menu_item_id' => null,
+            'error' => 'WordPress API did not return a page ID.'];
     }
 
     // Store ClickFuzz page metadata via WP post meta API
@@ -791,43 +980,78 @@ function clickfuzz_web_publish_page_wp($page, $site, $gen, $parent_wp_page_id = 
     foreach ($meta_payload as $key => $value) {
         clickfuzz_web_wp_call($site, 'POST',
             '/wp-json/wp/v2/pages/' . $new_wp_id . '/meta',
-            ['key' => $key, 'value' => (string) $value],
-            15
-        );
+            ['key' => $key, 'value' => (string) $value], 15);
     }
 
-    // Update WP menus (best-effort — failures do not block publish)
+    // Primary menu candidates — ordered by likelihood for the ClickFuzz WP theme
+    $primary_candidates = ['primary', 'primary-navigation', 'header-menu', 'main-navigation', 'main-menu', 'clickfuzz-primary'];
+    // Footer menu candidates
+    $footer_candidates  = ['footer', 'footer-menu', 'footer-nav', 'footer-navigation', 'clickfuzz-footer'];
+
+    $wp_primary_menu_item_id = null;
+    $wp_footer_menu_item_id  = null;
+
+    // Update primary menu (best-effort — failure does not block publish; accurate error logged)
     if ($page->menu_primary) {
         $label       = !empty($page->menu_label) ? $page->menu_label : $page->title;
-        $primary_id  = clickfuzz_web_wp_get_menu_id($site, 'primary');
-        if ($primary_id) {
-            // Find parent menu item if applicable
-            $parent_menu_item_id = 0;
-            if ($parent_wp_page_id) {
-                $parent_items = clickfuzz_web_wp_call($site, 'GET',
-                    '/wp-json/wp/v2/menu-items?menus=' . $primary_id . '&object_id=' . $parent_wp_page_id . '&per_page=5', [], 15);
-                if ($parent_items['ok'] && !empty($parent_items['body'])) {
-                    $parent_menu_item_id = (int) ($parent_items['body'][0]['id'] ?? 0);
+        $loc_result  = clickfuzz_web_wp_resolve_menu_location($site, $primary_candidates);
+
+        if ($loc_result['menu_id']) {
+            // Use the stored WP menu-item parent ID from the ClickFuzz parent page if available.
+            // This is the WP menu-item ID of the parent, NOT the WP page ID of the parent.
+            $parent_menu_item_id = (int) $parent_primary_menu_item;
+
+            // Fall back to API lookup if no stored parent menu-item ID
+            if (!$parent_menu_item_id && $parent_wp_page_id) {
+                $pi = clickfuzz_web_wp_call($site, 'GET',
+                    '/wp-json/wp/v2/menu-items?menus=' . $loc_result['menu_id']
+                    . '&object_id=' . $parent_wp_page_id . '&per_page=5', [], 15);
+                if ($pi['ok'] && !empty($pi['body'])) {
+                    $parent_menu_item_id = (int) ($pi['body'][0]['id'] ?? 0);
                 }
             }
-            clickfuzz_web_wp_upsert_menu_item($site, $primary_id, $new_wp_id, $label, $parent_menu_item_id, (int) $page->menu_order);
+
+            // Use stored ClickFuzz menu-item ID for deterministic update (no duplicate creation)
+            $existing_primary_item = !empty($page->wp_primary_menu_item_id) ? (int) $page->wp_primary_menu_item_id : 0;
+            $upsert = clickfuzz_web_wp_upsert_menu_item(
+                $site, $loc_result['menu_id'], $new_wp_id, $label,
+                $parent_menu_item_id, (int) $page->menu_order, $existing_primary_item
+            );
+            if ($upsert['ok'] && $upsert['item_id']) {
+                $wp_primary_menu_item_id = $upsert['item_id'];
+            }
+        } else {
+            // Menu location not found — log accurately; do not silently succeed
+            log_activity('ClickFuzz Web: WP primary menu update skipped [Page #' . $page->id . '] ' . $loc_result['error']);
         }
     }
 
+    // Update footer menu (best-effort)
     if ($page->menu_footer) {
-        $label     = !empty($page->menu_label) ? $page->menu_label : $page->title;
-        $footer_id = clickfuzz_web_wp_get_menu_id($site, 'footer');
-        if (!$footer_id) { $footer_id = clickfuzz_web_wp_get_menu_id($site, 'footer-nav'); }
-        if ($footer_id) {
-            clickfuzz_web_wp_upsert_menu_item($site, $footer_id, $new_wp_id, $label, 0, (int) $page->menu_order);
+        $label      = !empty($page->menu_label) ? $page->menu_label : $page->title;
+        $loc_result = clickfuzz_web_wp_resolve_menu_location($site, $footer_candidates);
+
+        if ($loc_result['menu_id']) {
+            $existing_footer_item = !empty($page->wp_footer_menu_item_id) ? (int) $page->wp_footer_menu_item_id : 0;
+            $upsert = clickfuzz_web_wp_upsert_menu_item(
+                $site, $loc_result['menu_id'], $new_wp_id, $label,
+                0, (int) $page->menu_order, $existing_footer_item
+            );
+            if ($upsert['ok'] && $upsert['item_id']) {
+                $wp_footer_menu_item_id = $upsert['item_id'];
+            }
+        } else {
+            log_activity('ClickFuzz Web: WP footer menu update skipped [Page #' . $page->id . '] ' . $loc_result['error']);
         }
     }
 
     return [
-        'success'    => true,
-        'url'        => $wp_page_url,
-        'wp_page_id' => $new_wp_id,
-        'error'      => null,
+        'success'                 => true,
+        'url'                     => $wp_page_url,
+        'wp_page_id'              => $new_wp_id,
+        'wp_primary_menu_item_id' => $wp_primary_menu_item_id,
+        'wp_footer_menu_item_id'  => $wp_footer_menu_item_id,
+        'error'                   => null,
     ];
 }
 

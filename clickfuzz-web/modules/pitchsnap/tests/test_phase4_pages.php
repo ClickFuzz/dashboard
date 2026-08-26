@@ -350,6 +350,46 @@ t_skip('DB: Regenerate button shown when generation_status=generated',          
 t_skip('DB: Generating spinner shown when generation_status=generating',               'needs DB + HTTP');
 
 // ---------------------------------------------------------------------------
+// T12: Body normalization (hardening regression — Phase 5 addition)
+// ---------------------------------------------------------------------------
+// These tests verify that clickfuzz_web_normalize_page_body_html() is available
+// and produces correct results when called from the generation helper context.
+
+// T12a: prompt does NOT contain old incorrect body_html instruction
+$p_prompt = new stdClass();
+foreach (['id','site_id','title','slug','page_type','parent_page_id','primary_keyword',
+          'supporting_keywords','instructions','menu_primary','menu_footer','menu_label','menu_order'] as $f) {
+    $p_prompt->$f = '';
+}
+$p_prompt->title = 'About'; $p_prompt->slug = 'about'; $p_prompt->page_type = 'about';
+$p_prompt->primary_keyword = 'plumber';
+$prompt_built = clickfuzz_web_build_page_prompt($p_prompt, null, null, null, [], []);
+assert_false(strpos($prompt_built, 'Include all sections, navigation') !== false,
+    'T12a: old "include navigation" prompt instruction removed');
+
+// T12b: prompt instructs body-only (does NOT include site chrome)
+assert_true(strpos($prompt_built, 'DO NOT include') !== false || strpos($prompt_built, 'Do NOT include') !== false,
+    'T12b: prompt contains body-only instruction');
+
+// T12c: normalization strips document wrapper from stored generation
+$html_wrapped = '<!DOCTYPE html><html><head><title>X</title></head><body><p>Real content.</p></body></html>';
+$norm = clickfuzz_web_normalize_page_body_html($html_wrapped);
+assert_true(strpos($norm, 'Real content') !== false, 'T12c: real content preserved through normalization');
+assert_false(strpos($norm, '<!DOCTYPE') !== false,   'T12d: DOCTYPE stripped by normalization');
+assert_false(strpos($norm, '<html') !== false,        'T12e: <html> stripped by normalization');
+
+// T12f: normalization preserves clean body-only content
+$clean = '<section class="hero"><h1>Title</h1></section><section class="services"><p>Text.</p></section>';
+assert_eq(clickfuzz_web_normalize_page_body_html($clean), $clean,
+    'T12f: clean body-only content returned unchanged by normalization');
+
+// T12g: normalization strips leading site nav at position 0
+$with_nav = '<nav class="main-nav"><a href="/">Home</a></nav><section><p>Content</p></section>';
+$norm_nav = clickfuzz_web_normalize_page_body_html($with_nav);
+assert_false(strpos($norm_nav, 'main-nav') !== false, 'T12g: leading site nav stripped by normalization');
+assert_true(strpos($norm_nav, 'Content') !== false,   'T12h: page content preserved after nav strip');
+
+// ---------------------------------------------------------------------------
 // Results
 // ---------------------------------------------------------------------------
 echo "\n=== Phase 4 Page Generation — Unit Tests ===\n";

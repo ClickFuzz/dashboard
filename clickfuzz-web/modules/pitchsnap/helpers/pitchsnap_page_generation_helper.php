@@ -118,9 +118,17 @@ function clickfuzz_web_generate_page($page)
         return;
     }
 
+    // Normalize: strip any document wrappers or site-level chrome the AI may have added
+    $normalized_body = clickfuzz_web_normalize_page_body_html($parsed['body_html']);
+    if (empty($normalized_body)) {
+        $CI->pitchsnap_model->mark_page_generation_failed($page->id, 'Body content was empty after normalization.');
+        log_activity('ClickFuzz Web: Page generation normalization produced empty body [Page #' . $page->id . ']');
+        return;
+    }
+
     // Store generation record
     $gen_id = $CI->pitchsnap_model->create_page_generation($page->id, $page->site_id, [
-        'html_content'            => $parsed['body_html'],
+        'html_content'            => $normalized_body,
         'css_content'             => $parsed['page_css'] ?? '',
         'js_content'              => $parsed['page_js'] ?? '',
         'meta_title_generated'    => $parsed['meta_title'] ?? '',
@@ -254,7 +262,15 @@ Match the design, color palette, typography, and component style of the main web
 Respond ONLY with the following XML-like delimited sections. Do not include any other text, explanation, or markdown outside these tags.
 
 <body_html>
-The complete HTML for the <body> content of this page. Include all sections, navigation (matching the main site's nav), and footer. Do NOT include <html>, <head>, or <body> tags — only the inner content that would go inside <body>. Use inline styles or a <style> tag at the top if needed. Optimize for the primary keyword. Include the phone number and business name prominently.
+The page-specific content ONLY. This content will be placed inside <main class="cf-page-content"> between the approved website's canonical header and footer.
+
+IMPORTANT — DO NOT include:
+- The site header or any <header> element
+- The primary site navigation or any site-level <nav> element
+- The site footer or any <footer> element
+- <html>, <head>, or <body> tags
+
+Generate only the unique sections for this specific page: hero/banner, content sections, feature lists, testimonials, FAQs, CTAs, etc. Use the design reference HTML above to match the visual style (colors, typography, component patterns). Optimize for the primary keyword. Include the phone number and business name prominently. Do not duplicate the site chrome — it is provided by the approved website template.
 </body_html>
 
 <page_css>
@@ -302,6 +318,88 @@ function clickfuzz_web_get_page_type_instructions($page_type)
     ];
 
     return $instructions[$page_type] ?? $instructions['custom'];
+}
+
+// ---------------------------------------------------------------------------
+// Body-only normalization — safety net for incorrectly structured AI output
+// ---------------------------------------------------------------------------
+
+/**
+ * Strips document wrappers and site-level chrome from AI-generated page content.
+ *
+ * Conservative rules:
+ *  - Document wrappers (DOCTYPE / html / head / body) are always stripped.
+ *  - If AI correctly used <main class="cf-page-content"> wrapper, extract only its inner content.
+ *  - Leading <header> or <nav> block is stripped only when it is the very first element
+ *    (i.e. a site-level header/nav accidentally generated at position 0).
+ *  - Trailing <footer> block is stripped only when it is the very last element.
+ *  - Elements in the middle of the content are NEVER touched (page-local breadcrumbs,
+ *    sub-navs, article footers, etc. are preserved).
+ *
+ * @param  string $html  Raw AI-extracted body_html
+ * @return string        Normalised page body content
+ */
+function clickfuzz_web_normalize_page_body_html($html)
+{
+    if (empty($html)) { return $html; }
+
+    // 1. Strip document-level wrappers — always invalid in page body content
+    $html = preg_replace('/<!DOCTYPE[^>]*>/i', '', $html);
+    $html = preg_replace('/<html[^>]*>/i',      '', $html);
+    $html = preg_replace('/<\/html\s*>/i',       '', $html);
+    $html = preg_replace('/<head[^>]*>[\s\S]*?<\/head>/i', '', $html);
+    $html = preg_replace('/<body[^>]*>/i',       '', $html);
+    $html = preg_replace('/<\/body\s*>/i',        '', $html);
+    $html = trim($html);
+
+    if (empty($html)) { return $html; }
+
+    // 2. If AI correctly wrapped content in <main class="cf-page-content">, extract inner content.
+    //    This is the clean path — the prompt specifically requests this wrapper.
+    if (preg_match('/<main[^>]+class=["\'][^"\']*cf-page-content[^"\']*["\'][^>]*>([\s\S]*?)<\/main>/i', $html, $m)) {
+        return trim($m[1]);
+    }
+
+    // 3. Strip leading <header>...</header> (site-level header at position 0 only)
+    if (preg_match('/^\s*<header[\s>]/i', $html)) {
+        $html = preg_replace('/^\s*<header[\s\S]*?<\/header>/i', '', $html, 1);
+        $html = trim($html);
+    }
+
+    // 4. Strip leading CF nav block or <nav> at position 0 (site primary nav only)
+    $cf_nav_start = '<!-- cf-nav-start -->';
+    $cf_nav_end   = '<!-- cf-nav-end -->';
+    $trimmed      = ltrim($html);
+    if (strncmp($trimmed, $cf_nav_start, strlen($cf_nav_start)) === 0) {
+        // CF nav block right at start — remove it
+        $html = preg_replace(
+            '/' . preg_quote($cf_nav_start, '/') . '[\s\S]*?' . preg_quote($cf_nav_end, '/') . '/s',
+            '', $trimmed, 1
+        );
+        $html = trim($html);
+    } elseif (preg_match('/^\s*<nav[\s>]/i', $html)) {
+        // Plain <nav> at very start — site primary nav accidentally generated
+        $html = preg_replace('/^\s*<nav[\s\S]*?<\/nav>/i', '', $html, 1);
+        $html = trim($html);
+    }
+
+    // 5. Strip trailing <footer>...</footer> (site footer at position-end only)
+    if (preg_match('/<\/footer>\s*$/i', $html)) {
+        $pos = 0;
+        $last_footer = false;
+        while (($found = stripos($html, '<footer', $pos)) !== false) {
+            $next = isset($html[$found + 7]) ? $html[$found + 7] : '';
+            if ($next === '>' || ctype_space($next)) {
+                $last_footer = $found;
+            }
+            $pos = $found + 1;
+        }
+        if ($last_footer !== false) {
+            $html = trim(substr($html, 0, $last_footer));
+        }
+    }
+
+    return $html;
 }
 
 // ---------------------------------------------------------------------------

@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 16) {
+    if ((int) get_option('pitchsnap_db_version') >= 17) {
         return;
     }
 
@@ -551,11 +551,22 @@ function clickfuzz_web_db_upgrade()
         ");
     }
 
+    // v17: WP menu-item ID tracking on internal pages
+    $tp = db_prefix() . 'pitchsnap_pages';
+    if ($CI->db->table_exists($tp)) {
+        if (!$CI->db->field_exists('wp_primary_menu_item_id', $tp)) {
+            $CI->db->query("ALTER TABLE `{$tp}` ADD COLUMN `wp_primary_menu_item_id` INT(11) DEFAULT NULL AFTER `wp_page_id`");
+        }
+        if (!$CI->db->field_exists('wp_footer_menu_item_id', $tp)) {
+            $CI->db->query("ALTER TABLE `{$tp}` ADD COLUMN `wp_footer_menu_item_id` INT(11) DEFAULT NULL AFTER `wp_primary_menu_item_id`");
+        }
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '16');
+        add_option('pitchsnap_db_version', '17');
     } else {
-        update_option('pitchsnap_db_version', '16');
+        update_option('pitchsnap_db_version', '17');
     }
 }
 

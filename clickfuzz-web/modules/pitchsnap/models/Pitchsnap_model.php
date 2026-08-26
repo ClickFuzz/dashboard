@@ -1206,10 +1206,10 @@ class Pitchsnap_model extends App_Model
     }
 
     /**
-     * Marks a page as published, storing its live path and optional WP page ID.
-     * Updates status, published_path, published_at, and wp_page_id.
+     * Marks a page as published, storing its live path, WP page ID, and WP menu-item IDs.
+     * Only non-null values are written so callers can omit fields they did not set.
      */
-    public function publish_page($page_id, $published_path, $wp_page_id = null)
+    public function publish_page($page_id, $published_path, $wp_page_id = null, $wp_primary_menu_item_id = null, $wp_footer_menu_item_id = null)
     {
         $data = [
             'status'         => 'published',
@@ -1218,6 +1218,12 @@ class Pitchsnap_model extends App_Model
         ];
         if ($wp_page_id !== null) {
             $data['wp_page_id'] = (int) $wp_page_id;
+        }
+        if ($wp_primary_menu_item_id !== null) {
+            $data['wp_primary_menu_item_id'] = (int) $wp_primary_menu_item_id;
+        }
+        if ($wp_footer_menu_item_id !== null) {
+            $data['wp_footer_menu_item_id'] = (int) $wp_footer_menu_item_id;
         }
         return $this->update_page((int) $page_id, $data);
     }

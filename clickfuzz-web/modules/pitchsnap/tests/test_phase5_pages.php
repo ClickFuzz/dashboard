@@ -34,6 +34,7 @@ function make_page5($d) {
     $defaults = ['id'=>1,'site_id'=>10,'title'=>'About','slug'=>'about','page_type'=>'about',
         'status'=>'draft','generation_status'=>'generated','current_generation_id'=>1,
         'published_path'=>null,'published_at'=>null,'wp_page_id'=>null,
+        'wp_primary_menu_item_id'=>null,'wp_footer_menu_item_id'=>null,
         'parent_page_id'=>null,'menu_primary'=>0,'menu_footer'=>0,'menu_label'=>'',
         'menu_order'=>0,'index_page'=>1,'meta_title'=>'','meta_description'=>'',
         'primary_keyword'=>'plumber','instructions'=>''];
@@ -49,7 +50,7 @@ function make_site5($d) {
 }
 function make_gen5($d) {
     $g = new stdClass();
-    $defaults = ['id'=>1,'page_id'=>1,'site_id'=>10,'html_content'=>'<nav><ul><li>Home</li></ul></nav><main><p>Content</p></main>',
+    $defaults = ['id'=>1,'page_id'=>1,'site_id'=>10,'html_content'=>'<p>Page body content.</p>',
         'css_content'=>'','js_content'=>'','meta_title_generated'=>'About | Bobs Plumbing',
         'meta_description_generated'=>'About us page','is_current'=>1,'dateadded'=>'2026-08-26 10:00:00'];
     foreach (array_merge($defaults, $d) as $k => $v) { $g->$k = $v; }
@@ -283,41 +284,55 @@ $labels_hidden = get_all_labels($nav_no_hidden['primary']);
 assert_false5(in_array('hidden', array_map('strtolower', $labels_hidden)), 'T7b: non-menu page excluded from primary nav');
 
 // ---------------------------------------------------------------------------
-// T8: HTML document rendering
+// T8: HTML document rendering (canonical header/footer composition)
 // ---------------------------------------------------------------------------
-$render_page = make_page5(['meta_title'=>'About | Bobs Plumbing', 'meta_description'=>'We fix pipes.','index_page'=>1]);
-$render_site = make_site5([]);
-$render_gen  = make_gen5(['html_content'=>'<nav>NAV</nav><p>Body content.</p>','css_content'=>'.x{color:red;}','js_content'=>'console.log(1);']);
-$render_nav  = '<nav class="cf-site-nav">CF Nav</nav>';
-$canonical   = 'https://bobs.clickfuzz.com/about/';
+$render_page   = make_page5(['meta_title'=>'About | Bobs Plumbing', 'meta_description'=>'We fix pipes.','index_page'=>1]);
+$render_site   = make_site5([]);
+$render_gen    = make_gen5(['html_content'=>'<p>Body content.</p>','css_content'=>'.x{color:red;}','js_content'=>'console.log(1);']);
+$canonical     = 'https://bobs.clickfuzz.com/about/';
+$canon_header  = '<header class="site-header">' . CF_NAV_START . '<nav class="site-nav"><a href="/">Home</a></nav>' . CF_NAV_END . '</header>';
+$canon_footer  = '<footer class="site-footer"><p>© Bobs Plumbing. All rights reserved.</p></footer>';
+$shared_head   = '<link rel="stylesheet" href="/css/main.css">';
 
-$rendered = clickfuzz_web_render_full_page_html($render_page, $render_site, $render_gen, $canonical, $render_nav);
+$rendered = clickfuzz_web_render_full_page_html($render_page, $render_site, $render_gen, $canonical, $canon_header, $canon_footer, $shared_head);
 
-assert_true5(strpos($rendered, '<!DOCTYPE html>') !== false,      'T8a: doctype present');
-assert_true5(strpos($rendered, '<html') !== false,                'T8b: html element present');
-assert_true5(strpos($rendered, 'About | Bobs Plumbing') !== false, 'T8c: meta_title in <title>');
-assert_true5(strpos($rendered, 'We fix pipes.') !== false,        'T8d: meta_description present');
-assert_true5(strpos($rendered, $canonical) !== false,             'T8e: canonical URL present');
-assert_true5(strpos($rendered, '.x{color:red;}') !== false,       'T8f: page CSS included');
-assert_true5(strpos($rendered, 'console.log(1)') !== false,       'T8g: page JS included');
-assert_true5(strpos($rendered, 'CF Nav') !== false,               'T8h: CF nav injected (replaced original)');
-assert_true5(strpos($rendered, 'Body content') !== false,         'T8i: page body content present');
-assert_false5(strpos($rendered, 'noindex') !== false,             'T8j: no noindex when index_page=1');
+assert_true5(strpos($rendered, '<!DOCTYPE html>') !== false,         'T8a: doctype present');
+assert_true5(strpos($rendered, '<html') !== false,                   'T8b: html element present');
+assert_true5(strpos($rendered, 'About | Bobs Plumbing') !== false,   'T8c: meta_title in <title>');
+assert_true5(strpos($rendered, 'We fix pipes.') !== false,           'T8d: meta_description present');
+assert_true5(strpos($rendered, $canonical) !== false,                'T8e: canonical URL present');
+assert_true5(strpos($rendered, '.x{color:red;}') !== false,          'T8f: page CSS included');
+assert_true5(strpos($rendered, 'console.log(1)') !== false,          'T8g: page JS included');
+assert_true5(strpos($rendered, 'site-header') !== false,             'T8h: canonical site header present in rendered page');
+assert_true5(strpos($rendered, 'site-footer') !== false,             'T8i: canonical site footer present in rendered page');
+assert_true5(strpos($rendered, 'Body content') !== false,            'T8j: generated page body content present');
+assert_true5(strpos($rendered, 'cf-page-content') !== false,         'T8k: page body wrapped in cf-page-content main element');
+assert_false5(strpos($rendered, 'noindex') !== false,                'T8l: no noindex when index_page=1');
+assert_true5(strpos($rendered, '/css/main.css') !== false,           'T8m: shared head content (stylesheets) included');
 
-// T8k: noindex when index_page=0
-$noindex_page = make_page5(['index_page'=>0,'generation_status'=>'generated']);
-$noindex_rendered = clickfuzz_web_render_full_page_html($noindex_page, $render_site, $render_gen, $canonical, $render_nav);
-assert_true5(strpos($noindex_rendered, 'noindex') !== false, 'T8k: noindex meta injected when index_page=0');
+// T8n: canonical footer appears AFTER page body (correct structure)
+$footer_pos   = strpos($rendered, 'site-footer');
+$body_pos     = strpos($rendered, 'Body content');
+assert_true5($footer_pos > $body_pos, 'T8n: canonical footer appears after page body');
 
-// T8l: meta_title fallback order: page.meta_title > gen.meta_title_generated > page.title
-$no_meta_page = make_page5(['meta_title'=>'','title'=>'Fallback Title']);
-$gen_with_meta = make_gen5(['meta_title_generated'=>'Gen Title','html_content'=>'<p>x</p>']);
-$rendered_fallback1 = clickfuzz_web_render_full_page_html($no_meta_page, $render_site, $gen_with_meta, $canonical, $render_nav);
-assert_true5(strpos($rendered_fallback1, 'Gen Title') !== false, 'T8l: falls back to gen.meta_title_generated');
+// T8o: canonical header appears BEFORE page body
+$header_pos = strpos($rendered, 'site-header');
+assert_true5($header_pos < $body_pos, 'T8o: canonical header appears before page body');
 
-$gen_no_meta = make_gen5(['meta_title_generated'=>'','html_content'=>'<p>x</p>']);
-$rendered_fallback2 = clickfuzz_web_render_full_page_html($no_meta_page, $render_site, $gen_no_meta, $canonical, $render_nav);
-assert_true5(strpos($rendered_fallback2, 'Fallback Title') !== false, 'T8m: falls back to page.title');
+// T8p: noindex when index_page=0
+$noindex_page    = make_page5(['index_page'=>0,'generation_status'=>'generated']);
+$noindex_rendered = clickfuzz_web_render_full_page_html($noindex_page, $render_site, $render_gen, $canonical, $canon_header, $canon_footer);
+assert_true5(strpos($noindex_rendered, 'noindex') !== false, 'T8p: noindex meta injected when index_page=0');
+
+// T8q: meta_title fallback order: page.meta_title > gen.meta_title_generated > page.title
+$no_meta_page    = make_page5(['meta_title'=>'','title'=>'Fallback Title']);
+$gen_with_meta   = make_gen5(['meta_title_generated'=>'Gen Title','html_content'=>'<p>x</p>']);
+$rendered_fallback1 = clickfuzz_web_render_full_page_html($no_meta_page, $render_site, $gen_with_meta, $canonical, '', '');
+assert_true5(strpos($rendered_fallback1, 'Gen Title') !== false, 'T8q: falls back to gen.meta_title_generated');
+
+$gen_no_meta   = make_gen5(['meta_title_generated'=>'','html_content'=>'<p>x</p>']);
+$rendered_fallback2 = clickfuzz_web_render_full_page_html($no_meta_page, $render_site, $gen_no_meta, $canonical, '', '');
+assert_true5(strpos($rendered_fallback2, 'Fallback Title') !== false, 'T8r: falls back to page.title');
 
 // ---------------------------------------------------------------------------
 // T9: Sitemap
@@ -429,6 +444,193 @@ $allowed_mimes = PS_MEDIA_ALLOWED_MIMES;
 assert_false5(array_key_exists('image/svg+xml', $allowed_mimes), 'T14: SVG still rejected from media upload');
 
 // ---------------------------------------------------------------------------
+// T15: Body-only normalization
+// ---------------------------------------------------------------------------
+require_once __DIR__ . '/../helpers/pitchsnap_page_generation_helper.php';
+
+// T15a: document wrappers stripped
+$html_with_wrappers = '<!DOCTYPE html><html lang="en"><head><title>X</title></head><body><p>Real content.</p></body></html>';
+$norm15a = clickfuzz_web_normalize_page_body_html($html_with_wrappers);
+assert_true5(strpos($norm15a, 'Real content') !== false,    'T15a: real content preserved after document-wrapper strip');
+assert_false5(strpos($norm15a, '<!DOCTYPE') !== false,      'T15b: DOCTYPE stripped');
+assert_false5(strpos($norm15a, '<html') !== false,          'T15c: <html> tag stripped');
+assert_false5(strpos($norm15a, '<head>') !== false,         'T15d: <head> block stripped');
+assert_false5(strpos($norm15a, '<body') !== false,          'T15e: <body> tag stripped');
+
+// T15f: leading site header stripped (at position 0 only)
+$html_leading_header = '<header class="site-header"><nav>Site Nav</nav></header><section><p>Page hero.</p></section>';
+$norm15f = clickfuzz_web_normalize_page_body_html($html_leading_header);
+assert_true5(strpos($norm15f, 'Page hero') !== false,       'T15f: page content after leading header preserved');
+assert_false5(strpos($norm15f, 'site-header') !== false,    'T15g: leading site header stripped');
+
+// T15h: leading site nav stripped (at position 0 only)
+$html_leading_nav = '<nav class="main-nav"><a href="/">Home</a></nav><section><p>Content.</p></section>';
+$norm15h = clickfuzz_web_normalize_page_body_html($html_leading_nav);
+assert_true5(strpos($norm15h, 'Content') !== false,         'T15h: content preserved after leading nav stripped');
+assert_false5(strpos($norm15h, 'main-nav') !== false,       'T15i: leading site nav stripped');
+
+// T15j: trailing site footer stripped (at position-end only)
+$html_trailing_footer = '<section><p>Body text.</p></section><footer class="site-footer"><p>©2024</p></footer>';
+$norm15j = clickfuzz_web_normalize_page_body_html($html_trailing_footer);
+assert_true5(strpos($norm15j, 'Body text') !== false,       'T15j: body text preserved after trailing footer stripped');
+assert_false5(strpos($norm15j, 'site-footer') !== false,    'T15k: trailing site footer stripped');
+
+// T15l: mid-content nav NOT stripped (page-local element preserved)
+$html_mid_nav = '<section><p>Intro.</p><nav class="breadcrumb"><a href="/">Home</a></nav><p>More content.</p></section>';
+$norm15l = clickfuzz_web_normalize_page_body_html($html_mid_nav);
+assert_true5(strpos($norm15l, 'breadcrumb') !== false,      'T15l: mid-content nav (breadcrumb) preserved');
+assert_true5(strpos($norm15l, 'More content') !== false,    'T15m: content after mid-page nav preserved');
+
+// T15n: cf-page-content wrapper extraction (preferred path)
+$html_with_wrapper = '<nav>Site nav</nav><main class="cf-page-content"><section><p>Pure page body.</p></section></main><footer>Site footer</footer>';
+$norm15n = clickfuzz_web_normalize_page_body_html($html_with_wrapper);
+assert_true5(strpos($norm15n, 'Pure page body') !== false,  'T15n: cf-page-content inner content extracted');
+assert_false5(strpos($norm15n, 'Site nav') !== false,       'T15o: site nav excluded via cf-page-content extraction');
+assert_false5(strpos($norm15n, 'Site footer') !== false,    'T15p: site footer excluded via cf-page-content extraction');
+
+// T15q: empty input returns empty
+assert_eq5(clickfuzz_web_normalize_page_body_html(''), '', 'T15q: empty input returns empty');
+
+// T15r: clean body-only content passes through unchanged
+$clean_body = '<section class="hero"><h1>Title</h1><p>Text.</p></section>';
+$norm15r = clickfuzz_web_normalize_page_body_html($clean_body);
+assert_true5(strpos($norm15r, 'hero') !== false,            'T15r: clean body-only content preserved unchanged');
+
+// ---------------------------------------------------------------------------
+// T16: Canonical site chrome extraction
+// ---------------------------------------------------------------------------
+$homepage_with_markers = '<!DOCTYPE html><html><head><title>Bobs Plumbing</title><meta charset="UTF-8"><link rel="stylesheet" href="/css/main.css"><style>.site{color:blue}</style></head><body>'
+    . '<header class="site-header">' . CF_NAV_START . '<nav class="main-nav"><a href="/">Home</a></nav>' . CF_NAV_END . '</header>'
+    . '<main class="homepage-content"><section class="hero"><h1>We fix pipes</h1></section></main>'
+    . '<footer class="site-footer"><p>© 2024 Bobs Plumbing</p></footer>'
+    . '</body></html>';
+
+$chrome16 = clickfuzz_web_extract_site_chrome($homepage_with_markers);
+
+// Head inner has shared assets but not page-specific meta
+assert_true5(strpos($chrome16['head_inner'], 'main.css') !== false,       'T16a: shared stylesheet in head_inner');
+assert_false5(strpos($chrome16['head_inner'], '<title>') !== false,        'T16b: <title> stripped from head_inner');
+assert_false5(strpos($chrome16['head_inner'], 'charset') !== false,        'T16c: charset stripped from head_inner');
+assert_false5(strpos($chrome16['head_inner'], '<style') !== false,         'T16d: inline styles stripped from head_inner (page CSS overrides)');
+
+// Header extraction: up to and including CF_NAV_END
+assert_true5(strpos($chrome16['header'], 'site-header') !== false,        'T16e: site-header in extracted header');
+assert_true5(strpos($chrome16['header'], 'main-nav') !== false,           'T16f: nav in extracted header');
+assert_true5(strpos($chrome16['header'], CF_NAV_END) !== false,           'T16g: extracted header includes CF_NAV_END marker');
+assert_false5(strpos($chrome16['header'], 'homepage-content') !== false,  'T16h: homepage body content excluded from header');
+assert_false5(strpos($chrome16['header'], 'site-footer') !== false,       'T16i: footer excluded from extracted header');
+
+// Footer extraction
+assert_true5(strpos($chrome16['footer'], 'site-footer') !== false,        'T16j: site footer extracted');
+assert_true5(strpos($chrome16['footer'], '© 2024') !== false,             'T16k: footer copyright text extracted');
+assert_false5(strpos($chrome16['footer'], 'homepage-content') !== false,  'T16l: homepage content not in footer');
+
+// T16m: empty input returns all empty strings
+$chrome16_empty = clickfuzz_web_extract_site_chrome('');
+assert_eq5($chrome16_empty['header'], '', 'T16m: empty input gives empty header');
+assert_eq5($chrome16_empty['footer'], '', 'T16n: empty input gives empty footer');
+
+// T16o: fallback with </nav> when no CF markers
+$homepage_no_markers = '<html><head><link rel="stylesheet" href="/css/app.css"></head><body>'
+    . '<nav class="primary-nav"><a href="/">Home</a><a href="/about/">About</a></nav>'
+    . '<section><h1>Hero</h1></section>'
+    . '<footer class="site-footer"><p>Footer text</p></footer>'
+    . '</body></html>';
+$chrome16o = clickfuzz_web_extract_site_chrome($homepage_no_markers);
+assert_true5(strpos($chrome16o['header'], 'primary-nav') !== false,       'T16o: nav found via </nav> fallback');
+assert_true5(strpos($chrome16o['footer'], 'site-footer') !== false,       'T16p: footer found via <footer> fallback');
+
+// ---------------------------------------------------------------------------
+// T17: Generation prompt enforces body-only format
+// ---------------------------------------------------------------------------
+// Verify the prompt text instructs AI to exclude site chrome.
+// We read a section of the build_page_prompt function indirectly via its output.
+$prompt_check_page = make_page5(['title'=>'Test','slug'=>'test','page_type'=>'about',
+    'primary_keyword'=>'plumber','instructions'=>'','supporting_keywords'=>'',
+    'menu_primary'=>0,'menu_footer'=>0,'menu_label'=>'','menu_order'=>0]);
+$prompt_text = clickfuzz_web_build_page_prompt($prompt_check_page, null, null, null, [], []);
+
+assert_true5(strpos($prompt_text, 'DO NOT include') !== false || strpos($prompt_text, 'Do NOT include') !== false,
+    'T17a: prompt explicitly instructs to not include site chrome');
+assert_true5(strpos($prompt_text, 'header') !== false && strpos($prompt_text, 'navigation') !== false && strpos($prompt_text, 'footer') !== false,
+    'T17b: prompt mentions header, navigation, and footer as excluded elements');
+assert_true5(strpos($prompt_text, 'body_html') !== false,
+    'T17c: prompt contains body_html output delimiter');
+assert_false5(strpos($prompt_text, 'Include all sections, navigation') !== false,
+    'T17d: old incorrect prompt text (include nav) no longer present');
+
+// ---------------------------------------------------------------------------
+// T18: WP menu location resolution with fallback chain
+// ---------------------------------------------------------------------------
+// Mock the wp_resolve function behavior using a local simulation
+function mock_wp_resolve_menu_location($menus, array $candidates) {
+    // $menus = [['id'=>1,'locations'=>['primary','main-menu']], ['id'=>2,'locations'=>['footer']]]
+    foreach ($candidates as $loc) {
+        foreach ($menus as $menu) {
+            if (in_array($loc, $menu['locations'] ?? [], true)) {
+                return ['menu_id' => (int)$menu['id'], 'location' => $loc, 'error' => null];
+            }
+        }
+    }
+    return ['menu_id' => 0, 'location' => null, 'error' => 'No menu found for: ' . implode(', ', $candidates)];
+}
+
+$available_menus = [
+    ['id'=>1,'locations'=>['main-navigation','main-menu']],
+    ['id'=>2,'locations'=>['footer-menu']],
+];
+
+// T18a: primary menu found via fallback (tries 'primary' first, then 'main-navigation')
+$primary_candidates = ['primary', 'primary-navigation', 'header-menu', 'main-navigation', 'main-menu'];
+$r18a = mock_wp_resolve_menu_location($available_menus, $primary_candidates);
+assert_eq5($r18a['menu_id'], 1,                             'T18a: primary menu resolved via main-navigation fallback');
+assert_eq5($r18a['location'], 'main-navigation',            'T18b: resolved location name returned');
+assert_true5($r18a['error'] === null,                       'T18c: no error when menu found');
+
+// T18d: footer menu found via fallback
+$footer_candidates = ['footer', 'footer-menu', 'footer-nav', 'footer-navigation'];
+$r18d = mock_wp_resolve_menu_location($available_menus, $footer_candidates);
+assert_eq5($r18d['menu_id'], 2,                             'T18d: footer menu resolved via footer-menu fallback');
+
+// T18e: error returned (not silent) when no menu location matches
+$r18e = mock_wp_resolve_menu_location($available_menus, ['nonexistent-location']);
+assert_eq5($r18e['menu_id'], 0,                             'T18e: menu_id=0 when no match');
+assert_true5($r18e['error'] !== null,                       'T18f: non-null error when menu not found (not silent)');
+assert_true5(strpos($r18e['error'], 'nonexistent-location') !== false, 'T18g: error names the candidates tried');
+
+// ---------------------------------------------------------------------------
+// T19: WP menu item ID — no duplicate on republish, parent/menu-item distinction
+// ---------------------------------------------------------------------------
+// T19a: stored menu-item ID used for update (no search query needed)
+function mock_upsert_decision($existing_item_id, $wp_page_id, $menu_id) {
+    // Mirrors the logic in clickfuzz_web_wp_upsert_menu_item
+    if ($existing_item_id > 0) {
+        return 'update:menu-items/' . $existing_item_id;
+    }
+    return 'search-then-create-or-update';
+}
+assert_eq5(mock_upsert_decision(42, 10, 1), 'update:menu-items/42', 'T19a: stored menu-item ID goes directly to update endpoint');
+assert_eq5(mock_upsert_decision(0,  10, 1), 'search-then-create-or-update', 'T19b: no stored ID triggers search-before-upsert');
+
+// T19c: WP page parent ID ≠ WP menu-item parent ID (conceptually distinct)
+$parent_page_wp_page_id     = 99;  // WP page hierarchy (used in page payload 'parent' field)
+$parent_page_menu_item_id   = 777; // WP menu hierarchy (used in menu-item 'menu_item_parent' field)
+// These must NOT be confused — verify they are stored on separate fields
+$page_with_wp_ids = make_page5(['wp_page_id'=>$parent_page_wp_page_id]);
+$page_with_wp_ids->wp_primary_menu_item_id = $parent_page_menu_item_id;
+assert_eq5((int)$page_with_wp_ids->wp_page_id, 99,   'T19c: wp_page_id stores WP page tree parent ID');
+assert_eq5((int)$page_with_wp_ids->wp_primary_menu_item_id, 777, 'T19d: wp_primary_menu_item_id stores WP menu-item parent ID (separate field)');
+assert_true5($page_with_wp_ids->wp_page_id !== $page_with_wp_ids->wp_primary_menu_item_id,
+    'T19e: WP page ID and WP menu-item ID are distinct values on separate schema fields');
+
+// T19f: WP publish returns menu item IDs in result
+$wp_no_creds_site = make_site5(['publish_type'=>'wordpress','wp_site_url'=>'','wp_username'=>'','wp_app_password'=>'']);
+$wp_result19 = clickfuzz_web_publish_page_wp(make_page5([]), $wp_no_creds_site, make_gen5([]), null, 0);
+// Even on failure, the result keys must be present
+assert_true5(array_key_exists('wp_primary_menu_item_id', $wp_result19), 'T19f: wp_primary_menu_item_id key in WP publish result');
+assert_true5(array_key_exists('wp_footer_menu_item_id',  $wp_result19), 'T19g: wp_footer_menu_item_id key in WP publish result');
+
+// ---------------------------------------------------------------------------
 // DB-dependent, filesystem, and API tests (listed for documentation)
 // ---------------------------------------------------------------------------
 t_skip5('DB: eligible page -> page_publish HTML -> published successfully',                 'needs DB + filesystem');
@@ -452,8 +654,19 @@ t_skip5('DB: WordPress page created with correct parent WP page ID',            
 t_skip5('DB: WordPress unpublished parent blocks child publish',                           'needs DB');
 t_skip5('DB: WordPress post meta _clickfuzz_page_css stored correctly',                   'needs WP API');
 t_skip5('DB: WordPress menu item created for primary-menu page',                           'needs WP API');
-t_skip5('DB: WordPress menu item created as submenu of parent menu item',                  'needs WP API');
-t_skip5('DB: WordPress menu item updated (not duplicated) on republish',                   'needs WP API');
+t_skip5('DB: WordPress menu item created as submenu of parent menu item (menu_item_parent = parent page wp_primary_menu_item_id)', 'needs WP API');
+t_skip5('DB: WordPress menu item updated (not duplicated) on republish using stored wp_primary_menu_item_id', 'needs WP API');
+t_skip5('DB: wp_primary_menu_item_id stored in DB after first primary menu publish',       'needs DB + WP API');
+t_skip5('DB: wp_footer_menu_item_id stored in DB after first footer menu publish',         'needs DB + WP API');
+t_skip5('DB: v17 migration adds wp_primary_menu_item_id and wp_footer_menu_item_id columns', 'needs DB');
+t_skip5('DB: internal page HTML uses canonical site header from homepage index.html',       'needs filesystem');
+t_skip5('DB: internal page HTML uses canonical site footer from homepage index.html',       'needs filesystem');
+t_skip5('DB: page body wrapped in <main class="cf-page-content"> in published HTML',       'needs filesystem');
+t_skip5('DB: AI-generated site chrome stripped from stored generation at publish time',    'needs DB + filesystem');
+t_skip5('DB: WP page content = normalized body only (no site header or footer)',           'needs WP API');
+t_skip5('DB: WP menu primary location resolved via fallback chain (not just primary)',     'needs WP API');
+t_skip5('DB: WP menu footer location resolved via fallback chain',                         'needs WP API');
+t_skip5('DB: WP menu location not found → accurate error logged, publish not blocked',    'needs WP API');
 t_skip5('Security: path traversal in slug rejected at publish time',                       'needs filesystem');
 t_skip5('Security: cross-site page ownership checked before publish',                      'needs DB');
 t_skip5('Security: WP credentials not logged on API failure',                              'needs WP API');

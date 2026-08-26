@@ -1245,8 +1245,9 @@ class Pitchsnap extends AdminController
 
         $publish_type = $site->publish_type ?? 'html';
 
-        // For WordPress: resolve parent WP page ID before publishing
-        $parent_wp_page_id = null;
+        // For WordPress: resolve parent WP page ID and parent menu-item ID before publishing
+        $parent_wp_page_id        = null;
+        $parent_primary_menu_item = 0;
         if ($publish_type === 'wordpress' && !empty($page->parent_page_id)) {
             $parent_page = $this->pitchsnap_model->get_page((int) $page->parent_page_id);
             if ($parent_page) {
@@ -1255,12 +1256,15 @@ class Pitchsnap extends AdminController
                     redirect($edit_url);
                 }
                 $parent_wp_page_id = (int) $parent_page->wp_page_id;
+                // Use stored primary menu-item ID for deterministic sub-menu nesting.
+                // This is the WP menu-item ID, NOT the WP page ID.
+                $parent_primary_menu_item = (int) ($parent_page->wp_primary_menu_item_id ?? 0);
             }
         }
 
         // Dispatch by publish type
         if ($publish_type === 'wordpress') {
-            $result = clickfuzz_web_publish_page_wp($page, $site, $gen, $parent_wp_page_id);
+            $result = clickfuzz_web_publish_page_wp($page, $site, $gen, $parent_wp_page_id, $parent_primary_menu_item);
         } else {
             require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
             $result = clickfuzz_web_publish_page_html($page, $site, $gen);
@@ -1271,9 +1275,17 @@ class Pitchsnap extends AdminController
             redirect($edit_url);
         }
 
-        // Mark page published in DB
-        $wp_page_id_to_store = ($publish_type === 'wordpress') ? ($result['wp_page_id'] ?? null) : null;
-        $this->pitchsnap_model->publish_page($page_id, $result['published_path'] ?? '', $wp_page_id_to_store);
+        // Mark page published in DB (store WP page ID and menu-item IDs where returned)
+        $wp_page_id_to_store              = ($publish_type === 'wordpress') ? ($result['wp_page_id'] ?? null) : null;
+        $wp_primary_menu_item_id_to_store = ($publish_type === 'wordpress') ? ($result['wp_primary_menu_item_id'] ?? null) : null;
+        $wp_footer_menu_item_id_to_store  = ($publish_type === 'wordpress') ? ($result['wp_footer_menu_item_id'] ?? null) : null;
+        $this->pitchsnap_model->publish_page(
+            $page_id,
+            $result['published_path'] ?? '',
+            $wp_page_id_to_store,
+            $wp_primary_menu_item_id_to_store,
+            $wp_footer_menu_item_id_to_store
+        );
 
         // Purge obsolete generation history — keep only the current generation
         $gen_id = (int) $gen->id;
