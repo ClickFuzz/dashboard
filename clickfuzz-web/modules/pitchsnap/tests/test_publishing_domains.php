@@ -525,81 +525,80 @@ eq('subdomain: label extracted',           $sub_recs[0]['host'], 'app');
 eq('subdomain: CNAME type',                $sub_recs[0]['type'], 'CNAME');
 
 // ---------------------------------------------------------------------------
-// 23. DNS verification — direct A record hit
+// 23. DNS verification — apex: both A and www CNAME correct → verified
 // ---------------------------------------------------------------------------
 
-echo "\n-- verify_dns: A record match --\n";
+echo "\n-- verify_dns: apex pair both correct --\n";
 
-$dns_a_ok = function($h) { return [['ip' => CFZ_DNS_SERVER_IP]]; };
-$dns_cn_none = function($h) { return []; };
-$res_ok = function($h) { return CFZ_DNS_SERVER_IP; };
-$res_none = function($h) { return $h; };
-
-$r = clickfuzz_web_verify_dns('example.com', $dns_a_ok, $dns_cn_none, $res_ok);
-eq('A match → verified',       $r['status'], 'verified');
-ok('records returned',         !empty($r['records']));
-
-// ---------------------------------------------------------------------------
-// 24. DNS verification — CNAME → sites.clickfuzz.com + IP resolves
-// ---------------------------------------------------------------------------
-
-echo "\n-- verify_dns: CNAME match with IP propagated --\n";
-
+$apex_a_ok   = function($h) { return [['ip' => CFZ_DNS_SERVER_IP]]; };
+$apex_cn_ok  = function($h) { return [['target' => CFZ_DNS_RUNTIME_HOST . '.']]; };
 $dns_a_none  = function($h) { return []; };
-$dns_cn_ok   = function($h) { return [['target' => CFZ_DNS_RUNTIME_HOST . '.']]; };
+$dns_cn_none = function($h) { return []; };
+$res_ok      = function($h) { return CFZ_DNS_SERVER_IP; };
+$res_none    = function($h) { return $h; };
 
-$r2 = clickfuzz_web_verify_dns('www.example.com', $dns_a_none, $dns_cn_ok, $res_ok);
-eq('CNAME match + IP resolves → verified', $r2['status'], 'verified');
-
-// ---------------------------------------------------------------------------
-// 25. DNS verification — CNAME correct but IP not yet propagated
-// ---------------------------------------------------------------------------
-
-echo "\n-- verify_dns: CNAME correct, IP not propagated --\n";
-
-$r3 = clickfuzz_web_verify_dns('www.example.com', $dns_a_none, $dns_cn_ok, $res_none);
-eq('CNAME match + IP unresolved → pending', $r3['status'], 'pending');
+$r = clickfuzz_web_verify_dns('example.com', $apex_a_ok, $apex_cn_ok, $res_ok);
+eq('apex: A + www CNAME + IP → verified', $r['status'], 'verified');
+ok('records returned',                    !empty($r['records']));
 
 // ---------------------------------------------------------------------------
-// 26. DNS verification — wrong A record (explicit misconfiguration)
+// 24. DNS verification — subdomain CNAME + IP resolves → verified
 // ---------------------------------------------------------------------------
 
-echo "\n-- verify_dns: wrong A record --\n";
+echo "\n-- verify_dns: subdomain CNAME match with IP propagated --\n";
+
+$r2 = clickfuzz_web_verify_dns('www.example.com', $dns_a_none, $apex_cn_ok, $res_ok);
+eq('subdomain CNAME + IP resolves → verified', $r2['status'], 'verified');
+
+// ---------------------------------------------------------------------------
+// 25. DNS verification — subdomain CNAME correct but IP not yet propagated
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify_dns: subdomain CNAME correct, IP not propagated --\n";
+
+$r3 = clickfuzz_web_verify_dns('www.example.com', $dns_a_none, $apex_cn_ok, $res_none);
+eq('subdomain CNAME + IP unresolved → pending', $r3['status'], 'pending');
+
+// ---------------------------------------------------------------------------
+// 26. DNS verification — apex: wrong A record (explicit misconfiguration)
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify_dns: apex wrong A record --\n";
 
 $dns_a_wrong = function($h) { return [['ip' => '1.2.3.4']]; };
 $r4 = clickfuzz_web_verify_dns('example.com', $dns_a_wrong, $dns_cn_none, $res_none);
-eq('wrong A → failed',         $r4['status'], 'failed');
-ok('reason mentions IP',       strpos($r4['reason'], '1.2.3.4') !== false);
+eq('apex wrong A → failed',    $r4['status'], 'failed');
+ok('reason mentions wrong IP', strpos($r4['reason'], '1.2.3.4') !== false);
 
 // ---------------------------------------------------------------------------
-// 27. DNS verification — multiple A records, correct IP present
+// 27. DNS verification — apex: wrong www CNAME target → failed
 // ---------------------------------------------------------------------------
 
-echo "\n-- verify_dns: multiple A records, correct IP present --\n";
+echo "\n-- verify_dns: apex wrong www CNAME --\n";
 
-$dns_a_multi = function($h) { return [['ip' => '9.9.9.9'], ['ip' => CFZ_DNS_SERVER_IP]]; };
-$r5 = clickfuzz_web_verify_dns('example.com', $dns_a_multi, $dns_cn_none, $res_ok);
-eq('multi-A with correct IP → verified', $r5['status'], 'verified');
+$dns_cn_wrong = function($h) { return [['target' => 'other-host.example.net']]; };
+$r5 = clickfuzz_web_verify_dns('example.com', $apex_a_ok, $dns_cn_wrong, $res_none);
+eq('apex wrong www CNAME → failed', $r5['status'], 'failed');
 
 // ---------------------------------------------------------------------------
-// 28. DNS verification — no records at all (propagating)
+// 28. DNS verification — apex: A correct but www CNAME missing → pending
+// ---------------------------------------------------------------------------
+
+echo "\n-- verify_dns: apex A correct, www CNAME missing --\n";
+
+$r6 = clickfuzz_web_verify_dns('example.com', $apex_a_ok, $dns_cn_none, $res_ok);
+eq('apex: A ok, www CNAME missing → pending', $r6['status'], 'pending');
+ok('reason mentions www',                     strpos($r6['reason'], 'www') !== false);
+
+// ---------------------------------------------------------------------------
+// 29. DNS verification — no records at all (propagating)
 // ---------------------------------------------------------------------------
 
 echo "\n-- verify_dns: no records --\n";
 
-$r6 = clickfuzz_web_verify_dns('example.com', $dns_a_none, $dns_cn_none, $res_none);
-eq('no records → pending',     $r6['status'], 'pending');
-ok('empty records array',      $r6['records'] === []);
-
-// ---------------------------------------------------------------------------
-// 29. DNS verification — wrong CNAME target
-// ---------------------------------------------------------------------------
-
-echo "\n-- verify_dns: wrong CNAME target --\n";
-
-$dns_cn_wrong = function($h) { return [['target' => 'other-host.example.net']]; };
-$r7 = clickfuzz_web_verify_dns('www.example.com', $dns_a_none, $dns_cn_wrong, $res_none);
-eq('wrong CNAME → failed',     $r7['status'], 'failed');
+$r7 = clickfuzz_web_verify_dns('example.com', $dns_a_none, $dns_cn_none, $res_none);
+eq('no records → pending',  $r7['status'], 'pending');
+ok('empty records array',   $r7['records'] === []);
 
 // ---------------------------------------------------------------------------
 // 30. Verify does not affect platform mapping row
@@ -607,17 +606,12 @@ eq('wrong CNAME → failed',     $r7['status'], 'failed');
 
 echo "\n-- verify: platform mapping isolation --\n";
 
-// The update_domain_verification mock only touches the custom domain row by id.
-// Confirm it takes domain_id (not site_id), so platform rows are safe.
-// (Modelled here as a property check on the mock method signature.)
 $mock_verify = new MockPitchsnapModel();
 $mock_verify->seed_site(50, 'clickfuzz.com/sites/ps-50-zz01');
 $mock_verify->seed_domain(50, 'myco.clickfuzz.com', 'platform');
 $mock_verify->save_custom_domain(50, 'myco.com');
 
 $before_pd = $mock_verify->get_platform_domain_for_site(50);
-// update_domain_verification is not in mock — we verify the platform row is untouched
-// by save_custom_domain (which we already tested in section 20). Confirm again here.
 ok('platform domain present after custom save', $before_pd !== null);
 eq('platform hostname unchanged',              $before_pd->hostname, 'myco.clickfuzz.com');
 
@@ -627,13 +621,8 @@ eq('platform hostname unchanged',              $before_pd->hostname, 'myco.click
 
 echo "\n-- verify: ssl_status unchanged --\n";
 
-// The controller calls update_domain_verification which only writes
-// verification_status, verified_at, dateupdated — never ssl_status.
-// Confirm the model method signature covers only those fields.
 $mock_us = new MockPitchsnapModel();
 $mock_us->update_domain_verification_calls = [];
-// We can't call the real model here (no DB), but we can confirm the method
-// will be added to the mock for completeness and test through it.
 ok('update_domain_verification exists in MockPitchsnapModel',
    method_exists($mock_us, 'update_domain_verification'));
 

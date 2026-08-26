@@ -282,7 +282,7 @@
                     if ($_cd_is_apex) {
                         $_cd_dns_records = [
                             ['type' => 'A',     'host' => '@',   'value' => '104.152.168.38',    'note' => 'Points your root domain to ClickFuzz'],
-                            ['type' => 'CNAME', 'host' => 'www', 'value' => 'sites.clickfuzz.com', 'note' => 'Also connects www (recommended)'],
+                            ['type' => 'CNAME', 'host' => 'www', 'value' => 'sites.clickfuzz.com', 'note' => 'www → ClickFuzz (required)'],
                         ];
                     } else {
                         $_cd_parts = explode('.', $_cd->hostname);
@@ -342,6 +342,7 @@
                         <?php if ($_cd_verification !== 'verified') { ?>
                         <div class="well well-sm" style="font-size:12px; margin-bottom:14px; background:#f8fbff; border-color:#c4daf5;">
                             <p style="margin:0 0 8px; font-weight:600;">Add these DNS records at your domain registrar:</p>
+                            <p style="margin:0 0 8px; color:#555;"><i class="fa fa-shield"></i> Keep your existing nameservers and email/DNS records. Only add or update the records shown below.</p>
                             <table class="table table-condensed" style="margin:0; font-size:12px; font-family:monospace;">
                                 <thead><tr><th>Type</th><th>Host</th><th>Value</th><th style="font-family:sans-serif; font-weight:400;">Purpose</th></tr></thead>
                                 <tbody>
