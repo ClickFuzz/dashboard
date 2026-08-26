@@ -99,29 +99,70 @@ www.customer.com
 - `www.customer.com` is the canonical custom hostname for MVP.
 - Apex/root domain handling (redirect `customer.com` → `www.customer.com`) is deferred.
 
-### Manual end-to-end validation (2026-08-26)
+### New CrocWeb hosted-sites account (active 2026-08-26)
 
-`www.eddmautofill.com` → CNAME `customers.clickfuzz.com` → Cloudflare Custom Hostname → `sites.clickfuzz.com` (new CrocWeb account)
+- **Server IP:** `104.152.168.40`
+- **DA user:** `xqsfhrlj`
+- **Runtime root:** `/home/xqsfhrlj/domains/sites.clickfuzz.com/public_html/`
+- **Site storage:** `/home/xqsfhrlj/domains/sites.clickfuzz.com/public_html/sites/`
+- `index.php` (commit `1457b10`), front-controller `.htaccess`, and storage `.htaccess` manually deployed.
+- Generated HTML site directories manually copied to `sites/`.
+- `runtime-config.php` exists on the server with DB credentials. **Never commit to git.**
+- DB is on old server `104.152.168.38`. Remote MySQL access for `104.152.168.40` manually enabled in DA.
+- Existing DA MCP (`clgorman` / `homesincda.com:2222`) cannot access the new account — deployment is manual via the new account's DA panel or SFTP.
+
+### Cloudflare Worker (active 2026-08-26)
+
+- Worker name: `clickfuzz-site-router`
+- Catch-all route: `*/*` → `clickfuzz-site-router`
+- Explicit Worker=None exclusions: `sites.clickfuzz.com/*`, `www.clickfuzz.com/*`, `clickfuzz.com/*` — **do not remove these**.
+- Worker interception proven: request to `www.eddmautofill.com` returned `worker-hit: www.eddmautofill.com`.
+- Worker fetch to `https://sites.clickfuzz.com/` returned the PHP runtime's `404 Not Found` — proving the full chain works:
+  `custom hostname → Cloudflare for SaaS → Worker → sites.clickfuzz.com → CrocWeb → PHP runtime`
+
+### End-to-end validation (2026-08-26)
+
+`www.eddmautofill.com` → Cloudflare Custom Hostname → Worker → `sites.clickfuzz.com`
 
 - Cloudflare hostname status: Active
-- Cloudflare certificate status: Active
+- Cloudflare certificate: Active
 - HTTPS: working
-- Request reaches new CrocWeb server (currently returns generic page — runtime not yet deployed)
+- Full chain to PHP runtime: confirmed
+
+### Current blocker — X-ClickFuzz-Host header
+
+CrocWeb requires the origin `Host` to be `sites.clickfuzz.com`. The Worker must proxy to `https://sites.clickfuzz.com` (preserving that Host) while passing the original customer hostname in `X-ClickFuzz-Host`.
+
+The PHP runtime must be changed to:
+- use `HTTP_HOST` for all normal routing as-is
+- ONLY when `HTTP_HOST === sites.clickfuzz.com`, accept `X-ClickFuzz-Host` as the routing hostname
+- apply the same normalization/validation to `X-ClickFuzz-Host` as to `HTTP_HOST`
+- never trust `X-ClickFuzz-Host` from arbitrary direct clients
+
+**This PHP change has NOT been made yet.** It is the immediate next task.
+
+After the PHP change is committed and `index.php` is uploaded to the new server, test `https://www.eddmautofill.com/` — expected result: runtime identifies the hostname, resolves its storage slug, and serves the generated HTML.
 
 ### What still needs to happen (Phase 5C+)
 
-1. Move hosted-site runtime (`sites.clickfuzz.com/public_html/index.php` + `.htaccess`) to the new CrocWeb account.
-2. Move or recreate generated-site HTML storage on the new account.
-   - Old storage path: `domains/clickfuzz.com/public_html/sites/{storage-slug}/`
-   - Example test site: `domains/clickfuzz.com/public_html/sites/ps-17-5f59/`
-3. Verify runtime routes correctly on the new account (hostname → storage slug → HTML).
-4. Build Cloudflare API automation for Custom Hostname create/verify/delete.
-5. Update DNS instructions in the admin UI (`customers.clickfuzz.com` CNAME, not direct A record).
-6. The old `sites.clickfuzz.com` on the old CrocWeb account has been removed — do not attempt to restore it there.
+1. ~~Move runtime + storage to new CrocWeb account~~ — done.
+2. Implement `X-ClickFuzz-Host` header handling in `hosted-runtime/index.php`.
+3. Update Cloudflare Worker to pass `X-ClickFuzz-Host` and proxy to `sites.clickfuzz.com`.
+4. End-to-end test: `www.eddmautofill.com` serves correct HTML.
+5. Update `clickfuzz_web_publish_site()` to write to new server (currently writes to old server filesystem).
+6. Build Cloudflare Custom Hostname API automation for custom domain lifecycle.
+7. Update DNS instructions in the admin UI (`CNAME www → customers.clickfuzz.com`).
 
 ### Phase 5B DNS verification — provisional status
 
-The Phase 5B DNS helper (`pitchsnap_dns_helper.php`) and verification UI exist and are deployed. The current DNS instructions (direct A record `104.152.168.38`) are **provisional and will change** to a `CNAME www → customers.clickfuzz.com` instruction once the Cloudflare path is wired up.
+The Phase 5B DNS helper (`pitchsnap_dns_helper.php`) and verification UI are deployed. Current DNS instructions (direct A record `104.152.168.38`) are **provisional** — they will change to `CNAME www → customers.clickfuzz.com` once the Worker+runtime path is fully wired up.
+
+### Manual/untracked state (important)
+
+- `runtime-config.php` on new server: secrets, never in git. Local copy at `/tmp/runtime-config.php` on dev machine (temporary).
+- Cloudflare Worker code: currently manual, not in repo.
+- Cloudflare for SaaS routes/custom-hostname config: manual.
+- New CrocWeb server deployments: manual (DA MCP cannot reach `xqsfhrlj` account).
 
 ---
 
