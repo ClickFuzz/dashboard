@@ -99,6 +99,26 @@ $stmt->bind_result($site_id);
 $mapped = $stmt->fetch();
 $stmt->close();
 
+// www alias: if exact match fails for www.{apex}, retry with the stored apex hostname.
+// One normalized apex row covers both eddmautofill.com (apex) and www.eddmautofill.com (Worker path).
+if (!$mapped && strncmp($host, 'www.', 4) === 0) {
+    $apex = substr($host, 4);
+    if (preg_match('/^(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/', $apex)) {
+        $site_id  = null;
+        $stmt_a = $db->prepare(
+            'SELECT site_id FROM ' . DB_DOMAINS_TABLE .
+            ' WHERE hostname = ? AND status = ? LIMIT 1'
+        );
+        if ($stmt_a) {
+            $stmt_a->bind_param('ss', $apex, $active);
+            $stmt_a->execute();
+            $stmt_a->bind_result($site_id);
+            $mapped = $stmt_a->fetch();
+            $stmt_a->close();
+        }
+    }
+}
+
 if (!$mapped || !$site_id) { $db->close(); abort(404); }
 
 // ── 4. Site row + storage slug extraction ─────────────────────────────────────
