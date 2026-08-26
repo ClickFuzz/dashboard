@@ -88,13 +88,15 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 - Cleanup: `clickfuzz_web_cleanup_generation_history` deletes non-primary redesigns + preview files + conversations after publish
 - Canonical lock: `regenerate()` and `queue_generate()` blocked when primary site is `published`
 - UI: Phase 1 "Publish Type" panel + "WordPress REST API Publish" panel in `tab_publishing.php`; sits alongside existing HTML Hosting, ClickFuzz Connector, and Custom Domain panels
-- Tests: `modules/pitchsnap/tests/test_phase1_publishing.php` — 50 pure-PHP assertions, 10 DB-dependent SKIPs
+- Tests: `modules/pitchsnap/tests/test_phase1_publishing.php` — 42 pure-PHP assertions all passing on server (T1-T13), 10 DB/WP-dependent SKIPs documented
+- Migration confirmed: ran on server 2026-08-26 — pre-migration v14, post-migration v15; v12-v14 structures intact
+- Syntax verified on server for all 5 modified PHP files — no errors
 
 ---
 
 ## In Progress
 
-- Phase 1 code complete (2026-08-26). Tests need server run; migration needs server deploy.
+- Nothing in progress. Phase 1 complete and deployed (2026-08-26).
 
 ---
 
