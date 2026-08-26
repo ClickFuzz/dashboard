@@ -622,6 +622,16 @@ class Pitchsnap_model extends App_Model
         return $this->db->affected_rows() > 0;
     }
 
+    public function update_domain_verification($domain_id, $status, $verified_at)
+    {
+        $this->db->where('id', (int) $domain_id)
+                 ->update($this->domain_table, [
+                     'verification_status' => $status,
+                     'verified_at'         => $verified_at,
+                     'dateupdated'         => date('Y-m-d H:i:s'),
+                 ]);
+    }
+
     // -----------------------------------------------------------------------
     // Lead source / status helpers
     // -----------------------------------------------------------------------
