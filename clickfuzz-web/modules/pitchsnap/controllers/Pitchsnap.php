@@ -303,23 +303,23 @@ class Pitchsnap extends AdminController
         update_option('pitchsnap_fallback_provider', in_array($fallback, ['none',  'anthropic']) ? $fallback : 'none');
         update_option('pitchsnap_ai_provider', $primary === 'anthropic' ? 'anthropic' : 'manus');
 
-        $video_url = trim($this->input->post('pitchsnap_video_demo_url', true));
+        $video_url = trim((string) $this->input->post('pitchsnap_video_demo_url', true));
         update_option('pitchsnap_video_demo_url', $video_url);
 
-        $agreement_version = trim($this->input->post('pitchsnap_agreement_version', true));
+        $agreement_version = trim((string) $this->input->post('pitchsnap_agreement_version', true));
         $agreement_text    = $this->input->post('pitchsnap_agreement_text');
         if ($agreement_version !== '') { update_option('pitchsnap_agreement_version', $agreement_version); }
         update_option('pitchsnap_agreement_text', $agreement_text);
 
         $manus_key    = $this->input->post('pitchsnap_manus_api_key');
         $manus_prompt = $this->input->post('pitchsnap_manus_prompt');
-        if (!empty($manus_key)) { update_option('pitchsnap_manus_api_key', trim($manus_key)); }
+        if (!empty($manus_key)) { update_option('pitchsnap_manus_api_key', trim((string) $manus_key)); }
         update_option('pitchsnap_manus_prompt', $manus_prompt);
 
         $api_key = $this->input->post('pitchsnap_anthropic_api_key');
-        $model   = trim($this->input->post('pitchsnap_model', true));
+        $model   = trim((string) $this->input->post('pitchsnap_model', true));
         $prompt  = $this->input->post('pitchsnap_generation_prompt');
-        if (!empty($api_key)) { update_option('pitchsnap_anthropic_api_key', trim($api_key)); }
+        if (!empty($api_key)) { update_option('pitchsnap_anthropic_api_key', trim((string) $api_key)); }
         update_option('pitchsnap_model',             $model ?: 'claude-sonnet-4-6');
         update_option('pitchsnap_generation_prompt', $prompt);
 
@@ -338,21 +338,21 @@ class Pitchsnap extends AdminController
         $payment_type = $this->input->post('pitchsnap_payment_type', true);
         update_option('pitchsnap_payment_type', in_array($payment_type, ['onetime', 'subscription']) ? $payment_type : 'onetime');
 
-        $price = trim($this->input->post('pitchsnap_price', true));
+        $price = trim((string) $this->input->post('pitchsnap_price', true));
         if ($price !== '' && is_numeric($price) && (float) $price > 0) {
             update_option('pitchsnap_price', number_format((float) $price, 2, '.', ''));
         }
 
-        update_option('pitchsnap_stripe_plan_id',   trim($this->input->post('pitchsnap_stripe_plan_id', true)));
+        update_option('pitchsnap_stripe_plan_id',   trim((string) $this->input->post('pitchsnap_stripe_plan_id', true)));
         $qty = (int) $this->input->post('pitchsnap_sub_quantity', true);
         update_option('pitchsnap_sub_quantity',     (string) max(1, $qty ?: 1));
-        update_option('pitchsnap_sub_name',         trim($this->input->post('pitchsnap_sub_name', true)));
+        update_option('pitchsnap_sub_name',         trim((string) $this->input->post('pitchsnap_sub_name', true)));
         update_option('pitchsnap_sub_description',  $this->input->post('pitchsnap_sub_description'));
         update_option('pitchsnap_sub_include_desc', $this->input->post('pitchsnap_sub_include_desc') ? '1' : '0');
         $sub_cur = (int) $this->input->post('pitchsnap_sub_currency', true);
         if ($sub_cur > 0) { update_option('pitchsnap_sub_currency', (string) $sub_cur); }
-        update_option('pitchsnap_sub_tax1',         trim($this->input->post('pitchsnap_sub_tax1', true)));
-        update_option('pitchsnap_sub_tax2',         trim($this->input->post('pitchsnap_sub_tax2', true)));
+        update_option('pitchsnap_sub_tax1',         trim((string) $this->input->post('pitchsnap_sub_tax1', true)));
+        update_option('pitchsnap_sub_tax2',         trim((string) $this->input->post('pitchsnap_sub_tax2', true)));
 
         $web_design_admin = (int) $this->input->post('pitchsnap_web_design_admin', true);
         update_option('pitchsnap_web_design_admin', (string) $web_design_admin);
