@@ -44,8 +44,18 @@ $host     = rtrim($host, '.');                             // strip trailing dot
 
 if ($host === '') { abort(400); }
 
-// The runtime's own infrastructure hostname has no customer mapping
-if ($host === RUNTIME_OWN_HOST) { abort(404); }
+// The runtime's own infrastructure hostname has no customer mapping unless the
+// Cloudflare Worker is proxying a custom-domain request through it.
+if ($host === RUNTIME_OWN_HOST) {
+    // Only trust X-ClickFuzz-Host when the actual incoming host is sites.clickfuzz.com
+    // (i.e. the Worker path). Apply identical normalization to the override value.
+    $override = strtolower($_SERVER['HTTP_X_CLICKFUZZ_HOST'] ?? '');
+    $override = (string) preg_replace('/:\d+$/', '', $override);
+    $override = rtrim($override, '.');
+    if ($override === '') { abort(404); }
+    $host = $override;
+    // RFC validation below still runs on $host (now the override value).
+}
 
 // Validate hostname structure: RFC-compliant labels separated by dots
 if (!preg_match('/^(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/', $host)) {
