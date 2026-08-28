@@ -24,7 +24,8 @@
                     </div>
                 </div>
 
-                <?php } elseif ($_publish_type === null) { ?>
+                <?php } else { ?>
+                <?php if (!$_is_published) { ?>
                 <!-- ── Choose publishing method ─────────────────────────── -->
                 <div class="panel_s">
                     <div class="panel-body">
@@ -36,11 +37,11 @@
                             <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
                             <div style="margin-bottom:14px;">
                                 <label style="font-size:13px; font-weight:400; cursor:pointer; display:block; margin-bottom:8px;">
-                                    <input type="radio" name="publish_type" value="html" style="margin-right:5px;">
+                                    <input type="radio" name="publish_type" value="html" <?php echo ($_publish_type === 'html') ? 'checked' : ''; ?> style="margin-right:5px;">
                                     <strong>HTML</strong> — publish as a static HTML page on ClickFuzz infrastructure
                                 </label>
                                 <label style="font-size:13px; font-weight:400; cursor:pointer; display:block;">
-                                    <input type="radio" name="publish_type" value="wordpress" style="margin-right:5px;">
+                                    <input type="radio" name="publish_type" value="wordpress" <?php echo ($_publish_type === 'wordpress') ? 'checked' : ''; ?> style="margin-right:5px;">
                                     <strong>WordPress</strong> — deploy to a WordPress site via the ClickFuzz Connector
                                 </label>
                             </div>
@@ -51,7 +52,8 @@
                     </div>
                 </div>
 
-                <?php } elseif ($_publish_type === 'html') { ?>
+                <?php } ?>
+                <?php if ($_publish_type === 'html') { ?>
                 <!-- ── HTML Hosting ─────────────────────────────────────── -->
                 <div class="panel_s">
                     <div class="panel-body">
@@ -245,7 +247,7 @@
                     </div>
                 </div>
 
-                <?php } else { /* publish_type === 'wordpress' */ ?>
+                <?php } elseif ($_publish_type === 'wordpress') { ?>
                 <!-- ── WordPress REST API Publish ───────────────────────── -->
                 <?php
                 $_wp1_url      = !empty($site->wp_site_url)     ? $site->wp_site_url     : '';
@@ -503,6 +505,7 @@
                     </div>
                 </div><!-- /.panel_s WordPress -->
 
-                <?php } /* end publish_type switch */ ?>
+                <?php } ?>
+                <?php } /* end site/publish_type block */ ?>
 
             </div><!-- #tab-publishing -->
