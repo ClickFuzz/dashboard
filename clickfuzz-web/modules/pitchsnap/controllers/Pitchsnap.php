@@ -648,6 +648,140 @@ class Pitchsnap extends AdminController
         return $this->_json(['success' => true, 'message' => 'Changes applied and preview updated.']);
     }
 
+    public function ghl_link_location($id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+        if (!$this->input->post()) { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+        $site_id     = (int) $id;
+        $location_id = trim($this->input->post('ghl_location_id', true));
+        if (!$site_id || $location_id === '') {
+            return $this->_json(['success' => false, 'message' => 'Site ID and Location ID are required.']);
+        }
+        if (!get_option('pitchsnap_ghl_api_key')) {
+            return $this->_json(['success' => false, 'message' => 'GHL Private Integration Token not configured. Go to Settings → GHL.']);
+        }
+        require_once FCPATH . 'modules/pitchsnap/libraries/Pitchsnap_ghl.php';
+        $ghl    = new Pitchsnap_ghl();
+        $result = $ghl->get_location($location_id);
+        if (!$result['success']) {
+            return $this->_json(['success' => false, 'message' => 'GHL verification failed: ' . $result['error']]);
+        }
+        $location_name = $result['data']['location']['name'] ?? $location_id;
+        $this->load->model('pitchsnap_ghl_model');
+        $this->pitchsnap_ghl_model->mark_connected($site_id, $location_id, $location_name);
+        log_activity('ClickFuzz Web: GHL location linked [Site ID: ' . $site_id . ', Location: ' . $location_id . ']');
+        return $this->_json(['success' => true, 'message' => 'Linked: ' . $location_name, 'location_name' => $location_name]);
+    }
+
+    public function ghl_test_connection($id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+        if (!$this->input->post()) { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+        $site_id = (int) $id;
+        if (!$site_id) { return $this->_json(['success' => false, 'message' => 'Invalid site ID.']); }
+        if (!get_option('pitchsnap_ghl_api_key')) {
+            return $this->_json(['success' => false, 'message' => 'GHL Private Integration Token not configured. Go to Settings → GHL.']);
+        }
+        $this->load->model('pitchsnap_ghl_model');
+        $ghl_link = $this->pitchsnap_ghl_model->get_by_site($site_id);
+        if (!$ghl_link || empty($ghl_link->ghl_location_id)) {
+            return $this->_json(['success' => false, 'message' => 'No GHL location linked for this site.']);
+        }
+        require_once FCPATH . 'modules/pitchsnap/libraries/Pitchsnap_ghl.php';
+        $ghl    = new Pitchsnap_ghl();
+        $result = $ghl->get_location($ghl_link->ghl_location_id);
+        if (!$result['success']) {
+            return $this->_json(['success' => false, 'message' => 'Connection test failed: ' . $result['error']]);
+        }
+        $location_name = $result['data']['location']['name'] ?? $ghl_link->ghl_location_id;
+        $this->pitchsnap_ghl_model->mark_connected($site_id, $ghl_link->ghl_location_id, $location_name);
+        return $this->_json(['success' => true, 'message' => 'Connection verified. Location: ' . $location_name]);
+    }
+
+    // POST pitchsnap/save_publish_type/{website_id}
+    public function save_publish_type($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) { set_alert('danger', 'No site record found.'); redirect($detail_url); }
+
+        if ($this->pitchsnap_model->is_site_published($site)) {
+            set_alert('danger', 'Publishing method is locked after a successful publish.');
+            redirect($detail_url);
+        }
+
+        $type = $this->input->post('publish_type', true);
+        if (!in_array($type, ['html', 'wordpress'])) {
+            set_alert('danger', 'Invalid publish type.');
+            redirect($detail_url);
+        }
+        $this->pitchsnap_model->update_site($site->id, ['publish_type' => $type]);
+        redirect($detail_url);
+    }
+
+    // POST pitchsnap/save_wp_connection/{website_id}
+    public function save_wp_connection($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) { set_alert('danger', 'No site record found.'); redirect($detail_url); }
+
+        $wp_url = rtrim(trim((string) $this->input->post('wp_site_url', true)), '/');
+        if (!empty($wp_url) && !filter_var($wp_url, FILTER_VALIDATE_URL)) {
+            set_alert('danger', 'Invalid WordPress site URL.');
+            redirect($detail_url);
+        }
+
+        $updates = ['wp_site_url' => $wp_url];
+        $raw_user = trim((string) $this->input->post('wp_username', true));
+        if ($raw_user !== '') { $updates['wp_username'] = $raw_user; }
+        $raw_pass = (string) $this->input->post('wp_app_password', false);
+        if ($raw_pass !== '' && $raw_pass !== '••••••••') {
+            $updates['wp_app_password'] = trim($raw_pass);
+        }
+
+        $this->pitchsnap_model->update_site($site->id, $updates);
+        log_activity('ClickFuzz Web: WordPress connection saved [Site ID: ' . $site->id . ']');
+        set_alert('success', 'WordPress connection saved.');
+        redirect($detail_url);
+    }
+
+    // POST pitchsnap/publish_site_wp/{website_id}
+    public function publish_site_wp($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) { set_alert('danger', 'No site record found.'); redirect($detail_url); }
+        if (!function_exists('clickfuzz_web_publish_site_wp')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
+        }
+        $result = clickfuzz_web_publish_site_wp($site->id);
+        if ($result['success']) {
+            if (!function_exists('clickfuzz_web_cleanup_generation_history')) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
+            }
+            $website = $this->pitchsnap_model->get($id);
+            if ($website) { clickfuzz_web_cleanup_generation_history((int) $website->lead_id); }
+            log_activity('ClickFuzz Web: Site published to WordPress [Site ID: ' . $site->id . ', URL: ' . $result['url'] . ']');
+            set_alert('success', 'Site published to WordPress at <a href="' . e($result['url']) . '" target="_blank">' . e($result['url']) . '</a>');
+        } else {
+            set_alert('danger', 'WordPress publish failed: ' . $result['error']);
+        }
+        redirect($detail_url);
+    }
+
     private function _json($data)
     {
         $this->output

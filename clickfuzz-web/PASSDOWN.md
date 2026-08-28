@@ -9,7 +9,7 @@ ClickFuzz Web is a custom Perfex CRM module. It handles website generation, pros
 **DB:** `clgorman_clickfuzzdashboard` (table prefix: `tbl`)
 **Stack:** Perfex CRM 3.1.4 / CodeIgniter 3.1.11 / PHP 8.3.33
 **Module:** `pitchsnap` (slug), active (tblmodules id=23, active=1)
-**DB schema version:** 12 (publishing-domains branch; not yet deployed to production)
+**DB schema version:** Production is at v17 (owned by `claude/generation`, 15+ commits ahead of main). `main` is at v14. `claude/publishing-domains` branch gates at v15 (includes a temporary duplicate of generation's v15 migration for internal branch consistency).
 
 ---
 
@@ -69,13 +69,15 @@ Public endpoints must be added to `$app_csrf_exclude_uris` in `application/confi
 
 ## Current Production / Main Baseline
 
-As of 2026-08-23, `main` is at commit `4e85bde` and is in sync with `origin/main` on GitHub.
+As of 2026-08-26, local `main` is at `739f16e` and `origin/main` is in sync at `739f16e`.
 
-Production is verified identical to the pre-recovery-audit main baseline. The recovery commit (`4e85bde`) adds the lead-profile tab and conversation empty-state fix — these must be deployed to production.
+This commit merges the GHL integration (Phase 1) and Publishing & Domains (Phases 1–5B).
 
 **Items pending production deployment:**
 - Lead-profile tab hooks (restored 2026-08-23)
 - Conversation empty state fix in admin_lead.php (2026-08-23)
+- GHL Phase 1 (location linking + connection verification) — DB v14 migration runs on admin_init
+- Publishing Phases 1–5B — DB v13 already live; DNS helper, verify_custom_domain controller, DNS UI already deployed to production
 
 ---
 
@@ -98,12 +100,12 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 | Branch | Worktree | Status |
 |---|---|---|
-| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `0fe1d30` |
+| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `739f16e` (origin/main in sync) |
 | `claude/generation` | `worktrees/dashboard/generation` | Active — at `7ade348`, feature changes present |
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
-| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Active** — Phases 1–4 complete. DB v12 + `tblpitchsnap_site_domains` live. Hosted-site runtime at `sites.clickfuzz.com`. `jackrabbit.clickfuzz.com` live. Publishing tab shows correct live URL, Open Site button, Republish state. Pending: merge to main, Phase 5 (custom domains). |
+| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | Phases 1–5B merged to main at `739f16e`. **Phase 6 committed, NOT merged** — publishing-state foundation: `is_site_published()`, helper-level publish-type locking (HTML↔WP mutual exclusion before any I/O), atomic `publish_type`+`status` on successful publish, `save_publish_type` + `save_wp_connection` + `publish_site_wp` controller actions, tests (sections 32–38). **BLOCKED on `claude/generation`**: generation owns DB v15–v17 canonically and must merge to main first. After that, publishing-domains must update from main, then remove its temporary duplicate v15 migration block and reconcile any WP controller overlaps. **Phase 5C PAUSED** — awaiting Cloudflare architecture decision. |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
 | `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix + tab extraction. Uncommitted changes: `admin_detail.php` (shell only), `Pitchsnap.php`, `Pitchsnap_model.php`, new `views/admin_detail/tab_*.php` (6 files). New partials not yet deployed to production. Needs deploy + verify + commit + merge to main. |
@@ -113,6 +115,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 ## Global Blockers
 
+- **`claude/generation` must merge to main before `claude/publishing-domains` can merge** — generation owns DB v15–v17 canonically; publishing-domains carries a temporary duplicate v15 migration that must be removed after merge.
 - Production deployment of 2026-08-23 recovery changes (lead tab + conversation empty state)
 - End-to-end purchase path not confirmed tested
 - Lead Connect not started (gating Reviews and full Reporting)

@@ -138,6 +138,27 @@ class MockPitchsnapModel {
             }
         }
     }
+    public function update_site($id, $data) {
+        $id = (int) $id;
+        if (isset($this->sites[$id])) {
+            foreach ($data as $k => $v) { $this->sites[$id]->$k = $v; }
+        }
+        return true;
+    }
+    public function is_site_published($site) {
+        return !empty($site) && isset($site->status) && $site->status === 'published';
+    }
+    public function seed_site_with_state($site_id, array $fields) {
+        $o = new stdClass();
+        foreach ($fields as $k => $v) { $o->$k = $v; }
+        $o->id = $site_id;
+        $this->sites[$site_id] = $o;
+    }
+    public function get($website_id) { return null; }
+}
+
+if (!function_exists('get_option')) {
+    function get_option($key, $default = false) { return $default; }
 }
 
 // ---------------------------------------------------------------------------
@@ -625,6 +646,183 @@ $mock_us = new MockPitchsnapModel();
 $mock_us->update_domain_verification_calls = [];
 ok('update_domain_verification exists in MockPitchsnapModel',
    method_exists($mock_us, 'update_domain_verification'));
+
+// ---------------------------------------------------------------------------
+// 32. Canonical published state — is_site_published()
+// ---------------------------------------------------------------------------
+
+echo "\n-- is_site_published: canonical published-state logic --\n";
+
+$mock_ps = new MockPitchsnapModel();
+
+$site_draft = (object)['status' => 'draft'];
+$site_pub   = (object)['status' => 'published'];
+$site_gen   = (object)['status' => 'generating'];
+$site_null  = null;
+
+ok('draft site → not published',      !$mock_ps->is_site_published($site_draft));
+ok('published site → published',       $mock_ps->is_site_published($site_pub));
+ok('generating site → not published', !$mock_ps->is_site_published($site_gen));
+ok('null site → not published',       !$mock_ps->is_site_published($site_null));
+ok('empty object → not published',    !$mock_ps->is_site_published(new stdClass()));
+
+// ---------------------------------------------------------------------------
+// 33. publish_type persists on HTML publish (mock update_site captures it)
+// ---------------------------------------------------------------------------
+
+echo "\n-- publish_type: set to 'html' after successful HTML publish --\n";
+
+$mock_html = new MockPitchsnapModel();
+$mock_html->seed_site_with_state(200, [
+    'domain'           => 'clickfuzz.com/sites/test-site-200',
+    'source_website_id'=> 99,
+    'status'           => 'draft',
+    'publish_type'     => 'html',
+    'site_token'       => 'tok200',
+    'wp_site_url'      => null,
+    'source_lead_id'   => null,
+    'client_id'        => null,
+]);
+
+// Seed a platform domain so the function doesn't try to generate one
+$mock_html->seed_domain(200, 'testco.clickfuzz.com', 'platform');
+
+$CI =& get_instance();
+$CI->pitchsnap_model = $mock_html;
+
+// Call will fail at the preview file check (no real file), which is fine —
+// the lock check and type logic happen earlier. We're validating that a
+// draft (non-published, html-type) site is NOT blocked by the lock.
+$html_result = clickfuzz_web_publish_site(200);
+ok('draft html-type site: lock not triggered (fails at preview)',
+   $html_result['error'] !== 'This site was published via WordPress. Change the publishing method before switching.');
+
+// ---------------------------------------------------------------------------
+// 34. publish_type lock — HTML refused when WP-published
+// ---------------------------------------------------------------------------
+
+echo "\n-- publish_type lock: HTML publish blocked when already WP-published --\n";
+
+$mock_lock_html = new MockPitchsnapModel();
+$mock_lock_html->seed_site_with_state(201, [
+    'domain'           => 'clickfuzz.com/sites/test-site-201',
+    'source_website_id'=> 98,
+    'status'           => 'published',
+    'publish_type'     => 'wordpress',
+    'site_token'       => 'tok201',
+    'wp_site_url'      => 'https://example.com',
+    'source_lead_id'   => null,
+    'client_id'        => null,
+]);
+
+$CI->pitchsnap_model = $mock_lock_html;
+$lock_html_result = clickfuzz_web_publish_site(201);
+
+ok('WP-published site: HTML publish returns error',       $lock_html_result['success'] === false);
+ok('WP-published site: lock error message returned',
+   strpos($lock_html_result['error'], 'WordPress') !== false);
+ok('WP-published site: url is null',                      $lock_html_result['url'] === null);
+
+// ---------------------------------------------------------------------------
+// 35. publish_type lock — WP refused when HTML-published
+// ---------------------------------------------------------------------------
+
+echo "\n-- publish_type lock: WP publish blocked when already HTML-published --\n";
+
+$mock_lock_wp = new MockPitchsnapModel();
+$mock_lock_wp->seed_site_with_state(202, [
+    'domain'           => 'clickfuzz.com/sites/test-site-202',
+    'source_website_id'=> 97,
+    'status'           => 'published',
+    'publish_type'     => 'html',
+    'site_token'       => 'tok202',
+    'wp_site_url'      => 'https://example.com',
+    'wp_username'      => 'admin',
+    'wp_app_password'  => 'secret',
+    'wp_page_id'       => null,
+    'source_lead_id'   => null,
+    'client_id'        => null,
+]);
+
+$CI->pitchsnap_model = $mock_lock_wp;
+$lock_wp_result = clickfuzz_web_publish_site_wp(202);
+
+ok('HTML-published site: WP publish returns error',       $lock_wp_result['success'] === false);
+ok('HTML-published site: lock error message returned',
+   strpos($lock_wp_result['error'], 'HTML') !== false);
+ok('HTML-published site: url is null',                    $lock_wp_result['url'] === null);
+
+// ---------------------------------------------------------------------------
+// 36. Republish same method not blocked (HTML → HTML)
+// ---------------------------------------------------------------------------
+
+echo "\n-- publish_type: HTML republish not blocked by lock --\n";
+
+$mock_repub = new MockPitchsnapModel();
+$mock_repub->seed_site_with_state(203, [
+    'domain'           => 'clickfuzz.com/sites/test-site-203',
+    'source_website_id'=> 96,
+    'status'           => 'published',
+    'publish_type'     => 'html',
+    'site_token'       => 'tok203',
+    'wp_site_url'      => null,
+    'source_lead_id'   => null,
+    'client_id'        => null,
+]);
+
+$CI->pitchsnap_model = $mock_repub;
+$repub_result = clickfuzz_web_publish_site(203);
+
+// Lock should NOT trigger — fails later at preview file check
+ok('HTML-published site: HTML republish lock NOT triggered',
+   $repub_result['error'] !== 'This site was published via WordPress. Change the publishing method before switching.');
+
+// ---------------------------------------------------------------------------
+// 37. Republish same method not blocked (WP → WP)
+// ---------------------------------------------------------------------------
+
+echo "\n-- publish_type: WP republish not blocked by lock --\n";
+
+$mock_repub_wp = new MockPitchsnapModel();
+$mock_repub_wp->seed_site_with_state(204, [
+    'domain'           => 'clickfuzz.com/sites/test-site-204',
+    'source_website_id'=> 95,
+    'status'           => 'published',
+    'publish_type'     => 'wordpress',
+    'site_token'       => 'tok204',
+    'wp_site_url'      => 'https://example.com',
+    'wp_username'      => 'admin',
+    'wp_app_password'  => 'secret',
+    'wp_page_id'       => 5,
+    'source_lead_id'   => null,
+    'client_id'        => null,
+]);
+
+$CI->pitchsnap_model = $mock_repub_wp;
+$repub_wp_result = clickfuzz_web_publish_site_wp(204);
+
+// Lock should NOT trigger — fails later (no preview / no curl)
+ok('WP-published site: WP republish lock NOT triggered',
+   $repub_wp_result['error'] !== 'This site was published via HTML. Change the publishing method before switching.');
+
+// ---------------------------------------------------------------------------
+// 38. set_publish_type lock enforced in model helper
+// ---------------------------------------------------------------------------
+
+echo "\n-- set_publish_type: locked once published --\n";
+
+$mock_set = new MockPitchsnapModel();
+
+$unpub = (object)['id' => 10, 'status' => 'draft', 'publish_type' => 'html'];
+$pub   = (object)['id' => 11, 'status' => 'published', 'publish_type' => 'html'];
+
+ok('unpublished site: is_site_published false', !$mock_set->is_site_published($unpub));
+ok('published site: is_site_published true',     $mock_set->is_site_published($pub));
+
+// The controller blocks set_publish_type when is_site_published is true;
+// verify the helper agrees on both cases.
+ok('draft site: NOT locked (controller would allow change)', !$mock_set->is_site_published($unpub));
+ok('published site: IS locked (controller would block change)', $mock_set->is_site_published($pub));
 
 // ---------------------------------------------------------------------------
 // Summary

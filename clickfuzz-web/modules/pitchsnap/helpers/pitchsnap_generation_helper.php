@@ -366,6 +366,11 @@ function clickfuzz_web_publish_site($site_id)
         return ['success' => false, 'url' => null, 'error' => 'Site not found.'];
     }
 
+    // Enforce publish_type lock before any I/O: if already published via WordPress, refuse.
+    if ($site->status === 'published' && isset($site->publish_type) && $site->publish_type === 'wordpress') {
+        return ['success' => false, 'url' => null, 'error' => 'This site was published via WordPress. Change the publishing method before switching.'];
+    }
+
     $website = $CI->pitchsnap_model->get($site->source_website_id);
     if (!$website || !$website->preview_token) {
         return ['success' => false, 'url' => null, 'error' => 'No preview available for this site.'];
@@ -442,8 +447,9 @@ function clickfuzz_web_publish_site($site_id)
     }
 
     $CI->pitchsnap_model->update_site($site_id, [
-        'status'      => 'published',
-        'dateupdated' => date('Y-m-d H:i:s'),
+        'status'       => 'published',
+        'publish_type' => 'html',
+        'dateupdated'  => date('Y-m-d H:i:s'),
     ]);
 
     // Resolve platform hostname: reuse existing mapping or generate a new one.
@@ -502,6 +508,12 @@ function clickfuzz_web_publish_site_wp($site_id)
     if (!$site) {
         return ['success' => false, 'url' => null, 'error' => 'Site not found.'];
     }
+
+    // Enforce publish_type lock before any I/O: if already published via HTML, refuse.
+    if ($site->status === 'published' && isset($site->publish_type) && $site->publish_type === 'html') {
+        return ['success' => false, 'url' => null, 'error' => 'This site was published via HTML. Change the publishing method before switching.'];
+    }
+
     if (empty($site->wp_site_url)) {
         return ['success' => false, 'url' => null, 'error' => 'WordPress site URL not configured.'];
     }
@@ -603,11 +615,12 @@ function clickfuzz_web_publish_site_wp($site_id)
         return ['success' => false, 'url' => null, 'error' => 'Page published but front-page assignment failed: ' . $set_detail];
     }
 
-    // Both phases succeeded — mark site as published
+    // Both phases succeeded — mark site as published via WordPress.
     $CI->pitchsnap_model->update_site($site_id, [
-        'status'      => 'published',
-        'wp_page_id'  => $wp_page_id,
-        'dateupdated' => date('Y-m-d H:i:s'),
+        'status'       => 'published',
+        'publish_type' => 'wordpress',
+        'wp_page_id'   => $wp_page_id,
+        'dateupdated'  => date('Y-m-d H:i:s'),
     ]);
 
     return ['success' => true, 'url' => $wp_page_url, 'error' => null];

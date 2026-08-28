@@ -527,6 +527,11 @@ class Pitchsnap_model extends App_Model
         return $this->db->affected_rows() > 0;
     }
 
+    public function is_site_published($site)
+    {
+        return !empty($site) && isset($site->status) && $site->status === 'published';
+    }
+
     public function is_slug_available($slug)
     {
         return $this->db->where('domain', 'clickfuzz.com/sites/' . $slug)->count_all_results($this->site_table) === 0;
