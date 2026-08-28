@@ -13,3 +13,20 @@ $route['pitchsnap/agreement/(:any)']             = 'pitchsnap/pitchsnap_runtime/
 $route['pitchsnap/accept_agreement']             = 'pitchsnap/pitchsnap_runtime/accept_agreement';
 $route['pitchsnap/subscription_complete/(:any)'] = 'pitchsnap/pitchsnap_runtime/subscription_complete/$1';
 $route['pitchsnap/track_view/(:any)']            = 'pitchsnap/pitchsnap_runtime/track_view/$1';
+
+// Phase 3 — page management fallbacks
+$route['pitchsnap/page_add/(:num)']          = 'pitchsnap/pitchsnap/page_add/$1';
+$route['pitchsnap/page_edit/(:num)']         = 'pitchsnap/pitchsnap/page_edit/$1';
+$route['pitchsnap/page_save/(:num)']         = 'pitchsnap/pitchsnap/page_save/$1';
+$route['pitchsnap/page_trash/(:num)']        = 'pitchsnap/pitchsnap/page_trash/$1';
+$route['pitchsnap/page_restore/(:num)']      = 'pitchsnap/pitchsnap/page_restore/$1';
+$route['pitchsnap/media_upload/(:num)']      = 'pitchsnap/pitchsnap/media_upload/$1';
+$route['pitchsnap/media_save/(:num)']        = 'pitchsnap/pitchsnap/media_save/$1';
+$route['pitchsnap/media_delete/(:num)']      = 'pitchsnap/pitchsnap/media_delete/$1';
+$route['pitchsnap/media_json/(:num)']        = 'pitchsnap/pitchsnap/media_json/$1';
+$route['pitchsnap/page_media_attach/(:num)'] = 'pitchsnap/pitchsnap/page_media_attach/$1';
+$route['pitchsnap/page_media_detach/(:num)'] = 'pitchsnap/pitchsnap/page_media_detach/$1';
+$route['pitchsnap/page_generate/(:num)']               = 'pitchsnap/pitchsnap/page_generate/$1';
+$route['pitchsnap/page_preview/(:num)']                = 'pitchsnap/pitchsnap/page_preview/$1';
+$route['pitchsnap/page_generation_set_current/(:num)'] = 'pitchsnap/pitchsnap/page_generation_set_current/$1';
+$route['pitchsnap/page_publish/(:num)']                = 'pitchsnap/pitchsnap/page_publish/$1';

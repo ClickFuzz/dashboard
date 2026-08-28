@@ -493,9 +493,19 @@ function clickfuzz_web_publish_site($site_id)
 }
 
 // ---------------------------------------------------------------------------
-// WordPress REST API publishing
+// WordPress REST API publishing (Phase 1)
 // ---------------------------------------------------------------------------
 
+/**
+ * Publish the generated HTML as a WordPress page via WP REST API.
+ * Two-phase: (1) create/update the page, (2) assign as front page via Settings API.
+ * Site is marked published ONLY after both phases succeed.
+ *
+ * Requires the WP Application Password user to have administrator-level
+ * permissions (manage_options capability) for front-page assignment.
+ *
+ * @return array ['success' => bool, 'url' => string|null, 'error' => string|null]
+ */
 function clickfuzz_web_publish_site_wp($site_id)
 {
     $CI =& get_instance();
@@ -630,6 +640,12 @@ function clickfuzz_web_publish_site_wp($site_id)
 // Post-publication history cleanup (Phase 1)
 // ---------------------------------------------------------------------------
 
+/**
+ * After a site is published, delete all non-primary generation history for the lead:
+ * preview files, conversations, and redesign records.
+ * The primary (canonical) version is always preserved.
+ * Returns count of deleted redesign records.
+ */
 function clickfuzz_web_cleanup_generation_history($lead_id)
 {
     $CI =& get_instance();
@@ -646,6 +662,7 @@ function clickfuzz_web_cleanup_generation_history($lead_id)
 
     $redesign_ids = array_map(function ($r) { return (int) $r->id; }, $non_primary);
 
+    // Remove preview files from disk
     $base_dir  = dirname(FCPATH) . '/previews';
     $real_base = realpath($base_dir);
     foreach ($non_primary as $r) {
@@ -662,17 +679,20 @@ function clickfuzz_web_cleanup_generation_history($lead_id)
         }
     }
 
+    // Delete conversations for non-primary redesigns
     $conv_table = db_prefix() . 'pitchsnap_conversations';
     if ($CI->db->table_exists($conv_table)) {
         $CI->db->where_in('redesign_id', $redesign_ids)->delete($conv_table);
     }
 
+    // Delete non-primary redesign records (double-guard with is_primary=0)
     $t = db_prefix() . 'pitchsnap_redesigns';
     $CI->db->where_in('id', $redesign_ids)->where('is_primary', 0)->delete($t);
 
     return count($redesign_ids);
 }
 
+// ---------------------------------------------------------------------------
 
 function clickfuzz_web_copyright_year_instruction()
 {

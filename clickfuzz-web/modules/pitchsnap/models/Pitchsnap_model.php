@@ -8,15 +8,23 @@ class Pitchsnap_model extends App_Model
     private $agreement_table;
     private $log_table;
     private $domain_table;
+    private $pages_table;
+    private $media_table;
+    private $page_media_table;
+    private $page_generations_table;
 
     public function __construct()
     {
         parent::__construct();
-        $this->table            = db_prefix() . 'pitchsnap_redesigns';
-        $this->site_table       = db_prefix() . 'pitchsnap_sites';
-        $this->agreement_table  = db_prefix() . 'pitchsnap_agreements';
-        $this->log_table        = db_prefix() . 'pitchsnap_logs';
-        $this->domain_table     = db_prefix() . 'pitchsnap_site_domains';
+        $this->table                  = db_prefix() . 'pitchsnap_redesigns';
+        $this->site_table             = db_prefix() . 'pitchsnap_sites';
+        $this->agreement_table        = db_prefix() . 'pitchsnap_agreements';
+        $this->log_table              = db_prefix() . 'pitchsnap_logs';
+        $this->domain_table           = db_prefix() . 'pitchsnap_site_domains';
+        $this->pages_table            = db_prefix() . 'pitchsnap_pages';
+        $this->media_table            = db_prefix() . 'pitchsnap_site_media';
+        $this->page_media_table       = db_prefix() . 'pitchsnap_page_media';
+        $this->page_generations_table = db_prefix() . 'pitchsnap_page_generations';
     }
 
     // -----------------------------------------------------------------------
@@ -888,5 +896,419 @@ class Pitchsnap_model extends App_Model
 
         log_activity('PitchSnap: Website profile deleted [Lead ID: ' . $lead_id . ', Versions: ' . count($redesign_ids) . ']');
         return true;
+    }
+
+    /**
+     * Return all non-primary redesign records for a lead.
+     * Used by clickfuzz_web_cleanup_generation_history() after publish.
+     */
+    public function get_non_primary_redesigns_for_lead($lead_id)
+    {
+        return $this->db
+            ->where('lead_id', (int) $lead_id)
+            ->where('is_primary', 0)
+            ->get($this->table)
+            ->result();
+    }
+
+    // -----------------------------------------------------------------------
+    // Pages — internal site pages (Phase 2)
+    // -----------------------------------------------------------------------
+
+    public function page_slug_available($site_id, $slug, $exclude_page_id = null)
+    {
+        $this->db->where('site_id', (int) $site_id)
+                 ->where('slug', $slug)
+                 ->where('status !=', 'trash');
+        if ($exclude_page_id) {
+            $this->db->where('id !=', (int) $exclude_page_id);
+        }
+        return $this->db->count_all_results($this->pages_table) === 0;
+    }
+
+    public function get_active_pages_for_site($site_id)
+    {
+        return $this->db
+            ->where('site_id', (int) $site_id)
+            ->where('status !=', 'trash')
+            ->order_by('menu_order', 'ASC')
+            ->order_by('title', 'ASC')
+            ->get($this->pages_table)->result();
+    }
+
+    public function create_page($site_id, $data)
+    {
+        $now = date('Y-m-d H:i:s');
+        $row = array_merge([
+            'status'            => 'draft',
+            'generation_status' => 'not_generated',
+            'page_type'         => 'custom',
+            'index_page'        => 1,
+            'menu_primary'      => 0,
+            'menu_footer'       => 0,
+            'menu_order'        => 0,
+        ], $data, [
+            'site_id'     => (int) $site_id,
+            'dateadded'   => $now,
+            'dateupdated' => $now,
+        ]);
+        $this->db->insert($this->pages_table, $row);
+        return $this->db->insert_id();
+    }
+
+    public function get_page($id)
+    {
+        return $this->db->where('id', (int) $id)->get($this->pages_table)->row();
+    }
+
+    public function get_pages_for_site($site_id, $include_trashed = false)
+    {
+        $this->db->where('site_id', (int) $site_id);
+        if (!$include_trashed) {
+            $this->db->where('status !=', 'trash');
+        }
+        return $this->db->order_by('menu_order', 'ASC')->order_by('dateadded', 'ASC')
+            ->get($this->pages_table)->result();
+    }
+
+    public function update_page($id, $data)
+    {
+        $data['dateupdated'] = date('Y-m-d H:i:s');
+        unset($data['id'], $data['site_id'], $data['dateadded']);
+        $this->db->where('id', (int) $id)->update($this->pages_table, $data);
+        return $this->db->affected_rows() > 0;
+    }
+
+    public function trash_page($id)
+    {
+        return $this->update_page($id, ['status' => 'trash']);
+    }
+
+    public function restore_page($id)
+    {
+        return $this->update_page($id, ['status' => 'draft']);
+    }
+
+    public function get_child_pages($parent_page_id, $site_id)
+    {
+        return $this->db
+            ->where('parent_page_id', (int) $parent_page_id)
+            ->where('site_id', (int) $site_id)
+            ->where('status !=', 'trash')
+            ->get($this->pages_table)->result();
+    }
+
+    /**
+     * Validates a proposed parent for a page.
+     * Returns true when the parent is valid, false otherwise.
+     * Rejects: self-reference, cross-site parent, trashed parent.
+     */
+    public function validate_page_parent($page_id, $parent_page_id, $site_id)
+    {
+        $page_id        = (int) $page_id;
+        $parent_page_id = (int) $parent_page_id;
+
+        if ($page_id && $page_id === $parent_page_id) {
+            return false;
+        }
+
+        $parent = $this->db->where('id', $parent_page_id)->get($this->pages_table)->row();
+        if (!$parent) {
+            return false;
+        }
+        if ((int) $parent->site_id !== (int) $site_id) {
+            return false;
+        }
+        if ($parent->status === 'trash') {
+            return false;
+        }
+        return true;
+    }
+
+    // -----------------------------------------------------------------------
+    // Site media library (Phase 2)
+    // -----------------------------------------------------------------------
+
+    public function create_media($site_id, $data)
+    {
+        $row = array_merge($data, [
+            'site_id'   => (int) $site_id,
+            'dateadded' => date('Y-m-d H:i:s'),
+        ]);
+        $this->db->insert($this->media_table, $row);
+        return $this->db->insert_id();
+    }
+
+    public function get_media($id)
+    {
+        return $this->db->where('id', (int) $id)->get($this->media_table)->row();
+    }
+
+    public function get_media_for_site($site_id, $category = null)
+    {
+        $this->db->where('site_id', (int) $site_id);
+        if ($category !== null) {
+            $this->db->where('category', $category);
+        }
+        return $this->db->order_by('dateadded', 'DESC')->get($this->media_table)->result();
+    }
+
+    public function update_media($id, $data)
+    {
+        unset($data['id'], $data['site_id'], $data['dateadded']);
+        $this->db->where('id', (int) $id)->update($this->media_table, $data);
+        return $this->db->affected_rows() > 0;
+    }
+
+    public function delete_media($id)
+    {
+        // Detach from all pages first
+        $this->db->where('media_id', (int) $id)->delete($this->page_media_table);
+        $this->db->where('id', (int) $id)->delete($this->media_table);
+        return $this->db->affected_rows() > 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // Page ↔ media relationships (Phase 2)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Attaches a media item to a page.
+     * Validates that both the page and media belong to the same site.
+     * Returns true on success, false on ownership mismatch or duplicate.
+     */
+    public function attach_media_to_page($page_id, $media_id)
+    {
+        $page  = $this->get_page((int) $page_id);
+        $media = $this->get_media((int) $media_id);
+
+        if (!$page || !$media) {
+            return false;
+        }
+        if ((int) $page->site_id !== (int) $media->site_id) {
+            return false;
+        }
+
+        $existing = $this->db
+            ->where('page_id', (int) $page_id)
+            ->where('media_id', (int) $media_id)
+            ->get($this->page_media_table)->row();
+        if ($existing) {
+            return true; // already attached
+        }
+
+        $this->db->insert($this->page_media_table, [
+            'page_id'  => (int) $page_id,
+            'media_id' => (int) $media_id,
+        ]);
+        return $this->db->insert_id() > 0;
+    }
+
+    public function detach_media_from_page($page_id, $media_id)
+    {
+        $this->db
+            ->where('page_id', (int) $page_id)
+            ->where('media_id', (int) $media_id)
+            ->delete($this->page_media_table);
+        return $this->db->affected_rows() > 0;
+    }
+
+    public function get_media_for_page($page_id)
+    {
+        return $this->db
+            ->select('m.*')
+            ->from($this->media_table . ' m')
+            ->join($this->page_media_table . ' pm', 'pm.media_id = m.id')
+            ->where('pm.page_id', (int) $page_id)
+            ->order_by('m.dateadded', 'DESC')
+            ->get()->result();
+    }
+
+    // -----------------------------------------------------------------------
+    // Page generation history (Phase 2)
+    // -----------------------------------------------------------------------
+
+    public function create_page_generation($page_id, $site_id, $data)
+    {
+        $now = date('Y-m-d H:i:s');
+        $row = array_merge([
+            'is_current' => 0,
+            'status'     => 'draft',
+        ], $data, [
+            'page_id'     => (int) $page_id,
+            'site_id'     => (int) $site_id,
+            'dateadded'   => $now,
+            'dateupdated' => $now,
+        ]);
+        $this->db->insert($this->page_generations_table, $row);
+        return $this->db->insert_id();
+    }
+
+    public function get_page_generation($id)
+    {
+        return $this->db->where('id', (int) $id)->get($this->page_generations_table)->row();
+    }
+
+    public function get_page_generations($page_id)
+    {
+        return $this->db
+            ->where('page_id', (int) $page_id)
+            ->order_by('dateadded', 'DESC')
+            ->get($this->page_generations_table)->result();
+    }
+
+    /**
+     * Marks one generation as current for a page, clearing the flag on all others.
+     * Updates `pages.current_generation_id` atomically.
+     */
+    public function set_current_page_generation($page_id, $generation_id)
+    {
+        $page_id       = (int) $page_id;
+        $generation_id = (int) $generation_id;
+        $now           = date('Y-m-d H:i:s');
+
+        // Verify generation belongs to this page
+        $gen = $this->db
+            ->where('id', $generation_id)
+            ->where('page_id', $page_id)
+            ->get($this->page_generations_table)->row();
+        if (!$gen) {
+            return false;
+        }
+
+        $this->db->where('page_id', $page_id)->update($this->page_generations_table, ['is_current' => 0]);
+        $this->db->where('id', $generation_id)->update($this->page_generations_table, [
+            'is_current'  => 1,
+            'dateupdated' => $now,
+        ]);
+        $this->db->where('id', $page_id)->update($this->pages_table, [
+            'current_generation_id' => $generation_id,
+            'dateupdated'           => $now,
+        ]);
+        return true;
+    }
+
+    public function get_current_page_generation($page_id)
+    {
+        return $this->db
+            ->where('page_id', (int) $page_id)
+            ->where('is_current', 1)
+            ->get($this->page_generations_table)->row();
+    }
+
+    // -----------------------------------------------------------------------
+    // Page publishing (Phase 5)
+    // -----------------------------------------------------------------------
+
+    public function get_published_pages_for_site($site_id)
+    {
+        return $this->db
+            ->where('site_id', (int) $site_id)
+            ->where('status', 'published')
+            ->order_by('menu_order', 'ASC')
+            ->order_by('title', 'ASC')
+            ->get($this->pages_table)->result();
+    }
+
+    /**
+     * Marks a page as published, storing its live path, WP page ID, and WP menu-item IDs.
+     * Only non-null values are written so callers can omit fields they did not set.
+     */
+    public function publish_page($page_id, $published_path, $wp_page_id = null, $wp_primary_menu_item_id = null, $wp_footer_menu_item_id = null)
+    {
+        $data = [
+            'status'         => 'published',
+            'published_path' => $published_path,
+            'published_at'   => date('Y-m-d H:i:s'),
+        ];
+        if ($wp_page_id !== null) {
+            $data['wp_page_id'] = (int) $wp_page_id;
+        }
+        if ($wp_primary_menu_item_id !== null) {
+            $data['wp_primary_menu_item_id'] = (int) $wp_primary_menu_item_id;
+        }
+        if ($wp_footer_menu_item_id !== null) {
+            $data['wp_footer_menu_item_id'] = (int) $wp_footer_menu_item_id;
+        }
+        return $this->update_page((int) $page_id, $data);
+    }
+
+    /**
+     * Deletes all page generation records for a page except the specified one.
+     * Returns the number of deleted records.
+     */
+    public function cleanup_page_generations($page_id, $keep_gen_id)
+    {
+        $page_id     = (int) $page_id;
+        $keep_gen_id = (int) $keep_gen_id;
+
+        $to_delete = $this->db
+            ->where('page_id', $page_id)
+            ->where('id !=', $keep_gen_id)
+            ->count_all_results($this->page_generations_table);
+
+        if ($to_delete > 0) {
+            $this->db
+                ->where('page_id', $page_id)
+                ->where('id !=', $keep_gen_id)
+                ->delete($this->page_generations_table);
+        }
+
+        return $to_delete;
+    }
+
+    // -----------------------------------------------------------------------
+    // Page generation lifecycle (Phase 4)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns pages queued for generation (generation_status='generating', not trashed).
+     * Called by the cron runner.
+     */
+    public function get_pages_for_generation($limit = 5)
+    {
+        return $this->db
+            ->where('generation_status', 'generating')
+            ->where('status !=', 'trash')
+            ->order_by('dateupdated', 'ASC')
+            ->limit((int) $limit)
+            ->get($this->pages_table)->result();
+    }
+
+    /**
+     * Atomically queues a page for generation.
+     * Only succeeds if the page is currently not_generated or failed.
+     * Returns true if the row was updated (i.e., this caller "won" the claim).
+     */
+    public function queue_page_for_generation($page_id)
+    {
+        $now = date('Y-m-d H:i:s');
+        $this->db
+            ->where('id', (int) $page_id)
+            ->where_in('generation_status', ['not_generated', 'failed', 'generated'])
+            ->update($this->pages_table, [
+                'generation_status' => 'generating',
+                'dateupdated'       => $now,
+            ]);
+        return $this->db->affected_rows() > 0;
+    }
+
+    /**
+     * Marks a page generation as successful.
+     * Updates the page's generation_status; the generation record and
+     * current_generation_id are updated by set_current_page_generation().
+     */
+    public function mark_page_generation_success($page_id)
+    {
+        return $this->update_page((int) $page_id, ['generation_status' => 'generated']);
+    }
+
+    /**
+     * Marks a page generation as failed and logs the error.
+     */
+    public function mark_page_generation_failed($page_id, $error = '')
+    {
+        $this->update_page((int) $page_id, ['generation_status' => 'failed']);
+        $this->create_log('page_generation', 'Page generation failed [Page #' . (int) $page_id . ']', ['error' => substr((string) $error, 0, 1000)]);
     }
 }

@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 15) {
+    if ((int) get_option('pitchsnap_db_version') >= 17) {
         return;
     }
 
@@ -431,10 +431,7 @@ function clickfuzz_web_db_upgrade()
         add_option('pitchsnap_ghl_api_key', '');
     }
 
-    // v15: canonical publishing type + WordPress connection fields.
-    // NOTE: claude/generation owns this migration canonically (commit 4eb1a2e).
-    // Once generation is merged into main and this branch is updated from v17 main,
-    // this block must be removed — it will be redundant. Keep only until then.
+    // v15: publishing type + WordPress connection fields on sites table
     $tsites = db_prefix() . 'pitchsnap_sites';
     if ($CI->db->table_exists($tsites)) {
         if (!$CI->db->field_exists('publish_type', $tsites)) {
@@ -454,11 +451,122 @@ function clickfuzz_web_db_upgrade()
         }
     }
 
+    // v16: internal pages, site media library, page-media mapping, page generation history
+    $tp   = db_prefix() . 'pitchsnap_pages';
+    $tm   = db_prefix() . 'pitchsnap_site_media';
+    $tpm  = db_prefix() . 'pitchsnap_page_media';
+    $tpg  = db_prefix() . 'pitchsnap_page_generations';
+
+    if (!$CI->db->table_exists($tp)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tp}` (
+                `id`                    INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `site_id`               INT(11) NOT NULL,
+                `title`                 VARCHAR(255) NOT NULL DEFAULT '',
+                `slug`                  VARCHAR(255) NOT NULL DEFAULT '',
+                `page_type`             VARCHAR(30)  NOT NULL DEFAULT 'custom',
+                `parent_page_id`        INT(11) DEFAULT NULL,
+                `status`                VARCHAR(20)  NOT NULL DEFAULT 'draft',
+                `generation_status`     VARCHAR(30)  NOT NULL DEFAULT 'not_generated',
+                `meta_title`            VARCHAR(255) DEFAULT NULL,
+                `meta_description`      TEXT DEFAULT NULL,
+                `primary_keyword`       VARCHAR(255) DEFAULT NULL,
+                `supporting_keywords`   TEXT DEFAULT NULL,
+                `instructions`          TEXT DEFAULT NULL,
+                `index_page`            TINYINT(1) NOT NULL DEFAULT 1,
+                `menu_primary`          TINYINT(1) NOT NULL DEFAULT 0,
+                `menu_footer`           TINYINT(1) NOT NULL DEFAULT 0,
+                `menu_label`            VARCHAR(255) DEFAULT NULL,
+                `menu_order`            INT(11) NOT NULL DEFAULT 0,
+                `current_generation_id` INT(11) DEFAULT NULL,
+                `published_path`        VARCHAR(500) DEFAULT NULL,
+                `wp_page_id`            INT(11) DEFAULT NULL,
+                `published_at`          DATETIME DEFAULT NULL,
+                `dateadded`             DATETIME NOT NULL,
+                `dateupdated`           DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_pages_site` (`site_id`),
+                KEY `idx_pages_parent` (`parent_page_id`),
+                KEY `idx_pages_status` (`status`),
+                KEY `idx_pages_slug_site` (`site_id`, `slug`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    if (!$CI->db->table_exists($tm)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tm}` (
+                `id`                INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `site_id`           INT(11) NOT NULL,
+                `filename`          VARCHAR(255) NOT NULL DEFAULT '',
+                `original_filename` VARCHAR(255) NOT NULL DEFAULT '',
+                `title`             VARCHAR(255) DEFAULT NULL,
+                `description`       TEXT DEFAULT NULL,
+                `alt_text`          VARCHAR(500) DEFAULT NULL,
+                `category`          VARCHAR(50)  NOT NULL DEFAULT 'general',
+                `mime_type`         VARCHAR(100) DEFAULT NULL,
+                `file_size`         INT(11) DEFAULT NULL,
+                `dateadded`         DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_media_site` (`site_id`),
+                KEY `idx_media_category` (`site_id`, `category`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    if (!$CI->db->table_exists($tpm)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tpm}` (
+                `id`        INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `page_id`   INT(11) NOT NULL,
+                `media_id`  INT(11) NOT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_page_media` (`page_id`, `media_id`),
+                KEY `idx_pm_media` (`media_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    if (!$CI->db->table_exists($tpg)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tpg}` (
+                `id`                       INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `page_id`                  INT(11) NOT NULL,
+                `site_id`                  INT(11) NOT NULL,
+                `html_content`             LONGTEXT DEFAULT NULL,
+                `css_content`              TEXT DEFAULT NULL,
+                `js_content`               TEXT DEFAULT NULL,
+                `meta_title_generated`     VARCHAR(255) DEFAULT NULL,
+                `meta_description_generated` TEXT DEFAULT NULL,
+                `prompt_snapshot`          TEXT DEFAULT NULL,
+                `is_current`               TINYINT(1) NOT NULL DEFAULT 0,
+                `status`                   VARCHAR(20) NOT NULL DEFAULT 'draft',
+                `dateadded`                DATETIME NOT NULL,
+                `dateupdated`              DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_pg_page` (`page_id`),
+                KEY `idx_pg_site` (`site_id`),
+                KEY `idx_pg_current` (`page_id`, `is_current`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    // v17: WP menu-item ID tracking on internal pages
+    $tp = db_prefix() . 'pitchsnap_pages';
+    if ($CI->db->table_exists($tp)) {
+        if (!$CI->db->field_exists('wp_primary_menu_item_id', $tp)) {
+            $CI->db->query("ALTER TABLE `{$tp}` ADD COLUMN `wp_primary_menu_item_id` INT(11) DEFAULT NULL AFTER `wp_page_id`");
+        }
+        if (!$CI->db->field_exists('wp_footer_menu_item_id', $tp)) {
+            $CI->db->query("ALTER TABLE `{$tp}` ADD COLUMN `wp_footer_menu_item_id` INT(11) DEFAULT NULL AFTER `wp_primary_menu_item_id`");
+        }
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '15');
+        add_option('pitchsnap_db_version', '17');
     } else {
-        update_option('pitchsnap_db_version', '15');
+        update_option('pitchsnap_db_version', '17');
     }
 }
 
