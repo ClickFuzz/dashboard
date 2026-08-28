@@ -2,7 +2,7 @@
             <!-- ══════════════════════════════════════════════════════════
                  TAB 3 — DOMAIN & PUBLISHING
                  ══════════════════════════════════════════════════════════ -->
-            <div role="tabpanel" class="tab-pane" id="tab-publishing">
+            <div role="tabpanel" class="tab-pane active" id="tab-publishing">
 
                 <!-- ── Publish Type (Phase 1) ────────────────────────────── -->
                 <?php

@@ -77,18 +77,23 @@
 
             <?php include __DIR__ . '/admin_detail/tab_customer.php'; ?>
 
-            <!-- Publishing, Integrations, Activity move under Settings in Phase 2.
-                 Included here without nav links so they remain in the DOM until relocated. -->
-            <?php include __DIR__ . '/admin_detail/tab_publishing.php'; ?>
-            <?php include __DIR__ . '/admin_detail/tab_ghl.php'; ?>
-            <?php include __DIR__ . '/admin_detail/tab_history.php'; ?>
-
-            <!-- Settings tab — stub placeholder; Phase 2 fills this with Publishing/Integrations/Activity -->
+            <!-- Settings: Publishing / Integrations / Activity -->
             <div role="tabpanel" class="tab-pane" id="tab-settings">
-                <div class="panel_s">
-                    <div class="panel-body text-muted" style="font-size:13px;">
-                        Settings sections (Publishing, Integrations, Activity) are being migrated here.
-                    </div>
+                <ul class="nav nav-pills" role="tablist" style="margin-bottom:0;">
+                    <li role="presentation" class="active">
+                        <a href="#tab-publishing" role="tab" data-toggle="tab">Publishing</a>
+                    </li>
+                    <li role="presentation">
+                        <a href="#tab-ghl" role="tab" data-toggle="tab">Integrations</a>
+                    </li>
+                    <li role="presentation">
+                        <a href="#tab-history" role="tab" data-toggle="tab">Activity</a>
+                    </li>
+                </ul>
+                <div class="tab-content" style="padding-top:20px;">
+                    <?php include __DIR__ . '/admin_detail/tab_publishing.php'; ?>
+                    <?php include __DIR__ . '/admin_detail/tab_ghl.php'; ?>
+                    <?php include __DIR__ . '/admin_detail/tab_history.php'; ?>
                 </div>
             </div>
 
