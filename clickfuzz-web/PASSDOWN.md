@@ -202,6 +202,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
 | `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Merged to main (2026-08-28)** — publishing-state foundation + Website Details Phase 1 (tab_pages/tab_media, canonical $is_published) + Phase 2 (Settings tab: Publishing/Integrations/Activity). Phase 5C (Cloudflare Custom Hostname automation) still paused. |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
+| `claude/settings` | `worktrees/dashboard/settings` | **Fresh** — from `7e0871e` (main post-publishing-domains merge). Global Settings page redesign. No feature changes yet. |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
 | `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix + tab extraction. Uncommitted changes: `admin_detail.php` (shell only), `Pitchsnap.php`, `Pitchsnap_model.php`, new `views/admin_detail/tab_*.php` (6 files). New partials not yet deployed to production. Needs deploy + verify + commit + merge to main. |
 | `claude/convert-to-wp` | `worktrees/dashboard/convert-to-wp` | Fresh — from `0fe1d30`, no feature changes yet |
