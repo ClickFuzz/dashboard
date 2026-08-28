@@ -259,29 +259,23 @@ All 30 changed files uploaded via DA MCP. DB migrated from v15 → v17:
 | Unit tests — Phase 1 Publishing (42) | ✓ Pass |
 | Unit tests — Phase 2 Pages (51) | ✓ Pass |
 | Unit tests — Phase 3 Pages (76) | ✓ Pass |
-| Unit tests — Phase 4 Pages (97) | ✓ Pass |
-| Unit tests — Phase 5 Pages (168) | ✓ Pass |
+| Unit tests — Phase 4 Pages (97) | ✓ Pass (re-verified 2026-08-28) |
+| Unit tests — Phase 5 Pages (168) | ✓ Pass (re-verified 2026-08-28) |
 | Unit tests — Publishing Domains (103) | ✓ Pass |
-| UI — Pages tab visible | ⚠ Blocked — Pages section is inside Website tab, only visible for **published** sites |
-| UI — Create page, configure, generate | Pending |
-| UI — Preview (canonical chrome) | Pending |
-| UI — Regenerate / version history | Pending |
-| UI — HTML publish | Pending |
-| UI — WordPress publish | Pending |
+| Diagnostic scripts removed from production | ✓ Complete (2026-08-28) — ps_dbcheck*.php, ps_migrate_v17.php, ps_ping.php, ps_run_all_tests.php, ps_summary.php, ps_syntax.php |
+| WP chrome duplication — docs updated | ✓ Complete (2026-08-28) — fix confirmed present in code; stale known-issue entry retired |
+| UI — Pages tab visible | ⚠ Pending manual browser test — published site ps-17-5f59 (JackRabbit/Lenka) exists and homepage is live |
+| UI — Create page, configure, generate | Pending manual browser test |
+| UI — Preview (canonical chrome) | Pending manual browser test |
+| UI — Regenerate / version history | Pending manual browser test |
+| UI — HTML publish | Pending manual browser test |
+| UI — WordPress publish | Pending manual browser test |
 
 ### What to do next (in order)
 
-1. **Complete UI validation** — open a published site's detail page → Website tab → "Generate Pages" section. Test the full CRUD + generate + preview + publish flow. If no published site is available, either publish a test site first or temporarily relax the `$site->status === 'published'` guard in `views/admin_detail/tab_website.php` for testing.
+1. **Complete UI validation** — log into admin → pitchsnap/detail/{id} for site ps-17-5f59 (Lenka JackRabbit) → Website tab → "Generate Pages" section. Test: Add Page → configure (title, slug, type, keyword) → Generate → wait for cron → Preview → Publish. Verify no duplicate chrome in preview and published page.
 
-2. **Clean up diagnostic scripts** — remove from production server `modules/pitchsnap/tests/`:
-   - `ps_dbcheck.php`, `ps_dbcheck2.php`, `ps_dbcheck3.php`, `ps_dbcheck4.php`
-   - `ps_migrate_v17.php`
-   - `ps_ping.php`, `ps_run_all_tests.php`, `ps_summary.php`, `ps_syntax.php`
-   (Keep the phase test files — they're source code.)
-
-3. **Update `docs/workstreams/generation.md`** — move Phases 2–5 to "Confirmed Working" after UI validation; add session history entry.
-
-4. **Merge `claude/generation` to `main`** — after UI validation is satisfactory and workstream doc is updated.
+2. **Merge `claude/generation` to `main`** — after UI validation is satisfactory.
 
 ---
 
