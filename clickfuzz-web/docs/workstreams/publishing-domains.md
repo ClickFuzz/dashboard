@@ -189,28 +189,28 @@ Custom domains come later.
 
 ## In Progress
 
-Nothing — Phases 1–5B (including apex-pair adjustment) are complete.
+Nothing — reconciliation with v17 main complete. Awaiting review before merge to main.
 
 ---
 
 ## Known Issues / Risks
 
-- `tblpitchsnap_site_domains` has no custom-domain verification or SSL provisioning fields — Phase 5
+- `tblpitchsnap_site_domains` has no custom-domain verification or SSL provisioning fields — Phase 5C
 - The `domain` field on `tblpitchsnap_sites` stores `clickfuzz.com/sites/{slug}` — slug extraction is via regex; format must not change without updating the runtime
 - Wildcard cert expires 2026-11-02 — auto-renewal should be confirmed before that date
-- Controller (`Pitchsnap.php`) has extra WP methods on production server (752 lines) not in local git (542 lines) — do NOT overwrite server controller from local without reconciling first
+- Phase 5C (Cloudflare Custom Hostname API automation, apex redirect, DNS UI update, FTP config UI) still paused
 
 ---
 
 ## Next
 
-Phase 5C: Real DNS test + SSL provisioning
-
-1. Save spare Namecheap domain as custom domain on site_id=6 via admin UI
-2. Add Namecheap DNS records manually (A @ → 104.152.168.38 for apex, or CNAME www → sites.clickfuzz.com for www)
-3. Hit Verify DNS in Publishing tab — confirm verification_status updates to 'verified'
-4. (Later) SSL provisioning: DirectAdmin Let's Encrypt for the custom hostname
-5. (Later) Make custom domain live through the runtime (runtime currently only routes active `tblpitchsnap_site_domains` rows)
+1. Review this reconciled branch (`65aaa9d`) before merging to main.
+2. After merge: Phase 5C — Cloudflare Custom Hostname API automation, apex redirect, DNS UI update, FTP credentials admin UI.
+3. Phase 5C DNS test sequence (when resumed):
+   - Save spare Namecheap domain as custom domain on site_id=6 via admin UI
+   - Add Namecheap DNS records manually (A @ → 104.152.168.38 for apex, or CNAME www → sites.clickfuzz.com for www)
+   - Hit Verify DNS in Publishing tab — confirm verification_status updates to 'verified'
+   - SSL provisioning: DirectAdmin Let's Encrypt for the custom hostname
 
 ---
 
@@ -223,3 +223,5 @@ Phase 5C: Real DNS test + SSL provisioning
 - 2026-08-25: Phase 5A complete — custom domain data model, normalization/validation helper, save/remove controller actions, Custom Domain UI in Publishing tab. 75/75 tests pass. DB at v13.
 - 2026-08-26: Phase 5B complete — DNS helper with injectable lookups, verify_custom_domain controller action, DNS record instructions table in Publishing tab. 102/102 tests pass.
 - 2026-08-26: Phase 5B adjustment — apex-pair DNS verification (both A @ and CNAME www required; 'verified' only when both pass). Nameserver safety note added to UI. 103/103 tests pass.
+- 2026-08-28: Phase 6 — Publishing-state foundation committed (37ad59e): is_site_published(), helper-level publish_type lock (HTML↔WP mutual exclusion before I/O), atomic publish_type+status on successful publish, test sections 32–38. Branch was blocked on claude/generation merging to main first.
+- 2026-08-28: Reconciliation with v17 main (65aaa9d): temporary duplicate v15 migration removed, duplicate controller methods dropped, canonical main implementations kept. All publishing-domains behavioral contributions preserved. Awaiting review before merge to main.
