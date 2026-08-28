@@ -172,7 +172,7 @@ Production is running the generation workstream output — Phases 1–5 internal
 
 **Items pending production deployment (from main):**
 - Lead-profile tab hooks (restored 2026-08-23) — still not deployed to `clickfuzz.com/dashboard`
-- Conversation empty state fix in `admin_detail.php` (2026-08-23) — still not deployed
+- Conversation empty state fix in `admin_lead.php` (2026-08-23) — still not deployed
 
 ---
 
@@ -210,7 +210,6 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 ## Global Blockers
 
-- **`claude/generation` must merge to main before `claude/publishing-domains` can merge** — generation owns DB v15–v17 canonically; publishing-domains carries a temporary duplicate v15 migration that must be removed after merge.
 - Production deployment of 2026-08-23 recovery changes (lead tab + conversation empty state)
 - End-to-end purchase path not confirmed tested
 - Lead Connect not started (gating Reviews and full Reporting)
