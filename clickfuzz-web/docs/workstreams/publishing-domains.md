@@ -150,6 +150,18 @@ Custom domains come later.
 
 ---
 
+### Publishing-State Foundation (complete 2026-08-28, merged to main)
+
+**Model** (`Pitchsnap_model.php`):
+- `is_site_published($site_id)` — canonical check (status=published + publish_type set)
+
+**Helper** (`pitchsnap_generation_helper.php`):
+- `clickfuzz_web_publish_site()` — helper-level publish_type lock: HTML↔WP mutual exclusion enforced before I/O; atomic `publish_type`+`status` update on successful publish; same-method republish is always allowed
+
+**Tests**: sections 32–38 in `test_publishing_domains.php`
+
+---
+
 ### Phase 5B — DNS Instructions + Verification (complete 2026-08-26)
 
 **DNS helper** (`pitchsnap_dns_helper.php`):
@@ -179,6 +191,25 @@ Custom domains come later.
 
 ---
 
+### Website Details UI — Phase 1 (complete 2026-08-28)
+
+**Pages + Media tab extraction** (`admin_detail.php`, `tab_pages.php`, `tab_media.php`, `Pitchsnap.php`):
+- `tab_website.php` removed; replaced by dedicated `tab_pages.php` and `tab_media.php` partials
+- `admin_detail.php` restructured to top-level tab shell: **Overview | Pages | Media | Customer | Settings**
+- Controller passes canonical `$is_published` (from `is_site_published()`) to all tabs — Pages and Media tabs use it
+
+### Website Details UI — Phase 2 (complete 2026-08-28)
+
+**Settings tab** (`admin_detail.php`, `tab_publishing.php`):
+- Settings top-level tab introduced with three sub-sections: **Publishing | Integrations | Activity**
+- Publishing section: existing publishing controls (publish/republish button, custom domain UI, DNS verification)
+- Integrations section: placeholder (GHL connectivity)
+- Activity section: placeholder (publish history/log)
+- Phase 3 Overview tab cleanup intentionally deferred — no further UI changes in this workstream
+- Global ClickFuzz Web Settings page redesign is NOT part of this workstream — handled in generation worktree
+
+---
+
 ## Architecture Decisions (DNS)
 
 - Customer **keeps existing nameservers** — do NOT ask them to change nameservers or transfer DNS
@@ -189,24 +220,24 @@ Custom domains come later.
 
 ## In Progress
 
-Nothing — reconciliation with v17 main complete. Awaiting review before merge to main.
+Nothing — Website Details UI Phase 1 and Phase 2 complete. Ready for merge to main.
 
 ---
 
 ## Known Issues / Risks
 
-- `tblpitchsnap_site_domains` has no custom-domain verification or SSL provisioning fields — Phase 5C
 - The `domain` field on `tblpitchsnap_sites` stores `clickfuzz.com/sites/{slug}` — slug extraction is via regex; format must not change without updating the runtime
 - Wildcard cert expires 2026-11-02 — auto-renewal should be confirmed before that date
 - Phase 5C (Cloudflare Custom Hostname API automation, apex redirect, DNS UI update, FTP config UI) still paused
+- Website Details Phase 3 Overview tab cleanup intentionally deferred — not a blocker for merge
+- Global ClickFuzz Web Settings page redesign is NOT part of this workstream
 
 ---
 
 ## Next
 
-1. Review this reconciled branch (`65aaa9d`) before merging to main.
-2. After merge: Phase 5C — Cloudflare Custom Hostname API automation, apex redirect, DNS UI update, FTP credentials admin UI.
-3. Phase 5C DNS test sequence (when resumed):
+1. Phase 5C — Cloudflare Custom Hostname API automation, apex redirect, DNS UI update, FTP credentials admin UI.
+2. Phase 5C DNS test sequence (when resumed):
    - Save spare Namecheap domain as custom domain on site_id=6 via admin UI
    - Add Namecheap DNS records manually (A @ → 104.152.168.38 for apex, or CNAME www → sites.clickfuzz.com for www)
    - Hit Verify DNS in Publishing tab — confirm verification_status updates to 'verified'
@@ -224,4 +255,7 @@ Nothing — reconciliation with v17 main complete. Awaiting review before merge 
 - 2026-08-26: Phase 5B complete — DNS helper with injectable lookups, verify_custom_domain controller action, DNS record instructions table in Publishing tab. 102/102 tests pass.
 - 2026-08-26: Phase 5B adjustment — apex-pair DNS verification (both A @ and CNAME www required; 'verified' only when both pass). Nameserver safety note added to UI. 103/103 tests pass.
 - 2026-08-28: Phase 6 — Publishing-state foundation committed (37ad59e): is_site_published(), helper-level publish_type lock (HTML↔WP mutual exclusion before I/O), atomic publish_type+status on successful publish, test sections 32–38. Branch was blocked on claude/generation merging to main first.
-- 2026-08-28: Reconciliation with v17 main (65aaa9d): temporary duplicate v15 migration removed, duplicate controller methods dropped, canonical main implementations kept. All publishing-domains behavioral contributions preserved. Awaiting review before merge to main.
+- 2026-08-28: Reconciliation with v17 main (65aaa9d): temporary duplicate v15 migration removed, duplicate controller methods dropped, canonical main implementations kept. All publishing-domains behavioral contributions preserved.
+- 2026-08-28: Publishing-state foundation merged to main (4326091): is_site_published(), helper-level HTML↔WP lock, atomic publish_type+status, same-method republish allowed. Test sections 32–38.
+- 2026-08-28: Website Details UI Phase 1 (957c37a): tab_website.php removed; tab_pages.php and tab_media.php extracted; admin_detail.php restructured to Overview/Pages/Media/Customer/Settings; canonical $is_published propagated from controller.
+- 2026-08-28: Website Details UI Phase 2 (bb6fbff): Settings top-level tab with Publishing/Integrations/Activity sub-sections. Phase 3 Overview cleanup deferred. Global ClickFuzz Web Settings redesign out of scope.

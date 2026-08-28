@@ -54,19 +54,16 @@
                 <a href="#tab-overview" role="tab" data-toggle="tab">Overview</a>
             </li>
             <li role="presentation">
-                <a href="#tab-website" role="tab" data-toggle="tab">Website</a>
+                <a href="#tab-pages" role="tab" data-toggle="tab">Pages</a>
             </li>
             <li role="presentation">
-                <a href="#tab-publishing" role="tab" data-toggle="tab">Domain &amp; Publishing</a>
+                <a href="#tab-media" role="tab" data-toggle="tab">Media</a>
             </li>
             <li role="presentation">
                 <a href="#tab-customer" role="tab" data-toggle="tab">Customer</a>
             </li>
             <li role="presentation">
-                <a href="#tab-ghl" role="tab" data-toggle="tab">GHL</a>
-            </li>
-            <li role="presentation">
-                <a href="#tab-history" role="tab" data-toggle="tab">History</a>
+                <a href="#tab-settings" role="tab" data-toggle="tab">Settings</a>
             </li>
         </ul>
 
@@ -74,20 +71,31 @@
 
             <?php include __DIR__ . '/admin_detail/tab_overview.php'; ?>
 
+            <?php include __DIR__ . '/admin_detail/tab_pages.php'; ?>
 
-            <?php include __DIR__ . '/admin_detail/tab_website.php'; ?>
-
-
-            <?php include __DIR__ . '/admin_detail/tab_publishing.php'; ?>
-
+            <?php include __DIR__ . '/admin_detail/tab_media.php'; ?>
 
             <?php include __DIR__ . '/admin_detail/tab_customer.php'; ?>
 
-
-            <?php include __DIR__ . '/admin_detail/tab_ghl.php'; ?>
-
-
-            <?php include __DIR__ . '/admin_detail/tab_history.php'; ?>
+            <!-- Settings: Publishing / Integrations / Activity -->
+            <div role="tabpanel" class="tab-pane" id="tab-settings">
+                <ul class="nav nav-pills" role="tablist" style="margin-bottom:0;">
+                    <li role="presentation" class="active">
+                        <a href="#tab-publishing" role="tab" data-toggle="tab">Publishing</a>
+                    </li>
+                    <li role="presentation">
+                        <a href="#tab-ghl" role="tab" data-toggle="tab">Integrations</a>
+                    </li>
+                    <li role="presentation">
+                        <a href="#tab-history" role="tab" data-toggle="tab">Activity</a>
+                    </li>
+                </ul>
+                <div class="tab-content" style="padding-top:20px;">
+                    <?php include __DIR__ . '/admin_detail/tab_publishing.php'; ?>
+                    <?php include __DIR__ . '/admin_detail/tab_ghl.php'; ?>
+                    <?php include __DIR__ . '/admin_detail/tab_history.php'; ?>
+                </div>
+            </div>
 
         </div><!-- /.tab-content -->
     </div><!-- /.content -->
