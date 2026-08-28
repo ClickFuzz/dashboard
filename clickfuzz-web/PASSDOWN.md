@@ -162,12 +162,13 @@ The Phase 5B DNS helper (`pitchsnap_dns_helper.php`) and verification UI are dep
 
 ## Current Production / Main Baseline
 
-As of 2026-08-28, `main` is at `b64f9a5` (publishing-domains complete, Phases 1–5C merged). `origin/main` is in sync.
+As of 2026-08-28, `main` is at `0782213` (generation Phases 1–5 merged). `origin/main` is in sync. Main is canonical through DB v17.
 
-Production is running the publishing-domains workstream output, verified working end-to-end. The hosted runtime and generated HTML are deployed on the new CrocWeb `xqsfhrlj` account. FTPS publishing from the dashboard is live. `www.eddmautofill.com` serves correctly.
+Production is running the generation workstream output — Phases 1–5 internal page pipeline deployed, DB migrated to v17. FTPS publishing and hosted-site serving (`www.eddmautofill.com`) remain live. Production and Git are aligned.
 
-**`claude/generation` branch is at `65572d8` — NOT YET merged to main.**
-All generation branch changes (Phases 1–5 internal page pipeline) are deployed to production and validated. Merge to main is pending.
+`claude/generation` is merged into `main` at `0782213` (2026-08-28). Generation workstream is parked. Future generation/UI work resumes after the new Website Details architecture is implemented.
+
+**Next active dependency:** `claude/publishing-domains` (checkpointed at `37ad59e`) — update from new v17 `main` and reconcile before resuming work there.
 
 **Items pending production deployment (from main):**
 - Lead-profile tab hooks (restored 2026-08-23) — still not deployed to `clickfuzz.com/dashboard`
@@ -193,7 +194,7 @@ All generation branch changes (Phases 1–5 internal page pipeline) are deployed
 
 | Workstream | Status | Worktree |
 |---|---|---|
-| Generation | **Active** — internal page pipeline (Phases 1–5) deployed + tested, UI validation in progress | `claude/generation` |
+| Generation | **Parked** — Phases 1–5 merged to `main` (`0782213`); foundation complete; future UI work resumes after new Website Details architecture | `claude/generation` |
 | Sales Flow | Implemented, purchase path needs end-to-end test | `claude/sales-flow` |
 | Onboarding | Not started | `claude/onboarding` |
 | Lead Connect | Not started | task worktrees created as needed |
@@ -208,8 +209,8 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 | Branch | Worktree | Status |
 |---|---|---|
-| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `b64f9a5` (origin/main in sync) |
-| `claude/generation` | `worktrees/dashboard/generation` | **Active** — at `65572d8`; Phases 1–5 internal page pipeline fully committed. All 30 changed files deployed to production. DB at v17. 537 pure-PHP unit tests pass. UI validation in progress (needs published site). **NOT merged to main yet.** |
+| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `0782213` (origin/main in sync) |
+| `claude/generation` | `worktrees/dashboard/generation` | **Merged** — at `0782213`, fast-forward merged into `main` (2026-08-28). Foundation complete and parked. Future generation/UI work resumes after new Website Details architecture. |
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test (enter Agency Private Integration Token, link a Location ID, verify Test Connection). |
 | `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
@@ -273,9 +274,11 @@ All 30 changed files uploaded via DA MCP. DB migrated from v15 → v17:
 
 ### What to do next (in order)
 
-1. **Complete UI validation** — log into admin → pitchsnap/detail/{id} for site ps-17-5f59 (Lenka JackRabbit) → Website tab → "Generate Pages" section. Test: Add Page → configure (title, slug, type, keyword) → Generate → wait for cron → Preview → Publish. Verify no duplicate chrome in preview and published page.
+**Merge complete (2026-08-28)** — `claude/generation` fast-forward merged to `main` at `0782213`. Workstream parked.
 
-2. **Merge `claude/generation` to `main`** — after UI validation is satisfactory.
+1. **Implement new Website Details architecture** — generation UI (page pipeline, page edit/preview/publish) will be rebuilt as part of redesigned Website Details page.
+
+2. **Browser UI validation (deferred)** — end-to-end test of page pipeline (Add Page → configure → Generate → Preview → Publish) still pending. Site ps-17-5f59 (JackRabbit/Lenka) available when UI work resumes.
 
 ---
 

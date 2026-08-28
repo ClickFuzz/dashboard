@@ -208,7 +208,7 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ## In Progress
 
-- Nothing in progress. Phase 5 code complete (2026-08-26); server deployment pending DA recovery.
+- Nothing in progress. Phases 1–5 deployed, tested, and merged to `main` (2026-08-28). Workstream parked pending new Website Details architecture.
 
 ---
 
@@ -270,14 +270,16 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ## Production Status
 
-Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 + Phase 3 + Phase 4 + Phase 5 code committed and pushed (2026-08-26); server at v15 pending deployment to v16. DA file manager was unavailable — deploy when DA recovers or via SSH (`git pull origin claude/generation` from server dashboard directory).
+All phases (1–5) deployed to production (2026-08-26). DB migrated to v17 (v16 tables + v17 columns confirmed). Production and Git are aligned. Branch merged to `main` at `0782213` (2026-08-28).
 
 ---
 
 ## Next
 
-- **Deploy Phase 2–5 to server** — when DA file manager recovers (or via SSH `git pull origin claude/generation`), upload all changed files; run v16 migration probe; verify syntax + run test_phase2_pages.php through test_phase5_pages.php
+- ~~Deploy Phase 2–5 to server~~ — complete (2026-08-28). DB at v17. Production aligned.
 - ~~Fix WP chrome duplication~~ — resolved in Phase 5 (body-only prompt + normalization function)
+- **Implement new Website Details architecture** — generation UI (page pipeline, page edit/preview/publish) will be rebuilt as part of redesigned Website Details page. Resume generation-specific UI work then.
+- **Browser UI validation (deferred)** — end-to-end test of page pipeline (Add Page → configure → Generate → Preview → Publish) pending. Site ps-17-5f59 (JackRabbit/Lenka) available when UI work resumes.
 - Run end-to-end Lenka generation to verify Level B guardrail prevents navy/orange output
 - Move `ps_colorprobe.php` into admin as Source Diagnostics page
 - Investigate capturing body background from external CSS (fetch first same-origin `<link rel="stylesheet">`)
@@ -286,6 +288,7 @@ Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 + Phase 3 + P
 
 ## History
 
+- **2026-08-28** — Phases 1–5 confirmed deployed and validated on production (DB v17, all test suites passing). Diagnostic scripts removed. `claude/generation` merged to `main` at `0782213`. Workstream parked.
 - **2026-08-26** — Phase 5: page publishing helper (HTML + WP flows); model publish/cleanup methods; page_publish controller + route; 6-state sidebar in admin_page_edit; test_phase5_pages.php; DA file manager down, server deployment pending
 - **2026-08-26** — Phase 4 lifecycle fix: `queue_page_for_generation` WHERE IN extended to include `'generated'`; Regenerate from generated state now works; failed regen preserves prior successful generation
 - **2026-08-26** — Phase 4: SVG security fix; page generation helper (readiness, queue, generate, prompt, extract); model Phase 4 methods; cron Phase 4 block; page_generate/page_preview/page_generation_set_current controller+routes; admin_page_edit updated; test_phase4_pages.php; DA file manager down, server deployment pending
