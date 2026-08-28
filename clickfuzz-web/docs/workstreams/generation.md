@@ -201,7 +201,7 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 - **WP pages**: create (`POST /wp-json/wp/v2/pages`) or update (`PUT .../pages/{wp_page_id}`); 5 meta keys: `_clickfuzz_page_css`, `_clickfuzz_page_js`, `_clickfuzz_meta_title`, `_clickfuzz_meta_description`, `_clickfuzz_noindex`; menu managed via `wp/v2/menu-items`
 - **No Anthropic calls during publish** — consumes existing `current_generation_id` only
 - **Live page preserved until replacement succeeds** — no downtime on republish
-- **WP body note**: AI-generated HTML includes nav/footer from the page prompt (since `body_html` in Phase 4 includes full page chrome). WP theme also renders its own chrome. For WP sites this causes duplicate nav/footer — flagged as known issue; acceptable for Phase 5.
+- **WP body**: Generation prompt is body-only (prohibits `<header>`, site `<nav>`, `<footer>`). `clickfuzz_web_normalize_page_body_html()` strips any accidental chrome before DB storage and again at WP publish time. WP `content` payload contains normalized body only — WP theme owns header/footer/nav. Chrome duplication resolved in Phase 5 hardening.
 - **Tests**: `test_phase5_pages.php` — 14 test groups, 60+ pure-PHP assertions, 30+ DB/API/filesystem SKIPs. Groups: T1 slug validation, T2 URL path building, T3 eligibility, T4 nav building, T5 nav HTML, T6 nav injection, T7 menu exclusion, T8 full HTML doc, T9 sitemap, T10 version cleanup, T11 WP hierarchy, T12 publish type consistency, T13 Phase 4 lifecycle regression, T14 Phase 3 SVG regression
 
 ---
@@ -214,7 +214,7 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ## Known Issues / Risks
 
-- **WP body chrome duplication**: Phase 4 AI prompt generates full page HTML including nav and footer. When published to WordPress, WP theme renders its own nav/footer too — causing duplicate chrome. Future improvement: strip nav/footer from WP-destined page content, or use a dedicated WP page template.
+- **WP body chrome duplication**: ~~Resolved in Phase 5 hardening.~~ Generation prompt is body-only; `clickfuzz_web_normalize_page_body_html()` strips any accidental chrome at storage and WP publish time. Not a known issue.
 - **Body background in external CSS not captured.** Lenka's cream body background is in an external stylesheet — `$bg_colors` is empty. Visual character derived from white nav background only. Acceptable for now; logo vision adds temperature at generation time if logo has warm colors.
 - **`ps_colorprobe.php` lives in server root** (not in admin UI). PASSDOWN flagged: move to ClickFuzz Web admin as Source Diagnostics page.
 - **Test 5 scoring anomaly:** `--wp--preset--color--primary` also matches the semantic CSS variable regex, giving 5 pts instead of 2 for that preset. Pre-existing behavior, not a regression.
@@ -277,7 +277,7 @@ Phase 1 deployed to production (2026-08-26) — DB at v15. Phase 2 + Phase 3 + P
 ## Next
 
 - **Deploy Phase 2–5 to server** — when DA file manager recovers (or via SSH `git pull origin claude/generation`), upload all changed files; run v16 migration probe; verify syntax + run test_phase2_pages.php through test_phase5_pages.php
-- Fix WP chrome duplication (strip nav/footer from WP page body, or dedicated WP page template) — Phase 6 candidate
+- ~~Fix WP chrome duplication~~ — resolved in Phase 5 (body-only prompt + normalization function)
 - Run end-to-end Lenka generation to verify Level B guardrail prevents navy/orange output
 - Move `ps_colorprobe.php` into admin as Source Diagnostics page
 - Investigate capturing body background from external CSS (fetch first same-origin `<link rel="stylesheet">`)
