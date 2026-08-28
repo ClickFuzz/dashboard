@@ -162,13 +162,13 @@ The Phase 5B DNS helper (`pitchsnap_dns_helper.php`) and verification UI are dep
 
 ## Current Production / Main Baseline
 
-As of 2026-08-28, `main` is at `97a16b8` (generation Phases 1–5 merged + generation workstream parked). `origin/main` is in sync. Main is canonical through DB v17.
+As of 2026-08-28, `main` is at `4326091` (publishing-state foundation merged). `origin/main` is in sync. Main is canonical through DB v17.
 
-Production is running the generation workstream output — Phases 1–5 internal page pipeline deployed, DB migrated to v17. FTPS publishing and hosted-site serving (`www.eddmautofill.com`) remain live. Production and Git are aligned.
+Production is running the publishing-domains branch output (Website Details Phase 1 + Phase 2 UI deployed). FTPS publishing and hosted-site serving (`www.eddmautofill.com`) remain live. Production matches `claude/publishing-domains` HEAD (`bb6fbff`).
 
-`claude/generation` is merged into `main`. Generation workstream is parked. Future generation/UI work resumes after the new Website Details architecture is implemented.
+`claude/generation` is merged into `main`. Generation workstream is parked. Future generation/UI work (including Website Details Phase 3 Overview cleanup and global Settings redesign) resumes from the generation worktree.
 
-`claude/publishing-domains` is reconciled with v17 main (2026-08-28): temporary duplicate v15 migration removed, duplicate controller methods removed (kept canonical main versions), `is_site_published()` added to model, helper-level lock enforcement and atomic `publish_type` updates preserved from publishing-domains checkpoint.
+`claude/publishing-domains` Website Details UI complete (Phase 1: tab_pages/tab_media extraction; Phase 2: Settings tab with Publishing/Integrations/Activity). Deployed and browser-verified. Pending merge to main.
 
 **Items pending production deployment (from main):**
 - Lead-profile tab hooks (restored 2026-08-23) — still not deployed to `clickfuzz.com/dashboard`
@@ -200,7 +200,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test. |
 | `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
-| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Reconciled with v17 main (2026-08-28)** — publishing-state foundation integrated: `is_site_published()`, helper-level lock enforcement, atomic `publish_type`+`status`. Awaiting review then merge to main. Phase 5C (Cloudflare Custom Hostname automation) still paused. |
+| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Website Details UI complete (2026-08-28)** — Phase 1 (tab_pages/tab_media extraction, canonical $is_published) + Phase 2 (Settings tab: Publishing/Integrations/Activity). Deployed + browser-verified. Pending merge to main. Phase 5C paused. |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
 | `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix + tab extraction. Uncommitted changes: `admin_detail.php` (shell only), `Pitchsnap.php`, `Pitchsnap_model.php`, new `views/admin_detail/tab_*.php` (6 files). New partials not yet deployed to production. Needs deploy + verify + commit + merge to main. |
