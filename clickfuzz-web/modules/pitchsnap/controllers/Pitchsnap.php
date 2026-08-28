@@ -414,6 +414,24 @@ class Pitchsnap extends AdminController
         $data['logs']       = $this->pitchsnap_model->get_logs(200);
         $data['active_tab'] = $this->input->get('tab') ?: 'general';
         $data['staff_list'] = $this->db->where('active', 1)->order_by('firstname', 'ASC')->get(db_prefix() . 'staff')->result();
+
+        // Build guardrail display values (saved DB value, falling back to hardcoded provider default)
+        $gr_names        = ['logo_usage','image_selection','team_placement','team_association','anonymous_team','gallery_usage','credential_usage','owner_story','visual_readability','brand_color_preservation'];
+        $manus_defaults  = array_fill_keys($gr_names, false);
+        $manus_defaults['brand_color_preservation'] = true;
+        $gr_defaults     = [
+            'anthropic' => array_fill_keys($gr_names, true),
+            'manus'     => $manus_defaults,
+        ];
+        $gr_values = [];
+        foreach (['anthropic', 'manus'] as $prov) {
+            foreach ($gr_names as $name) {
+                $saved = get_option('pitchsnap_guardrail_' . $prov . '_' . $name);
+                $gr_values[$prov][$name] = ($saved === false || $saved === '') ? $gr_defaults[$prov][$name] : (bool)(int)$saved;
+            }
+        }
+        $data['guardrail_values'] = $gr_values;
+
         $this->load->view('pitchsnap/admin_settings', $data);
     }
 
@@ -434,25 +452,19 @@ class Pitchsnap extends AdminController
 
     private function _save_settings()
     {
+        // ── Provider selection ────────────────────────────────────────────────
         $primary  = $this->input->post('pitchsnap_primary_provider', true);
         $fallback = $this->input->post('pitchsnap_fallback_provider', true);
         update_option('pitchsnap_primary_provider',  in_array($primary,  ['manus', 'anthropic']) ? $primary  : 'manus');
         update_option('pitchsnap_fallback_provider', in_array($fallback, ['none',  'anthropic']) ? $fallback : 'none');
         update_option('pitchsnap_ai_provider', $primary === 'anthropic' ? 'anthropic' : 'manus');
 
-        $video_url = trim((string) $this->input->post('pitchsnap_video_demo_url', true));
-        update_option('pitchsnap_video_demo_url', $video_url);
-
-        $agreement_version = trim((string) $this->input->post('pitchsnap_agreement_version', true));
-        $agreement_text    = $this->input->post('pitchsnap_agreement_text');
-        if ($agreement_version !== '') { update_option('pitchsnap_agreement_version', $agreement_version); }
-        update_option('pitchsnap_agreement_text', $agreement_text);
-
-        $manus_key    = $this->input->post('pitchsnap_manus_api_key');
-        $manus_prompt = $this->input->post('pitchsnap_manus_prompt');
+        // ── Manus credentials ─────────────────────────────────────────────────
+        $manus_key = $this->input->post('pitchsnap_manus_api_key');
         if (!empty($manus_key)) { update_option('pitchsnap_manus_api_key', trim((string) $manus_key)); }
-        update_option('pitchsnap_manus_prompt', $manus_prompt);
+        update_option('pitchsnap_manus_prompt', $this->input->post('pitchsnap_manus_prompt'));
 
+        // ── Anthropic credentials ─────────────────────────────────────────────
         $api_key = $this->input->post('pitchsnap_anthropic_api_key');
         $model   = trim((string) $this->input->post('pitchsnap_model', true));
         $prompt  = $this->input->post('pitchsnap_generation_prompt');
@@ -460,7 +472,9 @@ class Pitchsnap extends AdminController
         update_option('pitchsnap_model',             $model ?: 'claude-sonnet-4-6');
         update_option('pitchsnap_generation_prompt', $prompt);
 
-        $gr_names     = ['logo_usage','image_selection','team_placement','team_association','anonymous_team','gallery_usage','credential_usage','owner_story','visual_readability'];
+        // ── Generation guardrails ─────────────────────────────────────────────
+        // hidden+checkbox pattern in view guarantees each key is always present in POST
+        $gr_names     = ['logo_usage','image_selection','team_placement','team_association','anonymous_team','gallery_usage','credential_usage','owner_story','visual_readability','brand_color_preservation'];
         $gr_providers = ['anthropic','manus'];
         foreach ($gr_providers as $pkey) {
             foreach ($gr_names as $gkey) {
@@ -469,38 +483,45 @@ class Pitchsnap extends AdminController
             }
         }
 
-        update_option('pitchsnap_logging_enabled', $this->input->post('pitchsnap_logging_enabled') ? '1' : '0');
+        // ── Operational ───────────────────────────────────────────────────────
+        // hidden+checkbox pattern ensures pitchsnap_logging_enabled is always in POST
+        update_option('pitchsnap_logging_enabled',  $this->input->post('pitchsnap_logging_enabled')  ? '1' : '0');
+        update_option('pitchsnap_web_design_admin', (string)(int) $this->input->post('pitchsnap_web_design_admin', true));
 
-        // Pricing settings
-        $payment_type = $this->input->post('pitchsnap_payment_type', true);
-        update_option('pitchsnap_payment_type', in_array($payment_type, ['onetime', 'subscription']) ? $payment_type : 'onetime');
-
-        $price = trim((string) $this->input->post('pitchsnap_price', true));
-        if ($price !== '' && is_numeric($price) && (float) $price > 0) {
-            update_option('pitchsnap_price', number_format((float) $price, 2, '.', ''));
-        }
-
-        update_option('pitchsnap_stripe_plan_id',   trim((string) $this->input->post('pitchsnap_stripe_plan_id', true)));
-        $qty = (int) $this->input->post('pitchsnap_sub_quantity', true);
-        update_option('pitchsnap_sub_quantity',     (string) max(1, $qty ?: 1));
-        update_option('pitchsnap_sub_name',         trim((string) $this->input->post('pitchsnap_sub_name', true)));
-        update_option('pitchsnap_sub_description',  $this->input->post('pitchsnap_sub_description'));
-        update_option('pitchsnap_sub_include_desc', $this->input->post('pitchsnap_sub_include_desc') ? '1' : '0');
-        $sub_cur = (int) $this->input->post('pitchsnap_sub_currency', true);
-        if ($sub_cur > 0) { update_option('pitchsnap_sub_currency', (string) $sub_cur); }
-        update_option('pitchsnap_sub_tax1',         trim((string) $this->input->post('pitchsnap_sub_tax1', true)));
-        update_option('pitchsnap_sub_tax2',         trim((string) $this->input->post('pitchsnap_sub_tax2', true)));
-
-        $web_design_admin = (int) $this->input->post('pitchsnap_web_design_admin', true);
-        update_option('pitchsnap_web_design_admin', (string) $web_design_admin);
-
+        // ── GHL token ─────────────────────────────────────────────────────────
         $ghl_key = trim((string) $this->input->post('pitchsnap_ghl_api_key'));
         if ($ghl_key !== '') { update_option('pitchsnap_ghl_api_key', $ghl_key); }
 
-        $tab = $this->input->post('active_tab');
-        $tab = in_array($tab, ['general', 'ai', 'agreement', 'pricing', 'logs', 'ghl']) ? $tab : 'general';
+        // ── Fields not yet in view — guard against absent POST keys ───────────
+        if (array_key_exists('pitchsnap_video_demo_url', $_POST)) {
+            update_option('pitchsnap_video_demo_url', trim((string) $this->input->post('pitchsnap_video_demo_url', true)));
+        }
+        if (array_key_exists('pitchsnap_agreement_version', $_POST)) {
+            $v = trim((string) $this->input->post('pitchsnap_agreement_version', true));
+            if ($v !== '') { update_option('pitchsnap_agreement_version', $v); }
+            update_option('pitchsnap_agreement_text', $this->input->post('pitchsnap_agreement_text'));
+        }
+        if (array_key_exists('pitchsnap_payment_type', $_POST)) {
+            $payment_type = $this->input->post('pitchsnap_payment_type', true);
+            update_option('pitchsnap_payment_type', in_array($payment_type, ['onetime', 'subscription']) ? $payment_type : 'onetime');
+            $price = trim((string) $this->input->post('pitchsnap_price', true));
+            if ($price !== '' && is_numeric($price) && (float) $price > 0) {
+                update_option('pitchsnap_price', number_format((float) $price, 2, '.', ''));
+            }
+            update_option('pitchsnap_stripe_plan_id',   trim((string) $this->input->post('pitchsnap_stripe_plan_id', true)));
+            $qty = (int) $this->input->post('pitchsnap_sub_quantity', true);
+            update_option('pitchsnap_sub_quantity',     (string) max(1, $qty ?: 1));
+            update_option('pitchsnap_sub_name',         trim((string) $this->input->post('pitchsnap_sub_name', true)));
+            update_option('pitchsnap_sub_description',  $this->input->post('pitchsnap_sub_description'));
+            update_option('pitchsnap_sub_include_desc', $this->input->post('pitchsnap_sub_include_desc') ? '1' : '0');
+            $sub_cur = (int) $this->input->post('pitchsnap_sub_currency', true);
+            if ($sub_cur > 0) { update_option('pitchsnap_sub_currency', (string) $sub_cur); }
+            update_option('pitchsnap_sub_tax1',         trim((string) $this->input->post('pitchsnap_sub_tax1', true)));
+            update_option('pitchsnap_sub_tax2',         trim((string) $this->input->post('pitchsnap_sub_tax2', true)));
+        }
+
         set_alert('success', 'ClickFuzz Web settings saved.');
-        redirect(admin_url('pitchsnap/settings?tab=' . $tab));
+        redirect(admin_url('pitchsnap/settings'));
     }
 
     public function queue_generate($id = '')
