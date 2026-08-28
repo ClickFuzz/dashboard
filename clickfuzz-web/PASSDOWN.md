@@ -195,12 +195,12 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 | Branch | Worktree | Status |
 |---|---|---|
-| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `97a16b8` (origin/main in sync) |
+| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `b811080` (origin/main in sync) |
 | `claude/generation` | `worktrees/dashboard/generation` | **Merged** — fast-forward merged into `main` (2026-08-28). Foundation complete and parked. |
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test. |
 | `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
-| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Reconciled with v17 main (2026-08-28)** — publishing-state foundation integrated: `is_site_published()`, helper-level lock enforcement, atomic `publish_type`+`status`. Awaiting review then merge to main. Phase 5C (Cloudflare Custom Hostname automation) still paused. |
+| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Merged to main (2026-08-28)** — publishing-state foundation complete: `is_site_published()`, helper-level HTML↔WP lock, atomic `publish_type`+`status`. Phase 5C (Cloudflare Custom Hostname automation) still paused. |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
 | `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix + tab extraction. Uncommitted changes: `admin_detail.php` (shell only), `Pitchsnap.php`, `Pitchsnap_model.php`, new `views/admin_detail/tab_*.php` (6 files). New partials not yet deployed to production. Needs deploy + verify + commit + merge to main. |
