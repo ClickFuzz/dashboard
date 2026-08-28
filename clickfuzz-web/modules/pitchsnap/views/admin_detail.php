@@ -54,19 +54,16 @@
                 <a href="#tab-overview" role="tab" data-toggle="tab">Overview</a>
             </li>
             <li role="presentation">
-                <a href="#tab-website" role="tab" data-toggle="tab">Website</a>
+                <a href="#tab-pages" role="tab" data-toggle="tab">Pages</a>
             </li>
             <li role="presentation">
-                <a href="#tab-publishing" role="tab" data-toggle="tab">Domain &amp; Publishing</a>
+                <a href="#tab-media" role="tab" data-toggle="tab">Media</a>
             </li>
             <li role="presentation">
                 <a href="#tab-customer" role="tab" data-toggle="tab">Customer</a>
             </li>
             <li role="presentation">
-                <a href="#tab-ghl" role="tab" data-toggle="tab">GHL</a>
-            </li>
-            <li role="presentation">
-                <a href="#tab-history" role="tab" data-toggle="tab">History</a>
+                <a href="#tab-settings" role="tab" data-toggle="tab">Settings</a>
             </li>
         </ul>
 
@@ -74,20 +71,26 @@
 
             <?php include __DIR__ . '/admin_detail/tab_overview.php'; ?>
 
+            <?php include __DIR__ . '/admin_detail/tab_pages.php'; ?>
 
-            <?php include __DIR__ . '/admin_detail/tab_website.php'; ?>
-
-
-            <?php include __DIR__ . '/admin_detail/tab_publishing.php'; ?>
-
+            <?php include __DIR__ . '/admin_detail/tab_media.php'; ?>
 
             <?php include __DIR__ . '/admin_detail/tab_customer.php'; ?>
 
-
+            <!-- Publishing, Integrations, Activity move under Settings in Phase 2.
+                 Included here without nav links so they remain in the DOM until relocated. -->
+            <?php include __DIR__ . '/admin_detail/tab_publishing.php'; ?>
             <?php include __DIR__ . '/admin_detail/tab_ghl.php'; ?>
-
-
             <?php include __DIR__ . '/admin_detail/tab_history.php'; ?>
+
+            <!-- Settings tab — stub placeholder; Phase 2 fills this with Publishing/Integrations/Activity -->
+            <div role="tabpanel" class="tab-pane" id="tab-settings">
+                <div class="panel_s">
+                    <div class="panel-body text-muted" style="font-size:13px;">
+                        Settings sections (Publishing, Integrations, Activity) are being migrated here.
+                    </div>
+                </div>
+            </div>
 
         </div><!-- /.tab-content -->
     </div><!-- /.content -->

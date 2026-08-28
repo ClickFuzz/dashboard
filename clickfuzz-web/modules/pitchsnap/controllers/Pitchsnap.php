@@ -65,7 +65,8 @@ class Pitchsnap extends AdminController
         } else {
             $data['ghl_link'] = null;
         }
-        if (!empty($data['site']) && $data['site']->status === 'published') {
+        $data['is_published'] = $this->pitchsnap_model->is_site_published($data['site']);
+        if ($data['is_published']) {
             $data['pages']      = $this->pitchsnap_model->get_pages_for_site($data['site']->id, true);
             $data['site_media'] = $this->pitchsnap_model->get_media_for_site($data['site']->id);
         } else {
