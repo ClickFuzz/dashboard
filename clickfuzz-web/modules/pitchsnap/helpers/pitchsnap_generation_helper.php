@@ -290,6 +290,66 @@ function clickfuzz_web_generate_platform_hostname($site_id, $lead_id = null)
 }
 
 /**
+ * Upload $content to {pitchsnap_publish_ftp_base}/{relative_path} on the hosted-sites server.
+ * Credentials read from tbloptions (pitchsnap_publish_ftp_*).
+ * Returns ['success'=>bool, 'error'=>string|null].
+ */
+function clickfuzz_web_remote_put(string $relative_path, string $content): array
+{
+    $host = get_option('pitchsnap_publish_ftp_host');
+    $user = get_option('pitchsnap_publish_ftp_user');
+    $pass = get_option('pitchsnap_publish_ftp_pass');
+    $base = get_option('pitchsnap_publish_ftp_base');
+
+    if (!$host || !$user || !$pass || !$base) {
+        return ['success' => false, 'error' => 'Remote publish not configured (set pitchsnap_publish_ftp_* options).'];
+    }
+
+    // Base is an absolute server path (e.g. /home/xqsfhrlj/.../sites).
+    // Keeping the leading '/' produces a double-slash after the host in the URL,
+    // which tells cURL to treat the path as absolute (not relative to FTP root).
+    // ftp:// with CURLUSESSL_ALL = Explicit FTPS (AUTH TLS on port 21).
+    // ftps:// would be Implicit FTPS on port 990, which DirectAdmin does not use.
+    $url = 'ftp://' . rtrim($host, '/') . '/' . rtrim($base, '/') . '/' . ltrim($relative_path, '/');
+
+    $fp = fopen('php://temp', 'r+');
+    if ($fp === false) {
+        return ['success' => false, 'error' => 'Could not open in-memory stream for upload.'];
+    }
+    fwrite($fp, $content);
+    rewind($fp);
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL                     => $url,
+        CURLOPT_USERPWD                 => $user . ':' . $pass,
+        CURLOPT_UPLOAD                  => true,
+        CURLOPT_INFILE                  => $fp,
+        CURLOPT_INFILESIZE              => strlen($content),
+        CURLOPT_FTP_CREATE_MISSING_DIRS => 2,   // CURLFTP_CREATE_DIR_RETRY
+        CURLOPT_USE_SSL                 => CURLUSESSL_ALL,  // require TLS — no plaintext fallback
+        CURLOPT_SSL_VERIFYPEER          => false,
+        CURLOPT_SSL_VERIFYHOST          => 0,
+        CURLOPT_FTPSSLAUTH              => CURLFTPAUTH_TLS,
+        CURLOPT_FTP_USE_EPSV            => false,
+        CURLOPT_TIMEOUT                 => 30,
+        CURLOPT_RETURNTRANSFER          => true,
+    ]);
+
+    curl_exec($ch);
+    $curl_err = curl_error($ch);
+    $errno    = curl_errno($ch);
+    curl_close($ch);
+    fclose($fp);
+
+    if ($errno !== 0) {
+        return ['success' => false, 'error' => 'FTPS upload failed: ' . ($curl_err ?: 'errno ' . $errno)];
+    }
+
+    return ['success' => true, 'error' => null];
+}
+
+/**
  * Publish a site: copy the latest preview HTML to sites/{slug}/index.html.
  * Returns ['success'=>bool, 'url'=>string|null, 'error'=>string|null].
  */
@@ -321,21 +381,24 @@ function clickfuzz_web_publish_site($site_id)
         return ['success' => false, 'url' => null, 'error' => 'Could not read preview file.'];
     }
 
-    // Derive slug from domain field (clickfuzz.com/sites/{slug})
+    // Derive slug from domain field (clickfuzz.com/sites/{slug}).
+    // substr() used for prefix removal — ltrim()'s second argument is a character mask,
+    // not a string prefix, which would silently strip extra leading chars.
     $domain = $site->domain ?? '';
-    $slug   = ltrim(strstr($domain, '/sites/'), '/sites/');
+    $after  = strstr($domain, '/sites/');
+    $slug   = ($after !== false) ? substr($after, strlen('/sites/')) : '';
+
     if (!$slug || !preg_match('/^[a-z0-9\-]+$/', $slug)) {
-        return ['success' => false, 'url' => null, 'error' => 'Invalid site slug.'];
-    }
-
-    $sites_base = dirname(FCPATH) . '/sites';
-    $site_dir   = $sites_base . '/' . $slug;
-
-    if (!is_dir($sites_base) && !mkdir($sites_base, 0755, true)) {
-        return ['success' => false, 'url' => null, 'error' => 'Could not create sites directory.'];
-    }
-    if (!is_dir($site_dir) && !mkdir($site_dir, 0755, true)) {
-        return ['success' => false, 'url' => null, 'error' => 'Could not create site directory.'];
+        // Legacy record: domain was never set (created before slug system).
+        // Generate, validate, and persist a slug before attempting FTPS.
+        $slug = clickfuzz_web_generate_site_slug((int) $site->source_website_id);
+        if (!$slug || !preg_match('/^[a-z0-9\-]+$/', $slug)) {
+            return ['success' => false, 'url' => null, 'error' => 'Could not generate a valid site slug.'];
+        }
+        $CI->pitchsnap_model->update_site($site_id, ['domain' => 'clickfuzz.com/sites/' . $slug]);
+        if ($CI->db->affected_rows() < 1) {
+            return ['success' => false, 'url' => null, 'error' => 'Failed to persist generated site slug.'];
+        }
     }
 
     // Remove noindex, strip all external scripts, re-inject canonical widget
@@ -355,8 +418,27 @@ function clickfuzz_web_publish_site($site_id)
         ? str_ireplace('</body>', $widget . "\n</body>", $html)
         : $html . "\n" . $widget;
 
-    if (file_put_contents($site_dir . '/index.html', $html) === false) {
-        return ['success' => false, 'url' => null, 'error' => 'Failed to write site HTML file.'];
+    // Transfer to hosted-sites server if FTP credentials are configured;
+    // fall back to local write (development / unconfigured environments).
+    if (get_option('pitchsnap_publish_ftp_host')) {
+        $upload = clickfuzz_web_remote_put($slug . '/index.html', $html);
+        if (!$upload['success']) {
+            return ['success' => false, 'url' => null, 'error' => $upload['error']];
+        }
+    } else {
+        $sites_base = dirname(FCPATH) . '/sites';
+        $site_dir   = $sites_base . '/' . $slug;
+
+        if (!is_dir($sites_base) && !mkdir($sites_base, 0755, true)) {
+            return ['success' => false, 'url' => null, 'error' => 'Could not create sites directory.'];
+        }
+        if (!is_dir($site_dir) && !mkdir($site_dir, 0755, true)) {
+            return ['success' => false, 'url' => null, 'error' => 'Could not create site directory.'];
+        }
+
+        if (file_put_contents($site_dir . '/index.html', $html) === false) {
+            return ['success' => false, 'url' => null, 'error' => 'Failed to write site HTML file.'];
+        }
     }
 
     $CI->pitchsnap_model->update_site($site_id, [
@@ -458,7 +540,7 @@ function clickfuzz_web_publish_site_wp($site_id)
     // Remove the pitchsnap preview widget — WP sites use their own session handling
     $html = preg_replace('/<script[^>]+\bsrc=[^>]*pitchsnap[^>]*>\s*<\/script>/i', '', $html);
 
-    $wp_url     = rtrim($site->wp_site_url, '/');
+    $wp_url      = rtrim($site->wp_site_url, '/');
     $credentials = base64_encode($site->wp_username . ':' . $site->wp_app_password);
     $headers     = [
         'Authorization: Basic ' . $credentials,

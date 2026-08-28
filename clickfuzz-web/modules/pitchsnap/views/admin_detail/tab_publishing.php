@@ -94,6 +94,7 @@
                         <?php } ?>
                         <form method="POST" action="<?php echo admin_url('pitchsnap/publish_site/' . (int) $redesign->id); ?>" style="display:inline;">
                             <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                            <input type="hidden" name="confirm_publish" value="1">
                             <button type="submit" class="btn btn-primary btn-sm"
                                     onclick="return confirm('<?php echo $_is_published ? 'Republish this site (overwrites current content)?' : 'Publish this site to its permanent URL?'; ?>');">
                                 <i class="fa fa-<?php echo $_is_published ? 'refresh' : 'upload'; ?>"></i>

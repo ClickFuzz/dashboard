@@ -67,18 +67,119 @@ Public endpoints must be added to `$app_csrf_exclude_uris` in `application/confi
 
 ---
 
+## Cloudflare / Hosted-Site Architecture (FINAL — 2026-08-26)
+
+**Decision is final. Do NOT build DirectAdmin per-customer domain provisioning or per-domain Let's Encrypt.**
+
+### Traffic flow for custom domains
+
+```
+www.customer.com
+  → CNAME customers.clickfuzz.com
+  → Cloudflare for SaaS / Custom Hostnames
+  → fallback origin: sites.clickfuzz.com
+  → dedicated CrocWeb hosted-sites account
+  → ClickFuzz shared hostname-based runtime
+```
+
+### Cloudflare state (validated)
+
+- `clickfuzz.com` DNS is now authoritative on Cloudflare. All existing records migrated successfully.
+- Existing services (clickfuzz.com WordPress, `/dashboard/`, `jackrabbit.clickfuzz.com`, mail) confirmed working.
+- General records are DNS-only (grey-cloud) unless intentionally proxied.
+- Cloudflare for SaaS is enabled, billing configured.
+- SSL mode: Full. Universal SSL: active.
+- `customers.clickfuzz.com` — proxied CNAME → `sites.clickfuzz.com`. This is the permanent hostname customers will CNAME their `www` to.
+- `sites.clickfuzz.com` — fallback origin, status: Active in Cloudflare. Points to the **new dedicated CrocWeb hosted-sites account**.
+- Custom Hostname TLS is handled by Cloudflare (not DirectAdmin, not Let's Encrypt).
+- ClickFuzz will eventually create/manage Custom Hostnames via Cloudflare API.
+
+### MVP canonical hostname strategy
+
+- `www.customer.com` is the canonical custom hostname for MVP.
+- Apex/root domain handling (redirect `customer.com` → `www.customer.com`) is deferred.
+
+### New CrocWeb hosted-sites account (active 2026-08-26)
+
+- **Server IP:** `104.152.168.40`
+- **DA user:** `xqsfhrlj`
+- **Runtime root:** `/home/xqsfhrlj/domains/sites.clickfuzz.com/public_html/`
+- **Site storage:** `/home/xqsfhrlj/domains/sites.clickfuzz.com/public_html/sites/`
+- `index.php` (commit `1457b10`), front-controller `.htaccess`, and storage `.htaccess` manually deployed.
+- Generated HTML site directories manually copied to `sites/`.
+- `runtime-config.php` exists on the server with DB credentials. **Never commit to git.**
+- DB is on old server `104.152.168.38`. Remote MySQL access for `104.152.168.40` manually enabled in DA.
+- Existing DA MCP (`clgorman` / `homesincda.com:2222`) cannot access the new account — deployment is manual via the new account's DA panel or SFTP.
+
+### Cloudflare Worker (active 2026-08-26)
+
+- Worker name: `clickfuzz-site-router`
+- Catch-all route: `*/*` → `clickfuzz-site-router`
+- Explicit Worker=None exclusions: `sites.clickfuzz.com/*`, `www.clickfuzz.com/*`, `clickfuzz.com/*` — **do not remove these**.
+- Worker interception proven: request to `www.eddmautofill.com` returned `worker-hit: www.eddmautofill.com`.
+- Worker fetch to `https://sites.clickfuzz.com/` returned the PHP runtime's `404 Not Found` — proving the full chain works:
+  `custom hostname → Cloudflare for SaaS → Worker → sites.clickfuzz.com → CrocWeb → PHP runtime`
+
+### End-to-end validation (2026-08-26) — COMPLETE
+
+Full publish-and-serve path verified working:
+
+`Publish button → Explicit FTPS (port 21, AUTH TLS) → sites.clickfuzz.com/sites/{slug}/index.html`
+`www.eddmautofill.com → Cloudflare for SaaS → Worker (X-ClickFuzz-Host) → sites.clickfuzz.com → PHP runtime → DB slug lookup → /sites/{slug}/index.html`
+
+- Cloudflare Custom Hostname status: Active
+- Cloudflare certificate: Active
+- HTTPS: working end-to-end
+- Generated HTML served correctly via `www.eddmautofill.com`
+
+### Publishing infrastructure (live as of 2026-08-26)
+
+- FTPS publishing: Explicit FTPS on port 21 (ftp:// + `CURLUSESSL_ALL` + `CURLFTPAUTH_TLS`). Credentials stored in `tbloptions` (`pitchsnap_publish_ftp_*`). FTP account `publish@sites.clickfuzz.com` is chrooted to `/home/xqsfhrlj/domains/sites.clickfuzz.com/public_html/sites/`. Base `'/'` produces absolute-path URL within the chroot.
+- X-ClickFuzz-Host header handling: implemented in `hosted-runtime/index.php`. Trusted only when `HTTP_HOST === sites.clickfuzz.com`. Never trusted from arbitrary direct clients.
+- Legacy slug self-healing: `clickfuzz_web_publish_site()` auto-generates and persists slug for sites created before the slug system (domain=null records).
+- Publish form: `confirm_publish` hidden field added to defeat CI3 CSRF silent-redirect bug.
+
+### Remaining future work (publishing-domains)
+
+1. Automate Cloudflare Custom Hostname lifecycle via API (create/remove when custom domain is added/removed in admin).
+2. Handle apex → www redirect for custom domains.
+3. Replace provisional DNS verification UI/logic with CNAME-based flow (`CNAME www → customers.clickfuzz.com`).
+4. Wire FTPS credentials/settings into a proper admin config UI (currently set manually in tbloptions).
+5. Consider tightening FTPS `SSL_VERIFYPEER` once CrocWeb certificate situation is confirmed.
+
+### Phase 5B/5C DNS verification — provisional status
+
+The Phase 5B DNS helper (`pitchsnap_dns_helper.php`) and verification UI are deployed. Current DNS instructions shown in the UI (direct A record `104.152.168.38`) are **provisional** — they will change to `CNAME www → customers.clickfuzz.com` once Custom Hostname API automation is built.
+
+### Manual/untracked state (important)
+
+- `runtime-config.php` on new server: secrets, never in git. Local copy at `/tmp/runtime-config.php` on dev machine (temporary).
+- Cloudflare Worker code: currently manual, not in repo.
+- Cloudflare for SaaS routes/custom-hostname config: manual.
+- New CrocWeb server deployments: manual (DA MCP cannot reach `xqsfhrlj` account).
+
+---
+
 ## Current Production / Main Baseline
 
-As of 2026-08-26, local `main` is at `739f16e` and `origin/main` is in sync at `739f16e`. This merges GHL Phase 1 and Publishing Phases 1–5B.
+As of 2026-08-28, `main` is at `b64f9a5` (publishing-domains complete, Phases 1–5C merged). `origin/main` is in sync.
 
-**`claude/generation` branch is at `14f2436` (latest commit) — NOT YET merged to main.**
-All generation branch changes are deployed to production and validated. Merge to main is the next step once UI testing is complete.
+Production is running the publishing-domains workstream output, verified working end-to-end. The hosted runtime and generated HTML are deployed on the new CrocWeb `xqsfhrlj` account. FTPS publishing from the dashboard is live. `www.eddmautofill.com` serves correctly.
+
+**`claude/generation` branch is at `65572d8` — NOT YET merged to main.**
+All generation branch changes (Phases 1–5 internal page pipeline) are deployed to production and validated. Merge to main is pending.
 
 **Items pending production deployment (from main):**
-- Lead-profile tab hooks (restored 2026-08-23) — still not deployed
-- Conversation empty state fix in admin_lead.php (2026-08-23) — still not deployed
+- Lead-profile tab hooks (restored 2026-08-23) — still not deployed to `clickfuzz.com/dashboard`
+- Conversation empty state fix in `admin_lead.php` (2026-08-23) — still not deployed
 
-**GHL Phase 1 deployed 2026-08-26 (hash-verified):**
+**Published to production this session (hash-verified):**
+- `modules/pitchsnap/helpers/pitchsnap_generation_helper.php` — FTPS publishing, slug self-healing, restored `publish_site_wp` and `cleanup_generation_history`
+- `modules/pitchsnap/hosted-runtime/index.php` — X-ClickFuzz-Host support, www→apex fallback, CrocWeb paths
+- `modules/pitchsnap/views/admin_detail/tab_publishing.php` — confirm_publish field
+- New CrocWeb hosted-sites account: `index.php`, `.htaccess`, `runtime-config.php`, `/sites/` storage
+
+**GHL Phase 1 deployed 2026-08-26 (hash-verified, prior session):**
 - `modules/pitchsnap/controllers/Pitchsnap.php`
 - `modules/pitchsnap/pitchsnap.php`
 - `modules/pitchsnap/views/admin_detail/tab_ghl.php`
@@ -107,12 +208,12 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 | Branch | Worktree | Status |
 |---|---|---|
-| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `739f16e` (origin/main in sync) |
-| `claude/generation` | `worktrees/dashboard/generation` | **Active** — at `14f2436`; Phases 1–5 internal page pipeline fully committed. All 30 changed files deployed to production. DB at v17. 537 pure-PHP unit tests pass. UI validation in progress (needs published site). **NOT merged to main yet.** |
+| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `b64f9a5` (origin/main in sync) |
+| `claude/generation` | `worktrees/dashboard/generation` | **Active** — at `65572d8`; Phases 1–5 internal page pipeline fully committed. All 30 changed files deployed to production. DB at v17. 537 pure-PHP unit tests pass. UI validation in progress (needs published site). **NOT merged to main yet.** |
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test (enter Agency Private Integration Token, link a Location ID, verify Test Connection). |
 | `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
-| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Merged** — Phases 1–5B complete, merged to main at `739f16e`. DB v13 live. Hosted-site runtime, platform hostnames, custom domain CRUD, DNS verification (apex-pair) all deployed. **Phase 5C PAUSED** — awaiting Cloudflare / Cloudflare for SaaS architecture decision. Current DNS instructions (direct A record to 104.152.168.38) are PROVISIONAL. |
+| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Merged & complete** — Phases 1–5C done. Merged to main at `e4f214a`. End-to-end FTPS publish + Worker + runtime + custom-domain serving verified via `www.eddmautofill.com`. Remaining future work: Cloudflare Custom Hostname API automation, apex redirect, DNS UI update, admin config UI for FTP credentials. |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
 | `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix + tab extraction. Uncommitted changes: `admin_detail.php` (shell only), `Pitchsnap.php`, `Pitchsnap_model.php`, new `views/admin_detail/tab_*.php` (6 files). New partials not yet deployed to production. Needs deploy + verify + commit + merge to main. |
@@ -204,6 +305,8 @@ All 30 changed files uploaded via DA MCP. DB migrated from v15 → v17:
 - **All DB migrations live in `clickfuzz_web_db_upgrade()`** in `pitchsnap.php`. Increment the version gate (`pitchsnap_db_version`) after each schema change.
 - **Secrets (API keys, Twilio credentials) go in `tbl_options`**, not in config files or git.
 - **Probe/diagnostic scripts** are gitignored and self-deleting where possible. The permanent `ps_colorprobe.php` is token-protected and lives in the server root — it should eventually move to the admin UI.
+- **Custom domain TLS is handled by Cloudflare for SaaS** — do not build per-domain DirectAdmin provisioning or Let's Encrypt automation.
+- **Hosted-site infrastructure lives on a dedicated CrocWeb account** (`sites.clickfuzz.com`) separate from the main `clickfuzz.com` account.
 
 ---
 

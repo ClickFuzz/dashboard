@@ -9,8 +9,8 @@ error_reporting(0);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-define('SITES_BASE_DIR',   '/home/clgorman/domains/clickfuzz.com/public_html/sites/');
-define('APP_CONFIG_PATH',  '/home/clgorman/domains/clickfuzz.com/public_html/dashboard/application/config/app-config.php');
+define('SITES_BASE_DIR',   '/home/xqsfhrlj/domains/sites.clickfuzz.com/public_html/sites/');
+define('APP_CONFIG_PATH',  '/home/xqsfhrlj/domains/sites.clickfuzz.com/public_html/runtime-config.php');
 define('DB_DOMAINS_TABLE', 'tblpitchsnap_site_domains');
 define('DB_SITES_TABLE',   'tblpitchsnap_sites');
 define('RUNTIME_OWN_HOST', 'sites.clickfuzz.com');
@@ -44,8 +44,18 @@ $host     = rtrim($host, '.');                             // strip trailing dot
 
 if ($host === '') { abort(400); }
 
-// The runtime's own infrastructure hostname has no customer mapping
-if ($host === RUNTIME_OWN_HOST) { abort(404); }
+// The runtime's own infrastructure hostname has no customer mapping unless the
+// Cloudflare Worker is proxying a custom-domain request through it.
+if ($host === RUNTIME_OWN_HOST) {
+    // Only trust X-ClickFuzz-Host when the actual incoming host is sites.clickfuzz.com
+    // (i.e. the Worker path). Apply identical normalization to the override value.
+    $override = strtolower($_SERVER['HTTP_X_CLICKFUZZ_HOST'] ?? '');
+    $override = (string) preg_replace('/:\d+$/', '', $override);
+    $override = rtrim($override, '.');
+    if ($override === '') { abort(404); }
+    $host = $override;
+    // RFC validation below still runs on $host (now the override value).
+}
 
 // Validate hostname structure: RFC-compliant labels separated by dots
 if (!preg_match('/^(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/', $host)) {
@@ -88,6 +98,26 @@ $stmt->execute();
 $stmt->bind_result($site_id);
 $mapped = $stmt->fetch();
 $stmt->close();
+
+// www alias: if exact match fails for www.{apex}, retry with the stored apex hostname.
+// One normalized apex row covers both eddmautofill.com (apex) and www.eddmautofill.com (Worker path).
+if (!$mapped && strncmp($host, 'www.', 4) === 0) {
+    $apex = substr($host, 4);
+    if (preg_match('/^(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/', $apex)) {
+        $site_id  = null;
+        $stmt_a = $db->prepare(
+            'SELECT site_id FROM ' . DB_DOMAINS_TABLE .
+            ' WHERE hostname = ? AND status = ? LIMIT 1'
+        );
+        if ($stmt_a) {
+            $stmt_a->bind_param('ss', $apex, $active);
+            $stmt_a->execute();
+            $stmt_a->bind_result($site_id);
+            $mapped = $stmt_a->fetch();
+            $stmt_a->close();
+        }
+    }
+}
 
 if (!$mapped || !$site_id) { $db->close(); abort(404); }
 
