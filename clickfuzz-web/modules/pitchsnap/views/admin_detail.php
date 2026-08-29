@@ -115,9 +115,28 @@
 <?php init_tail(); ?>
 <script>
 $(function() {
-    if (window.location.hash === '#tab-settings') {
-        $('[data-toggle="tab"][href="#tab-settings"]').tab('show');
+    // Restore active tab from URL hash on load (handles outer tabs and nested pills)
+    var hash = window.location.hash;
+    if (hash) {
+        var $target = $('[data-toggle="tab"][href="' + hash + '"]');
+        if ($target.length) {
+            var $pane = $(hash);
+            var $parentPane = $pane.closest('.tab-pane');
+            if ($parentPane.length) {
+                $('[data-toggle="tab"][href="#' + $parentPane.attr('id') + '"]').tab('show');
+            }
+            $target.tab('show');
+        }
     }
+
+    // Keep URL hash in sync whenever any tab or pill is shown
+    $('[data-toggle="tab"]').on('shown.bs.tab', function(e) {
+        if (history.replaceState) {
+            history.replaceState(null, null, e.target.hash);
+        } else {
+            window.location.hash = e.target.hash;
+        }
+    });
 });
 function ps_test_wp_connection(id) {
     var btn = document.getElementById('wp-test-btn');
@@ -249,20 +268,21 @@ function ps_bulk_delete() {
 <?php
 function ps_badge($status) {
     $map = [
-        'new'                => 'label-default',
-        'pending'            => 'label-default',
-        'pending_generation' => 'label-info',
-        'generating'         => 'label-info',
-        'publishing'         => 'label-info',
-        'modifying'          => 'label-info',
-        'review_required'    => 'label-primary',
-        'approved'           => 'label-success',
-        'sent'               => 'label-success',
-        'viewed'             => 'label-success',
-        'failed'             => 'label-danger',
-        'declined'           => 'label-default',
+        'new'                => ['label-default', 'Draft'],
+        'pending'            => ['label-default', 'Draft'],
+        'pending_generation' => ['label-info',    'Generating'],
+        'generating'         => ['label-info',    'Generating'],
+        'publishing'         => ['label-info',    'Publishing'],
+        'modifying'          => ['label-info',    'AI Modifying'],
+        'review_required'    => ['label-primary', 'Review Required'],
+        'approved'           => ['label-warning', 'Awaiting Client Approval'],
+        'sent'               => ['label-warning', 'Awaiting Client Approval'],
+        'viewed'             => ['label-info',    'Client Viewed'],
+        'published'          => ['label-success', 'Published'],
+        'failed'             => ['label-danger',  'Failed'],
+        'declined'           => ['label-default', 'Declined'],
     ];
-    $cls = $map[$status] ?? 'label-default';
-    return '<span class="label ' . $cls . '">' . e($status) . '</span>';
+    [$cls, $label] = $map[$status] ?? ['label-default', e($status)];
+    return '<span class="label ' . $cls . '">' . $label . '</span>';
 }
 ?>

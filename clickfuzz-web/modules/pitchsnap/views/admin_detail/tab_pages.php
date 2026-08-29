@@ -25,7 +25,7 @@
                                 </tr>
                                 <tr>
                                     <th>Status</th>
-                                    <td><?php echo ps_badge($redesign->status); ?></td>
+                                    <td><?php echo $is_published ? ps_badge('published') : ps_badge($redesign->status); ?></td>
                                 </tr>
                                 <tr>
                                     <th>Provider</th>
@@ -67,13 +67,15 @@
                         </p>
 
                         <?php } elseif ($s === 'review_required') { ?>
+                        <?php if (!$is_published) { ?>
                         <form method="POST" action="<?php echo admin_url('pitchsnap/approve_design/' . (int) $redesign->id); ?>" style="display:inline;">
                             <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
                             <button type="submit" class="btn btn-success mright5"
-                                    onclick="return confirm('Approve this design and notify the prospect?');">
-                                <i class="fa fa-check"></i> Approve &amp; Send
+                                    onclick="return confirm('Send this design to the client for approval?');">
+                                <i class="fa fa-paper-plane"></i> Send for Approval
                             </button>
                         </form>
+                        <?php } ?>
                         <a href="<?php echo admin_url('pitchsnap/regenerate/' . (int) $redesign->id); ?>"
                            class="btn btn-default mright5"
                            onclick="return confirm('Create a new version from this one?');">

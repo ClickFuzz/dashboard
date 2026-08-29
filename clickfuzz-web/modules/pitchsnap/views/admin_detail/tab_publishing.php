@@ -215,6 +215,12 @@
                                 </tr>
                             </tbody>
                         </table>
+                        <form method="POST" action="<?php echo admin_url('pitchsnap/refresh_domain_status/' . (int) $redesign->id); ?>" style="margin-bottom:12px;">
+                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                            <button type="submit" class="btn btn-default btn-xs">
+                                <i class="fa fa-refresh"></i> Refresh Status
+                            </button>
+                        </form>
 
                         <?php if ($_dns_s !== 'connected') { ?>
                         <div class="well well-sm" style="font-size:12px; margin-bottom:14px; background:#f8fbff; border-color:#c4daf5;">

@@ -200,6 +200,10 @@ class Pitchsnap_model extends App_Model
                 'preview_url'      => $url,
                 'generation_error' => null,
             ]);
+        $row = $this->db->select('lead_id')->where('id', (int) $id)->get($this->table)->row();
+        if ($row && !empty($row->lead_id)) {
+            $this->set_primary_version((int) $id, (int) $row->lead_id);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -225,6 +229,10 @@ class Pitchsnap_model extends App_Model
             ->set('generated_at', 'NOW()', false)
             ->where('id', (int) $id)
             ->update($this->table, $fields);
+        $row = $this->db->select('lead_id')->where('id', (int) $id)->get($this->table)->row();
+        if ($row && !empty($row->lead_id)) {
+            $this->set_primary_version((int) $id, (int) $row->lead_id);
+        }
     }
 
     public function mark_generation_failed($id, $error_message)
@@ -507,6 +515,16 @@ class Pitchsnap_model extends App_Model
     {
         return $this->db
             ->where('source_website_id', (int) $website_id)
+            ->limit(1)
+            ->get($this->site_table)
+            ->row();
+    }
+
+    public function get_site_by_lead_id($lead_id)
+    {
+        return $this->db
+            ->where('source_lead_id', (int) $lead_id)
+            ->order_by('id', 'DESC')
             ->limit(1)
             ->get($this->site_table)
             ->row();
