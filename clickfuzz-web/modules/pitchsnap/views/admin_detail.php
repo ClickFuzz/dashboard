@@ -114,6 +114,11 @@
 
 <?php init_tail(); ?>
 <script>
+$(function() {
+    if (window.location.hash === '#tab-settings') {
+        $('[data-toggle="tab"][href="#tab-settings"]').tab('show');
+    }
+});
 function ps_test_wp_connection(id) {
     var btn = document.getElementById('wp-test-btn');
     var out = document.getElementById('wp-test-result');

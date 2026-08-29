@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 17) {
+    if ((int) get_option('pitchsnap_db_version') >= 18) {
         return;
     }
 
@@ -562,11 +562,28 @@ function clickfuzz_web_db_upgrade()
         }
     }
 
+    // v18: Cloudflare custom hostname tracking on site_domains
+    $td = db_prefix() . 'pitchsnap_site_domains';
+    if ($CI->db->table_exists($td)) {
+        if (!$CI->db->field_exists('cf_hostname_id', $td)) {
+            $CI->db->query("ALTER TABLE `{$td}` ADD COLUMN `cf_hostname_id` VARCHAR(64) DEFAULT NULL AFTER `ssl_status`");
+        }
+        if (!$CI->db->field_exists('cf_status', $td)) {
+            $CI->db->query("ALTER TABLE `{$td}` ADD COLUMN `cf_status` VARCHAR(20) DEFAULT NULL AFTER `cf_hostname_id`");
+        }
+    }
+    if (get_option('pitchsnap_cf_api_token') === false) {
+        add_option('pitchsnap_cf_api_token', '');
+    }
+    if (get_option('pitchsnap_cf_zone_id') === false) {
+        add_option('pitchsnap_cf_zone_id', '');
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '17');
+        add_option('pitchsnap_db_version', '18');
     } else {
-        update_option('pitchsnap_db_version', '17');
+        update_option('pitchsnap_db_version', '18');
     }
 }
 

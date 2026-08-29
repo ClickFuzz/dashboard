@@ -73,6 +73,19 @@ class Pitchsnap extends AdminController
             $data['pages']      = [];
             $data['site_media'] = [];
         }
+        $data['custom_domain']   = !empty($data['site']) ? $this->pitchsnap_model->get_custom_domain_for_site($data['site']->id) : null;
+        $data['platform_domain'] = !empty($data['site']) ? $this->pitchsnap_model->get_platform_domain_for_site($data['site']->id) : null;
+        $data['dns_connected']   = false;
+        if (!empty($data['custom_domain'])) {
+            $_h         = $data['custom_domain']->hostname;
+            $check_host = (substr_count($_h, '.') === 1) ? 'www.' . $_h : $_h;
+            foreach ((array) @dns_get_record($check_host, DNS_CNAME) as $_r) {
+                if (rtrim(strtolower($_r['target'] ?? ''), '.') === 'customers.clickfuzz.com') {
+                    $data['dns_connected'] = true;
+                    break;
+                }
+            }
+        }
         $this->load->view('admin_detail', $data);
     }
 
@@ -224,7 +237,7 @@ class Pitchsnap extends AdminController
         if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
         $id = (int) $id;
         if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
-        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-settings';
         $site = $this->pitchsnap_model->get_site_by_website_id($id);
         if (!$site) { set_alert('danger', 'No site record found.'); redirect($detail_url); }
         if ($this->pitchsnap_model->is_site_published($site)) { set_alert('danger', 'Publishing method is locked after a successful publish.'); redirect($detail_url); }
@@ -300,7 +313,7 @@ class Pitchsnap extends AdminController
             set_alert('danger', 'Invalid website ID.');
             redirect(admin_url('pitchsnap/websites'));
         }
-        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-settings';
         $site = $this->pitchsnap_model->get_site_by_website_id($id);
         if (!$site) {
             set_alert('danger', 'No site record found for this website.');
@@ -319,10 +332,49 @@ class Pitchsnap extends AdminController
             redirect($detail_url);
         }
 
-        $result = $this->pitchsnap_model->save_custom_domain($site->id, $hostname);
+        if (!function_exists('clickfuzz_web_cf_provision_hostname')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_cloudflare_helper.php';
+        }
+
+        $old_domain = $this->pitchsnap_model->get_custom_domain_for_site($site->id);
+        $old_cf_id  = $old_domain ? ($old_domain->cf_hostname_id ?? null) : null;
+
+        $cf_hostname_id = null;
+        $cf_status      = null;
+        $cf_hostname    = clickfuzz_web_cf_canonical_hostname($hostname);
+
+        if ($cf_hostname) {
+            $domain_unchanged = $old_domain && $old_domain->hostname === $hostname && $old_cf_id;
+            if ($domain_unchanged) {
+                // Same domain re-submitted — reuse existing CF record, recheck status
+                $cf_hostname_id = $old_cf_id;
+                $check          = clickfuzz_web_cf_check_hostname($old_cf_id);
+                $cf_status      = $check['status'];
+            } else {
+                if ($old_cf_id && $old_domain && $old_domain->hostname !== $hostname) {
+                    clickfuzz_web_cf_delete_hostname($old_cf_id);
+                }
+                $cf_result = clickfuzz_web_cf_provision_hostname($cf_hostname);
+                if ($cf_result['success']) {
+                    $cf_hostname_id = $cf_result['cf_hostname_id'];
+                    $cf_status      = $cf_result['cf_status'];
+                    $this->pitchsnap_model->create_log('cloudflare', 'Provisioned ' . $cf_hostname . ' (' . $cf_status . ')', ['cf_hostname_id' => $cf_hostname_id, 'site_id' => $site->id]);
+                } else {
+                    $cf_status = 'failed';
+                    $this->pitchsnap_model->create_log('cloudflare', 'Provision failed: ' . $cf_hostname, ['error' => $cf_result['error'], 'site_id' => $site->id]);
+                    log_activity('ClickFuzz Web: CF provision failed [Site: ' . $site->id . ', Hostname: ' . $cf_hostname . '] ' . $cf_result['error']);
+                }
+            }
+        }
+
+        $result = $this->pitchsnap_model->save_custom_domain($site->id, $hostname, $cf_hostname_id, $cf_status);
         if ($result) {
             log_activity('ClickFuzz Web: Custom domain saved [Site ID: ' . $site->id . ', Hostname: ' . $hostname . ']');
-            set_alert('success', 'Custom domain <strong>' . e($hostname) . '</strong> saved. DNS setup is pending.');
+            if ($cf_status === 'failed') {
+                set_alert('warning', 'Custom domain <strong>' . e($hostname) . '</strong> saved, but Cloudflare provisioning failed. Check API settings.');
+            } else {
+                set_alert('success', 'Custom domain <strong>' . e($hostname) . '</strong> saved. DNS and Cloudflare setup pending.');
+            }
         } else {
             set_alert('danger', 'Failed to save custom domain. Please try again.');
         }
@@ -338,11 +390,19 @@ class Pitchsnap extends AdminController
             set_alert('danger', 'Invalid website ID.');
             redirect(admin_url('pitchsnap/websites'));
         }
-        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-settings';
         $site = $this->pitchsnap_model->get_site_by_website_id($id);
         if (!$site) {
             set_alert('danger', 'No site record found.');
             redirect($detail_url);
+        }
+
+        $domain = $this->pitchsnap_model->get_custom_domain_for_site($site->id);
+        if ($domain && !empty($domain->cf_hostname_id)) {
+            if (!function_exists('clickfuzz_web_cf_delete_hostname')) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_cloudflare_helper.php';
+            }
+            clickfuzz_web_cf_delete_hostname($domain->cf_hostname_id);
         }
 
         $removed = $this->pitchsnap_model->remove_custom_domain($site->id);
@@ -364,7 +424,7 @@ class Pitchsnap extends AdminController
             set_alert('danger', 'Invalid website ID.');
             redirect(admin_url('pitchsnap/websites'));
         }
-        $detail_url = admin_url('pitchsnap/detail/' . $id);
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-settings';
         $site = $this->pitchsnap_model->get_site_by_website_id($id);
         if (!$site) {
             set_alert('danger', 'No site record found.');
@@ -491,6 +551,12 @@ class Pitchsnap extends AdminController
         // ── GHL token ─────────────────────────────────────────────────────────
         $ghl_key = trim((string) $this->input->post('pitchsnap_ghl_api_key'));
         if ($ghl_key !== '') { update_option('pitchsnap_ghl_api_key', $ghl_key); }
+
+        // ── Cloudflare ─────────────────────────────────────────────────────────
+        $cf_token = trim((string) $this->input->post('pitchsnap_cf_api_token'));
+        if ($cf_token !== '') { update_option('pitchsnap_cf_api_token', $cf_token); }
+        $cf_zone = trim((string) $this->input->post('pitchsnap_cf_zone_id', true));
+        if ($cf_zone !== '') { update_option('pitchsnap_cf_zone_id', $cf_zone); }
 
         // ── Fields not yet in view — guard against absent POST keys ───────────
         if (array_key_exists('pitchsnap_video_demo_url', $_POST)) {

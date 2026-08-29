@@ -305,6 +305,28 @@ function clickfuzz_web_cron_run()
             log_activity('ClickFuzz Web: Page generation exception [Page #' . $page->id . '] ' . $e->getMessage());
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Phase 5: Poll pending Cloudflare Custom Hostname statuses
+    //          connected → mark Connected and stop polling
+    //          failed    → mark Failed and stop polling
+    //          pending   → leave for next cron run
+    // -----------------------------------------------------------------------
+
+    require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_cloudflare_helper.php';
+
+    $pending_cf = $CI->pitchsnap_model->get_pending_cf_hostnames(20);
+    foreach ($pending_cf as $domain) {
+        try {
+            $cf_result = clickfuzz_web_cf_check_hostname($domain->cf_hostname_id);
+            if ($cf_result['status'] !== 'pending') {
+                $CI->pitchsnap_model->update_cf_status($domain->id, $cf_result['status']);
+                log_activity('ClickFuzz Web: CF hostname ' . $cf_result['status'] . ' [Domain ID: ' . $domain->id . ', Hostname: ' . $domain->hostname . ']');
+            }
+        } catch (Exception $e) {
+            log_activity('ClickFuzz Web: CF poll exception [Domain ID: ' . $domain->id . '] ' . $e->getMessage());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
