@@ -7,6 +7,7 @@
     var CHAT_URL      = '<?php echo addslashes($chat_url); ?>';
     var PURCHASE_URL  = '<?php echo addslashes($purchase_url); ?>';
     var VIDEO_URL     = '<?php echo addslashes($video_embed_url); ?>';
+    var PRICE_DISPLAY = '<?php echo addslashes($price_display); ?>';
     var OPEN_DELAY    = 20000; // ms before auto-open
 
     // ── Locate this script tag ──────────────────────────────────────────────
@@ -381,7 +382,7 @@
         var priceLeft = el('div');
         var priceAmount = el('div');
         priceAmount.setAttribute('style', css({ fontSize: '32px', fontWeight: '800', color: brandSolid(), lineHeight: '1' }));
-        priceAmount.textContent = '$295';
+        priceAmount.textContent = PRICE_DISPLAY;
         var pricePer = el('div');
         pricePer.setAttribute('style', css({ fontSize: '13px', color: '#888', marginTop: '4px' }));
         pricePer.textContent = 'per month · 12-month agreement';
