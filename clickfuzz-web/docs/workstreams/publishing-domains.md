@@ -220,7 +220,7 @@ Custom domains come later.
 
 ## In Progress
 
-Nothing — Website Details UI Phase 1 and Phase 2 complete. Ready for merge to main.
+Nothing — Phase 5C apex API integration complete. Ready for deploy + test.
 
 ---
 
@@ -228,20 +228,24 @@ Nothing — Website Details UI Phase 1 and Phase 2 complete. Ready for merge to 
 
 - The `domain` field on `tblpitchsnap_sites` stores `clickfuzz.com/sites/{slug}` — slug extraction is via regex; format must not change without updating the runtime
 - Wildcard cert expires 2026-11-02 — auto-renewal should be confirmed before that date
-- Phase 5C (Cloudflare Custom Hostname API automation, apex redirect, DNS UI update, FTP config UI) still paused
 - Website Details Phase 3 Overview tab cleanup intentionally deferred — not a blocker for merge
 - Global ClickFuzz Web Settings page redesign is NOT part of this workstream
+- Apex API token must be configured in Settings before apex provisioning will work
+- No local PHP binary available for pre-deploy syntax check; check on server after deploy
 
 ---
 
 ## Next
 
-1. Phase 5C — Cloudflare Custom Hostname API automation, apex redirect, DNS UI update, FTP credentials admin UI.
-2. Phase 5C DNS test sequence (when resumed):
-   - Save spare Namecheap domain as custom domain on site_id=6 via admin UI
-   - Add Namecheap DNS records manually (A @ → 104.152.168.38 for apex, or CNAME www → sites.clickfuzz.com for www)
-   - Hit Verify DNS in Publishing tab — confirm verification_status updates to 'verified'
-   - SSL provisioning: DirectAdmin Let's Encrypt for the custom hostname
+1. Deploy Phase 5C to production and configure apex API token in Settings.
+2. Phase 5C test sequence:
+   - Configure `pitchsnap_apex_api_token` in ClickFuzz Web Settings
+   - Save a real apex domain (e.g., spare Namecheap domain) via admin UI
+   - Verify POST /domains call succeeds (apex_status → pending in DB)
+   - Add customer DNS records: `@ A 164.90.255.122` and `www CNAME customers.clickfuzz.com`
+   - Wait for cron to poll GET /domains/{apex} — confirm apex_status → connected
+   - Verify Publishing tab shows DNS: Connected, SSL: @ invalid → Connected (after CF also active)
+3. FTP credentials admin UI (deferred from earlier Phase 5C scope)
 
 ---
 
@@ -259,3 +263,4 @@ Nothing — Website Details UI Phase 1 and Phase 2 complete. Ready for merge to 
 - 2026-08-28: Publishing-state foundation merged to main (4326091): is_site_published(), helper-level HTML↔WP lock, atomic publish_type+status, same-method republish allowed. Test sections 32–38.
 - 2026-08-28: Website Details UI Phase 1 (957c37a): tab_website.php removed; tab_pages.php and tab_media.php extracted; admin_detail.php restructured to Overview/Pages/Media/Customer/Settings; canonical $is_published propagated from controller.
 - 2026-08-28: Website Details UI Phase 2 (bb6fbff): Settings top-level tab with Publishing/Integrations/Activity sub-sections. Phase 3 Overview cleanup deferred. Global ClickFuzz Web Settings redesign out of scope.
+- 2026-08-29: Phase 5C apex API integration: new pitchsnap_apex_helper.php (HTTPS API, no SSH); DB v19 (apex_status column + pitchsnap_apex_api_token option); apex provision in save_custom_domain, best-effort removal in remove_custom_domain; cron Phase 6 polls pending apex domains; DNS helper IP updated to 164.90.255.122; Publishing tab status table expanded to DNS/SSL/Cloudflare with combined-state vocabulary; apex API token field added to Settings.

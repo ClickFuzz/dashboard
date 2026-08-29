@@ -75,16 +75,39 @@ class Pitchsnap extends AdminController
         }
         $data['custom_domain']   = !empty($data['site']) ? $this->pitchsnap_model->get_custom_domain_for_site($data['site']->id) : null;
         $data['platform_domain'] = !empty($data['site']) ? $this->pitchsnap_model->get_platform_domain_for_site($data['site']->id) : null;
-        $data['dns_connected']   = false;
+        $data['dns_status'] = null;
+        $data['ssl_status'] = null;
         if (!empty($data['custom_domain'])) {
-            $_h         = $data['custom_domain']->hostname;
-            $check_host = (substr_count($_h, '.') === 1) ? 'www.' . $_h : $_h;
-            foreach ((array) @dns_get_record($check_host, DNS_CNAME) as $_r) {
-                if (rtrim(strtolower($_r['target'] ?? ''), '.') === 'customers.clickfuzz.com') {
-                    $data['dns_connected'] = true;
-                    break;
+            $cd      = $data['custom_domain'];
+            $_h      = $cd->hostname;
+            $is_apex = (substr_count($_h, '.') === 1);
+
+            $apex_dns_ok = true; // N/A for non-apex
+            $www_dns_ok  = false;
+
+            if ($is_apex) {
+                $apex_dns_ok = false;
+                foreach ((array) @dns_get_record($_h, DNS_A) as $_r) {
+                    if (($_r['ip'] ?? '') === '164.90.255.122') { $apex_dns_ok = true; break; }
                 }
             }
+            $www_host = $is_apex ? 'www.' . $_h : $_h;
+            foreach ((array) @dns_get_record($www_host, DNS_CNAME) as $_r) {
+                if (rtrim(strtolower($_r['target'] ?? ''), '.') === 'customers.clickfuzz.com') { $www_dns_ok = true; break; }
+            }
+
+            if ($apex_dns_ok && $www_dns_ok)        { $data['dns_status'] = 'connected'; }
+            elseif (!$apex_dns_ok && !$www_dns_ok)  { $data['dns_status'] = '@/www_invalid'; }
+            elseif (!$apex_dns_ok)                  { $data['dns_status'] = '@_invalid'; }
+            else                                    { $data['dns_status'] = 'www_invalid'; }
+
+            $apex_ssl_ok = !$is_apex || (!empty($cd->apex_status) && $cd->apex_status === 'connected');
+            $www_ssl_ok  = (!empty($cd->cf_status) && $cd->cf_status === 'connected');
+
+            if ($apex_ssl_ok && $www_ssl_ok)        { $data['ssl_status'] = 'connected'; }
+            elseif (!$apex_ssl_ok && !$www_ssl_ok)  { $data['ssl_status'] = '@/www_invalid'; }
+            elseif (!$apex_ssl_ok)                  { $data['ssl_status'] = '@_invalid'; }
+            else                                    { $data['ssl_status'] = 'www_invalid'; }
         }
         $this->load->view('admin_detail', $data);
     }
@@ -367,7 +390,30 @@ class Pitchsnap extends AdminController
             }
         }
 
-        $result = $this->pitchsnap_model->save_custom_domain($site->id, $hostname, $cf_hostname_id, $cf_status);
+        // Apex provisioning (apex domains only)
+        $apex_status = null;
+        if (!function_exists('clickfuzz_web_hostname_is_apex')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_dns_helper.php';
+        }
+        if (clickfuzz_web_hostname_is_apex($hostname)) {
+            if (!function_exists('clickfuzz_web_apex_provision')) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_apex_helper.php';
+            }
+            $domain_unchanged = $old_domain && $old_domain->hostname === $hostname
+                && !empty($old_domain->apex_status) && $old_domain->apex_status !== 'failed';
+            if ($domain_unchanged) {
+                $apex_status = $old_domain->apex_status;
+            } else {
+                $apex_result = clickfuzz_web_apex_provision($hostname);
+                if ($apex_result['success']) {
+                    $apex_status = 'pending';
+                } else {
+                    log_activity('ClickFuzz Web: Apex provision failed [Site: ' . $site->id . ', Hostname: ' . $hostname . '] ' . ($apex_result['error'] ?? ''));
+                }
+            }
+        }
+
+        $result = $this->pitchsnap_model->save_custom_domain($site->id, $hostname, $cf_hostname_id, $cf_status, $apex_status);
         if ($result) {
             log_activity('ClickFuzz Web: Custom domain saved [Site ID: ' . $site->id . ', Hostname: ' . $hostname . ']');
             if ($cf_status === 'failed') {
@@ -403,6 +449,19 @@ class Pitchsnap extends AdminController
                 require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_cloudflare_helper.php';
             }
             clickfuzz_web_cf_delete_hostname($domain->cf_hostname_id);
+        }
+
+        // Best-effort apex removal — VPS unavailability must not block local cleanup
+        if ($domain && !empty($domain->apex_status) && !empty($domain->hostname)) {
+            if (!function_exists('clickfuzz_web_hostname_is_apex')) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_dns_helper.php';
+            }
+            if (clickfuzz_web_hostname_is_apex($domain->hostname)) {
+                if (!function_exists('clickfuzz_web_apex_remove')) {
+                    require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_apex_helper.php';
+                }
+                clickfuzz_web_apex_remove($domain->hostname);
+            }
         }
 
         $removed = $this->pitchsnap_model->remove_custom_domain($site->id);
@@ -557,6 +616,10 @@ class Pitchsnap extends AdminController
         if ($cf_token !== '') { update_option('pitchsnap_cf_api_token', $cf_token); }
         $cf_zone = trim((string) $this->input->post('pitchsnap_cf_zone_id', true));
         if ($cf_zone !== '') { update_option('pitchsnap_cf_zone_id', $cf_zone); }
+
+        // ── Apex API ───────────────────────────────────────────────────────────
+        $apex_token = trim((string) $this->input->post('pitchsnap_apex_api_token'));
+        if ($apex_token !== '') { update_option('pitchsnap_apex_api_token', $apex_token); }
 
         // ── Fields not yet in view — guard against absent POST keys ───────────
         if (array_key_exists('pitchsnap_video_demo_url', $_POST)) {

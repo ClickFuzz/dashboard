@@ -1,7 +1,7 @@
 <?php
 defined('BASEPATH') or exit('No direct script access allowed');
 
-if (!defined('CFZ_DNS_SERVER_IP'))    { define('CFZ_DNS_SERVER_IP',    '104.152.168.38'); }
+if (!defined('CFZ_DNS_SERVER_IP'))    { define('CFZ_DNS_SERVER_IP',    '164.90.255.122'); }
 if (!defined('CFZ_DNS_RUNTIME_HOST')) { define('CFZ_DNS_RUNTIME_HOST', 'customers.clickfuzz.com'); }
 if (!defined('CFZ_DNS_FALLBACK_HOST')) { define('CFZ_DNS_FALLBACK_HOST', 'sites.clickfuzz.com'); }
 
