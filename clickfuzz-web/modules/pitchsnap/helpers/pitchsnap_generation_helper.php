@@ -371,7 +371,16 @@ function clickfuzz_web_publish_site($site_id)
         return ['success' => false, 'url' => null, 'error' => 'This site was published via WordPress. Change the publishing method before switching.'];
     }
 
-    $website = $CI->pitchsnap_model->get($site->source_website_id);
+    // Resolve the website version to publish: prefer the lead's current primary version.
+    $source_website = $CI->pitchsnap_model->get($site->source_website_id);
+    $lead_id = $source_website ? ($source_website->lead_id ?? null) : null;
+    if ($lead_id) {
+        $primary = $CI->pitchsnap_model->get_primary_for_lead($lead_id);
+        $website = ($primary && !empty($primary->preview_token)) ? $primary : $source_website;
+    } else {
+        $website = $source_website;
+    }
+
     if (!$website || !$website->preview_token) {
         return ['success' => false, 'url' => null, 'error' => 'No preview available for this site.'];
     }
@@ -451,6 +460,12 @@ function clickfuzz_web_publish_site($site_id)
         'publish_type' => 'html',
         'dateupdated'  => date('Y-m-d H:i:s'),
     ]);
+
+    // Mark the published redesign version as published and keep source_website_id current.
+    $CI->pitchsnap_model->update((int) $website->id, ['status' => 'published']);
+    if ((int) $website->id !== (int) $site->source_website_id) {
+        $CI->pitchsnap_model->update_site($site_id, ['source_website_id' => (int) $website->id]);
+    }
 
     // Resolve platform hostname: reuse existing mapping or generate a new one.
     // Use $website->lead_id (always populated on the redesign row) as the

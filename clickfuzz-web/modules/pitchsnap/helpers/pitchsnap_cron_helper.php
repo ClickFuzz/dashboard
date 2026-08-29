@@ -327,6 +327,28 @@ function clickfuzz_web_cron_run()
             log_activity('ClickFuzz Web: CF poll exception [Domain ID: ' . $domain->id . '] ' . $e->getMessage());
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Phase 6: Poll pending apex domains
+    //          connected → mark connected and stop polling
+    //          other     → leave pending (API/network failures do not destroy config)
+    // -----------------------------------------------------------------------
+
+    require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_apex_helper.php';
+
+    $pending_apex = $CI->pitchsnap_model->get_pending_apex_domains(20);
+    foreach ($pending_apex as $domain) {
+        try {
+            $apex_result = clickfuzz_web_apex_status_check($domain->hostname);
+            if ($apex_result['success'] && $apex_result['status'] === 'connected') {
+                $CI->pitchsnap_model->update_apex_status($domain->id, 'connected');
+                log_activity('ClickFuzz Web: Apex connected [Domain ID: ' . $domain->id . ', Hostname: ' . $domain->hostname . ']');
+            }
+            // pending or API failure: leave as pending
+        } catch (Exception $e) {
+            log_activity('ClickFuzz Web: Apex poll exception [Domain ID: ' . $domain->id . '] ' . $e->getMessage());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

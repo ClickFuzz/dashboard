@@ -122,7 +122,7 @@
                     $_cd_is_apex = (substr_count($_cd->hostname, '.') === 1);
                     if ($_cd_is_apex) {
                         $_cd_dns_records = [
-                            ['type' => 'A',     'host' => '@',   'value' => '104.152.168.38',           'note' => 'Points your root domain to ClickFuzz'],
+                            ['type' => 'A',     'host' => '@',   'value' => '164.90.255.122',           'note' => 'Points your root domain to ClickFuzz'],
                             ['type' => 'CNAME', 'host' => 'www', 'value' => 'customers.clickfuzz.com',  'note' => 'www → ClickFuzz via Cloudflare (required)'],
                         ];
                     } else {
@@ -161,15 +161,41 @@
                                 </button>
                             </form>
                         </div>
+                        <?php
+                        $_dns_s = $dns_status ?? null;
+                        $_ssl_s = $ssl_status ?? null;
+                        ?>
                         <table class="table table-bordered table-condensed mbot15" style="max-width:520px;">
                             <tbody>
                                 <tr>
                                     <th width="35%">DNS</th>
                                     <td>
-                                        <?php if ($dns_connected ?? false) { ?>
+                                        <?php if ($_dns_s === 'connected') { ?>
                                         <span class="label label-success">Connected</span>
+                                        <?php } elseif ($_dns_s === '@_invalid') { ?>
+                                        <span class="label label-warning">@ invalid</span>
+                                        <?php } elseif ($_dns_s === 'www_invalid') { ?>
+                                        <span class="label label-warning">www invalid</span>
+                                        <?php } elseif ($_dns_s === '@/www_invalid') { ?>
+                                        <span class="label label-danger">@/www invalid</span>
                                         <?php } else { ?>
-                                        <span class="label label-default">Not Connected</span>
+                                        <span class="label label-default">Not checked</span>
+                                        <?php } ?>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>SSL</th>
+                                    <td>
+                                        <?php if ($_ssl_s === 'connected') { ?>
+                                        <span class="label label-success">Connected</span>
+                                        <?php } elseif ($_ssl_s === '@_invalid') { ?>
+                                        <span class="label label-warning">@ invalid</span>
+                                        <?php } elseif ($_ssl_s === 'www_invalid') { ?>
+                                        <span class="label label-warning">www invalid</span>
+                                        <?php } elseif ($_ssl_s === '@/www_invalid') { ?>
+                                        <span class="label label-danger">@/www invalid</span>
+                                        <?php } else { ?>
+                                        <span class="label label-default">Pending</span>
                                         <?php } ?>
                                     </td>
                                 </tr>
@@ -189,8 +215,14 @@
                                 </tr>
                             </tbody>
                         </table>
+                        <form method="POST" action="<?php echo admin_url('pitchsnap/refresh_domain_status/' . (int) $redesign->id); ?>" style="margin-bottom:12px;">
+                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                            <button type="submit" class="btn btn-default btn-xs">
+                                <i class="fa fa-refresh"></i> Refresh Status
+                            </button>
+                        </form>
 
-                        <?php if (!($dns_connected ?? false)) { ?>
+                        <?php if ($_dns_s !== 'connected') { ?>
                         <div class="well well-sm" style="font-size:12px; margin-bottom:14px; background:#f8fbff; border-color:#c4daf5;">
                             <p style="margin:0 0 8px; font-weight:600;">Add these DNS records at your domain registrar:</p>
                             <p style="margin:0 0 8px; color:#555;"><i class="fa fa-shield"></i> Keep your existing nameservers and email/DNS records. Only add or update the records shown below.</p>

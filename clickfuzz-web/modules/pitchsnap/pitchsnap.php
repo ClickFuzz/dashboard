@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 18) {
+    if ((int) get_option('pitchsnap_db_version') >= 19) {
         return;
     }
 
@@ -579,11 +579,20 @@ function clickfuzz_web_db_upgrade()
         add_option('pitchsnap_cf_zone_id', '');
     }
 
+    // v19: apex_status on site_domains + apex API token option
+    $td = db_prefix() . 'pitchsnap_site_domains';
+    if ($CI->db->table_exists($td) && !$CI->db->field_exists('apex_status', $td)) {
+        $CI->db->query("ALTER TABLE `{$td}` ADD COLUMN `apex_status` VARCHAR(20) DEFAULT NULL AFTER `cf_status`");
+    }
+    if (get_option('pitchsnap_apex_api_token') === false) {
+        add_option('pitchsnap_apex_api_token', '');
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '18');
+        add_option('pitchsnap_db_version', '19');
     } else {
-        update_option('pitchsnap_db_version', '18');
+        update_option('pitchsnap_db_version', '19');
     }
 }
 

@@ -48,6 +48,10 @@ class Pitchsnap extends AdminController
         if (!$entry) { show_404(); }
         $lead_id  = (int) $entry->lead_id;
         $primary  = $this->pitchsnap_model->get_primary_for_lead($lead_id);
+        if ($primary && empty($primary->is_primary)) {
+            $this->pitchsnap_model->set_primary_version($primary->id, $lead_id);
+            $primary->is_primary = 1;
+        }
         $versions = $this->pitchsnap_model->get_versions_for_lead($lead_id);
         $website  = $primary ?: $entry;
         $this->load->model('leads_model');
@@ -57,7 +61,8 @@ class Pitchsnap extends AdminController
         $data['versions']      = $versions;
         $data['lead']          = $lead;
         $data['conversations'] = $this->pitchsnap_model->get_conversations($website->id);
-        $data['site']          = $this->pitchsnap_model->get_site_by_website_id((int) $entry->id);
+        $data['site']          = $this->pitchsnap_model->get_site_by_website_id((int) $entry->id)
+                               ?: $this->pitchsnap_model->get_site_by_lead_id($lead_id);
         $data['agreement']     = !empty($data['site']) ? $this->pitchsnap_model->get_agreement_by_site($data['site']->id) : null;
         if (!empty($data['site'])) {
             $this->load->model('pitchsnap_ghl_model');
@@ -75,16 +80,39 @@ class Pitchsnap extends AdminController
         }
         $data['custom_domain']   = !empty($data['site']) ? $this->pitchsnap_model->get_custom_domain_for_site($data['site']->id) : null;
         $data['platform_domain'] = !empty($data['site']) ? $this->pitchsnap_model->get_platform_domain_for_site($data['site']->id) : null;
-        $data['dns_connected']   = false;
+        $data['dns_status'] = null;
+        $data['ssl_status'] = null;
         if (!empty($data['custom_domain'])) {
-            $_h         = $data['custom_domain']->hostname;
-            $check_host = (substr_count($_h, '.') === 1) ? 'www.' . $_h : $_h;
-            foreach ((array) @dns_get_record($check_host, DNS_CNAME) as $_r) {
-                if (rtrim(strtolower($_r['target'] ?? ''), '.') === 'customers.clickfuzz.com') {
-                    $data['dns_connected'] = true;
-                    break;
+            $cd      = $data['custom_domain'];
+            $_h      = $cd->hostname;
+            $is_apex = (substr_count($_h, '.') === 1);
+
+            $apex_dns_ok = true; // N/A for non-apex
+            $www_dns_ok  = false;
+
+            if ($is_apex) {
+                $apex_dns_ok = false;
+                foreach ((array) @dns_get_record($_h, DNS_A) as $_r) {
+                    if (($_r['ip'] ?? '') === '164.90.255.122') { $apex_dns_ok = true; break; }
                 }
             }
+            $www_host = $is_apex ? 'www.' . $_h : $_h;
+            foreach ((array) @dns_get_record($www_host, DNS_CNAME) as $_r) {
+                if (rtrim(strtolower($_r['target'] ?? ''), '.') === 'customers.clickfuzz.com') { $www_dns_ok = true; break; }
+            }
+
+            if ($apex_dns_ok && $www_dns_ok)        { $data['dns_status'] = 'connected'; }
+            elseif (!$apex_dns_ok && !$www_dns_ok)  { $data['dns_status'] = '@/www_invalid'; }
+            elseif (!$apex_dns_ok)                  { $data['dns_status'] = '@_invalid'; }
+            else                                    { $data['dns_status'] = 'www_invalid'; }
+
+            $apex_ssl_ok = !$is_apex || (!empty($cd->apex_status) && $cd->apex_status === 'connected');
+            $www_ssl_ok  = (!empty($cd->cf_status) && $cd->cf_status === 'connected');
+
+            if ($apex_ssl_ok && $www_ssl_ok)        { $data['ssl_status'] = 'connected'; }
+            elseif (!$apex_ssl_ok && !$www_ssl_ok)  { $data['ssl_status'] = '@/www_invalid'; }
+            elseif (!$apex_ssl_ok)                  { $data['ssl_status'] = '@_invalid'; }
+            else                                    { $data['ssl_status'] = 'www_invalid'; }
         }
         $this->load->view('admin_detail', $data);
     }
@@ -92,7 +120,7 @@ class Pitchsnap extends AdminController
     public function approve_design($id = '')
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }
-        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
         $id = (int) $id;
         if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
         $website    = $this->pitchsnap_model->get($id);
@@ -145,7 +173,7 @@ class Pitchsnap extends AdminController
     public function set_primary($id = '')
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }
-        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
         $id = (int) $id;
         if (!$id) { set_alert('danger', 'Invalid ID.'); redirect(admin_url('pitchsnap/websites')); }
         $website = $this->pitchsnap_model->get($id);
@@ -153,7 +181,7 @@ class Pitchsnap extends AdminController
         $this->pitchsnap_model->set_primary_version($id, $website->lead_id);
         log_activity('ClickFuzz Web: Version set as primary [Website ID: ' . $id . ']');
         set_alert('success', 'Version #' . $id . ' is now the primary version.');
-        redirect(admin_url('pitchsnap/detail/' . $id));
+        redirect(admin_url('pitchsnap/detail/' . $id) . '#tab-pages');
     }
 
     public function delete_versions()
@@ -210,6 +238,12 @@ class Pitchsnap extends AdminController
         $detail_url = admin_url('pitchsnap/detail/' . $id);
         $site = $this->pitchsnap_model->get_site_by_website_id($id);
         if (!$site) {
+            $entry = $this->pitchsnap_model->get($id);
+            if ($entry && $entry->lead_id) {
+                $site = $this->pitchsnap_model->get_site_by_lead_id($entry->lead_id);
+            }
+        }
+        if (!$site) {
             set_alert('danger', 'No site record found. Trigger a generation first so ClickFuzz Web can create the site record.');
             redirect($detail_url);
         }
@@ -237,7 +271,7 @@ class Pitchsnap extends AdminController
         if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
         $id = (int) $id;
         if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
-        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-settings';
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-publishing';
         $site = $this->pitchsnap_model->get_site_by_website_id($id);
         if (!$site) { set_alert('danger', 'No site record found.'); redirect($detail_url); }
         if ($this->pitchsnap_model->is_site_published($site)) { set_alert('danger', 'Publishing method is locked after a successful publish.'); redirect($detail_url); }
@@ -313,7 +347,7 @@ class Pitchsnap extends AdminController
             set_alert('danger', 'Invalid website ID.');
             redirect(admin_url('pitchsnap/websites'));
         }
-        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-settings';
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-publishing';
         $site = $this->pitchsnap_model->get_site_by_website_id($id);
         if (!$site) {
             set_alert('danger', 'No site record found for this website.');
@@ -367,7 +401,30 @@ class Pitchsnap extends AdminController
             }
         }
 
-        $result = $this->pitchsnap_model->save_custom_domain($site->id, $hostname, $cf_hostname_id, $cf_status);
+        // Apex provisioning (apex domains only)
+        $apex_status = null;
+        if (!function_exists('clickfuzz_web_hostname_is_apex')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_dns_helper.php';
+        }
+        if (clickfuzz_web_hostname_is_apex($hostname)) {
+            if (!function_exists('clickfuzz_web_apex_provision')) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_apex_helper.php';
+            }
+            $domain_unchanged = $old_domain && $old_domain->hostname === $hostname
+                && !empty($old_domain->apex_status) && $old_domain->apex_status !== 'failed';
+            if ($domain_unchanged) {
+                $apex_status = $old_domain->apex_status;
+            } else {
+                $apex_result = clickfuzz_web_apex_provision($hostname);
+                if ($apex_result['success']) {
+                    $apex_status = 'pending';
+                } else {
+                    log_activity('ClickFuzz Web: Apex provision failed [Site: ' . $site->id . ', Hostname: ' . $hostname . '] ' . ($apex_result['error'] ?? ''));
+                }
+            }
+        }
+
+        $result = $this->pitchsnap_model->save_custom_domain($site->id, $hostname, $cf_hostname_id, $cf_status, $apex_status);
         if ($result) {
             log_activity('ClickFuzz Web: Custom domain saved [Site ID: ' . $site->id . ', Hostname: ' . $hostname . ']');
             if ($cf_status === 'failed') {
@@ -384,13 +441,13 @@ class Pitchsnap extends AdminController
     public function remove_custom_domain($id = '')
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }
-        if (!$this->input->post()) { redirect(admin_url('pitchsnap/websites')); }
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
         $id = (int) $id;
         if (!$id) {
             set_alert('danger', 'Invalid website ID.');
             redirect(admin_url('pitchsnap/websites'));
         }
-        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-settings';
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-publishing';
         $site = $this->pitchsnap_model->get_site_by_website_id($id);
         if (!$site) {
             set_alert('danger', 'No site record found.');
@@ -405,12 +462,76 @@ class Pitchsnap extends AdminController
             clickfuzz_web_cf_delete_hostname($domain->cf_hostname_id);
         }
 
+        // Best-effort apex removal — call for any apex hostname regardless of apex_status
+        if ($domain && !empty($domain->hostname)) {
+            if (!function_exists('clickfuzz_web_hostname_is_apex')) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_dns_helper.php';
+            }
+            if (clickfuzz_web_hostname_is_apex($domain->hostname)) {
+                if (!function_exists('clickfuzz_web_apex_remove')) {
+                    require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_apex_helper.php';
+                }
+                clickfuzz_web_apex_remove($domain->hostname);
+            }
+        }
+
         $removed = $this->pitchsnap_model->remove_custom_domain($site->id);
         if ($removed) {
             log_activity('ClickFuzz Web: Custom domain removed [Site ID: ' . $site->id . ']');
             set_alert('success', 'Custom domain removed.');
         } else {
             set_alert('warning', 'No custom domain was set.');
+        }
+        redirect($detail_url);
+    }
+
+    public function refresh_domain_status($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { redirect(admin_url('pitchsnap/websites')); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-publishing';
+
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) { redirect($detail_url); }
+
+        $domain = $this->pitchsnap_model->get_custom_domain_for_site($site->id);
+        if (!$domain) { redirect($detail_url); }
+
+        $changed = [];
+
+        if (!empty($domain->cf_hostname_id)) {
+            if (!function_exists('clickfuzz_web_cf_check_hostname')) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_cloudflare_helper.php';
+            }
+            $cf_result = clickfuzz_web_cf_check_hostname($domain->cf_hostname_id);
+            if ($cf_result['status'] !== ($domain->cf_status ?? '')) {
+                $this->pitchsnap_model->update_cf_status($domain->id, $cf_result['status']);
+                $changed[] = 'Cloudflare → ' . $cf_result['status'];
+            }
+        }
+
+        if (!empty($domain->hostname) && !empty($domain->apex_status) && $domain->apex_status !== 'connected') {
+            if (!function_exists('clickfuzz_web_hostname_is_apex')) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_dns_helper.php';
+            }
+            if (clickfuzz_web_hostname_is_apex($domain->hostname)) {
+                if (!function_exists('clickfuzz_web_apex_status_check')) {
+                    require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_apex_helper.php';
+                }
+                $apex_result = clickfuzz_web_apex_status_check($domain->hostname);
+                if ($apex_result['success'] && $apex_result['status'] === 'connected') {
+                    $this->pitchsnap_model->update_apex_status($domain->id, 'connected');
+                    $changed[] = 'Apex SSL → connected';
+                }
+            }
+        }
+
+        if ($changed) {
+            set_alert('success', 'Status updated: ' . implode(', ', $changed) . '.');
+        } else {
+            set_alert('info', 'Statuses checked — no changes.');
         }
         redirect($detail_url);
     }
@@ -424,7 +545,7 @@ class Pitchsnap extends AdminController
             set_alert('danger', 'Invalid website ID.');
             redirect(admin_url('pitchsnap/websites'));
         }
-        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-settings';
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-publishing';
         $site = $this->pitchsnap_model->get_site_by_website_id($id);
         if (!$site) {
             set_alert('danger', 'No site record found.');
@@ -557,6 +678,10 @@ class Pitchsnap extends AdminController
         if ($cf_token !== '') { update_option('pitchsnap_cf_api_token', $cf_token); }
         $cf_zone = trim((string) $this->input->post('pitchsnap_cf_zone_id', true));
         if ($cf_zone !== '') { update_option('pitchsnap_cf_zone_id', $cf_zone); }
+
+        // ── Apex API ───────────────────────────────────────────────────────────
+        $apex_token = trim((string) $this->input->post('pitchsnap_apex_api_token'));
+        if ($apex_token !== '') { update_option('pitchsnap_apex_api_token', $apex_token); }
 
         // ── Fields not yet in view — guard against absent POST keys ───────────
         if (array_key_exists('pitchsnap_video_demo_url', $_POST)) {
@@ -740,6 +865,9 @@ class Pitchsnap extends AdminController
             }
 
             $this->pitchsnap_model->save_html($id, $html);
+            if (in_array($website->status, ['approved', 'sent', 'viewed'])) {
+                $this->pitchsnap_model->update($id, ['status' => 'review_required']);
+            }
             if (!function_exists('clickfuzz_web_deploy_preview')) { require_once FCPATH . 'modules/pitchsnap/pitchsnap.php'; }
             $deploy = clickfuzz_web_deploy_preview($website->preview_token, $html);
             if ($deploy['success']) {
@@ -750,7 +878,7 @@ class Pitchsnap extends AdminController
                 log_activity('ClickFuzz Web: HTML edited but deploy failed [Website ID: ' . $id . '] ' . $deploy['error']);
                 set_alert('warning', 'HTML saved to database but preview deploy failed: ' . $deploy['error']);
             }
-            redirect(admin_url('pitchsnap/detail/' . $id));
+            redirect(admin_url('pitchsnap/detail/' . $id) . '#tab-pages');
         }
 
         $this->load->model('leads_model');
@@ -831,6 +959,9 @@ class Pitchsnap extends AdminController
         }
 
         $this->pitchsnap_model->save_html($id, $html);
+        if (in_array($website->status, ['approved', 'sent', 'viewed'])) {
+            $this->pitchsnap_model->update($id, ['status' => 'review_required']);
+        }
         if (!function_exists('clickfuzz_web_deploy_preview')) { require_once FCPATH . 'modules/pitchsnap/pitchsnap.php'; }
         $deploy = clickfuzz_web_deploy_preview($website->preview_token, $html);
         if ($deploy['success'] && ($website->preview_url ?? '') !== $deploy['url']) { $this->pitchsnap_model->set_preview_url($id, $deploy['url']); }

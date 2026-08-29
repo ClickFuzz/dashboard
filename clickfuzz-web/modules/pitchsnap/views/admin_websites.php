@@ -7,7 +7,7 @@
                 <div class="panel_s">
                     <div class="panel-body">
                         <div class="tw-flex tw-items-center tw-justify-between tw-mb-4">
-                            <h4 class="tw-font-semibold tw-mb-0">PitchSnap Websites</h4>
+                            <h4 class="tw-font-semibold tw-mb-0">Client Websites</h4>
                             <a href="<?php echo site_url('pitchsnap/intake'); ?>" target="_blank" class="btn btn-primary btn-sm">
                                 <i class="fa fa-plus"></i> New Intake
                             </a>
@@ -72,18 +72,21 @@
 <?php
 function pitchsnap_status_badge($status) {
     $map = [
-        'new'                => 'label-default',
-        'pending'            => 'label-default',
-        'pending_generation' => 'label-info',
-        'generating'         => 'label-info',
-        'review_required'    => 'label-primary',
-        'approved'           => 'label-success',
-        'sent'               => 'label-success',
-        'viewed'             => 'label-success',
-        'failed'             => 'label-danger',
-        'declined'           => 'label-default',
+        'new'                => ['label-default', 'Draft'],
+        'pending'            => ['label-default', 'Draft'],
+        'pending_generation' => ['label-info',    'Generating'],
+        'generating'         => ['label-info',    'Generating'],
+        'publishing'         => ['label-info',    'Publishing'],
+        'modifying'          => ['label-info',    'AI Modifying'],
+        'review_required'    => ['label-primary', 'Review Required'],
+        'approved'           => ['label-warning', 'Awaiting Client Approval'],
+        'sent'               => ['label-warning', 'Awaiting Client Approval'],
+        'viewed'             => ['label-info',    'Client Viewed'],
+        'published'          => ['label-success', 'Published'],
+        'failed'             => ['label-danger',  'Failed'],
+        'declined'           => ['label-default', 'Declined'],
     ];
-    $cls = $map[$status] ?? 'label-default';
-    return '<span class="label ' . $cls . '">' . e($status) . '</span>';
+    [$cls, $label] = $map[$status] ?? ['label-default', e($status)];
+    return '<span class="label ' . $cls . '">' . $label . '</span>';
 }
 ?>

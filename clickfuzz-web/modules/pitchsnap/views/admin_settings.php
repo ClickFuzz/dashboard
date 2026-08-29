@@ -298,6 +298,20 @@
                             <p class="text-muted" style="margin-top:4px;font-size:12px;">The Zone ID for clickfuzz.com from the Cloudflare dashboard overview.</p>
                         </div>
 
+                        <h5 class="tw-font-semibold mtop20 mbot10">Apex Redirect API</h5>
+                        <div class="form-group">
+                            <label for="pitchsnap_apex_api_token">Apex API Token</label>
+                            <input type="password"
+                                   name="pitchsnap_apex_api_token"
+                                   id="pitchsnap_apex_api_token"
+                                   class="form-control"
+                                   style="max-width:480px;"
+                                   value=""
+                                   autocomplete="new-password"
+                                   placeholder="<?php echo get_option('pitchsnap_apex_api_token') ? '●●●●●●●●●● (saved — leave blank to keep)' : 'Bearer token for apex-api.clickfuzz.com'; ?>">
+                            <p class="text-muted" style="margin-top:4px;font-size:12px;">Used to provision apex (root domain) redirects via the ClickFuzz Apex API. Leave blank to keep the existing token.</p>
+                        </div>
+
                         <input type="hidden" name="active_tab" value="general">
 
                         <div class="mbot20">

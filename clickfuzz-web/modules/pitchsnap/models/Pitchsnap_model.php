@@ -200,6 +200,10 @@ class Pitchsnap_model extends App_Model
                 'preview_url'      => $url,
                 'generation_error' => null,
             ]);
+        $row = $this->db->select('lead_id')->where('id', (int) $id)->get($this->table)->row();
+        if ($row && !empty($row->lead_id)) {
+            $this->set_primary_version((int) $id, (int) $row->lead_id);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -225,6 +229,10 @@ class Pitchsnap_model extends App_Model
             ->set('generated_at', 'NOW()', false)
             ->where('id', (int) $id)
             ->update($this->table, $fields);
+        $row = $this->db->select('lead_id')->where('id', (int) $id)->get($this->table)->row();
+        if ($row && !empty($row->lead_id)) {
+            $this->set_primary_version((int) $id, (int) $row->lead_id);
+        }
     }
 
     public function mark_generation_failed($id, $error_message)
@@ -512,6 +520,16 @@ class Pitchsnap_model extends App_Model
             ->row();
     }
 
+    public function get_site_by_lead_id($lead_id)
+    {
+        return $this->db
+            ->where('source_lead_id', (int) $lead_id)
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get($this->site_table)
+            ->row();
+    }
+
     public function create_site($data)
     {
         if (empty($data['dateadded'])) {
@@ -596,14 +614,15 @@ class Pitchsnap_model extends App_Model
                         ->count_all_results($this->domain_table) === 0;
     }
 
-    public function save_custom_domain($site_id, $hostname, $cf_hostname_id = null, $cf_status = null)
+    public function save_custom_domain($site_id, $hostname, $cf_hostname_id = null, $cf_status = null, $apex_status = null)
     {
         $site_id  = (int) $site_id;
         $existing = $this->get_custom_domain_for_site($site_id);
         $now      = date('Y-m-d H:i:s');
-        $cf_data  = [];
-        if ($cf_hostname_id !== null) { $cf_data['cf_hostname_id'] = $cf_hostname_id; }
-        if ($cf_status !== null)      { $cf_data['cf_status']      = $cf_status; }
+        $extra    = [];
+        if ($cf_hostname_id !== null) { $extra['cf_hostname_id'] = $cf_hostname_id; }
+        if ($cf_status !== null)      { $extra['cf_status']      = $cf_status; }
+        if ($apex_status !== null)    { $extra['apex_status']    = $apex_status; }
 
         if ($existing) {
             $this->db->where('id', (int) $existing->id)
@@ -612,8 +631,9 @@ class Pitchsnap_model extends App_Model
                          'verification_status' => 'pending',
                          'verified_at'         => null,
                          'ssl_status'          => 'pending',
+                         'apex_status'         => null,
                          'dateupdated'         => $now,
-                     ], $cf_data));
+                     ], $extra));
             return (int) $existing->id;
         }
         return $this->create_site_domain(array_merge([
@@ -625,8 +645,9 @@ class Pitchsnap_model extends App_Model
             'verification_status' => 'pending',
             'verified_at'         => null,
             'ssl_status'          => 'pending',
+            'apex_status'         => null,
             'dateadded'           => $now,
-        ], $cf_data));
+        ], $extra));
     }
 
     public function remove_custom_domain($site_id)
@@ -655,6 +676,25 @@ class Pitchsnap_model extends App_Model
         $this->db->where('id', (int) $domain_id)
                  ->update($this->domain_table, [
                      'cf_status'   => $cf_status,
+                     'dateupdated' => date('Y-m-d H:i:s'),
+                 ]);
+    }
+
+    public function get_pending_apex_domains($limit = 20)
+    {
+        return $this->db
+            ->where('domain_type', 'custom')
+            ->where('apex_status', 'pending')
+            ->limit($limit)
+            ->get($this->domain_table)
+            ->result();
+    }
+
+    public function update_apex_status($domain_id, $status)
+    {
+        $this->db->where('id', (int) $domain_id)
+                 ->update($this->domain_table, [
+                     'apex_status' => $status,
                      'dateupdated' => date('Y-m-d H:i:s'),
                  ]);
     }
