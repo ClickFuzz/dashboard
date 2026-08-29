@@ -22,6 +22,7 @@ class Pitchsnap_runtime extends CI_Controller
         $purchase_url = rtrim(base_url('pitchsnap/purchase'), '/');
         $raw_video = get_option('pitchsnap_video_demo_url') ?: '';
         $video_embed_url = $raw_video ? $this->_normalize_video_url($raw_video) : '';
+        $price_display = '$' . number_format((float)(get_option('pitchsnap_price') ?: '295.00'), 0, '.', ',');
         ob_start();
         include FCPATH . 'modules/pitchsnap/views/runtime_js.php';
         $js = ob_get_clean();
@@ -491,6 +492,88 @@ class Pitchsnap_runtime extends CI_Controller
             ->set_output($html);
     }
 
+    public function payment_complete($invoice_id = 0, $invoice_hash = '')
+    {
+        $invoice_id   = (int) $invoice_id;
+        $invoice_hash = trim((string) $invoice_hash);
+
+        if (!$invoice_id || !$invoice_hash) {
+            show_404();
+            return;
+        }
+
+        $invoice = $this->db
+            ->select('id, hash, total, currency, clientid')
+            ->where('id', $invoice_id)
+            ->where('hash', $invoice_hash)
+            ->get(db_prefix() . 'invoices')
+            ->row();
+
+        if (!$invoice) {
+            show_404();
+            return;
+        }
+
+        $session_id = trim($this->input->get('session_id', true) ?? '');
+
+        if ($session_id) {
+            try {
+                if (!class_exists('\Stripe\Stripe')) {
+                    require_once APPPATH . 'vendor/autoload.php';
+                }
+                $this->load->library('encryption');
+                $secret_key = trim($this->encryption->decrypt(get_option('paymentmethod_stripe_api_secret_key')));
+                if ($secret_key) {
+                    \Stripe\Stripe::setApiKey($secret_key);
+                    $session = \Stripe\Checkout\Session::retrieve($session_id);
+
+                    if ($session && $session->payment_status === 'paid' && $session->payment_intent) {
+                        $pi_id = is_string($session->payment_intent)
+                            ? $session->payment_intent
+                            : $session->payment_intent->id;
+
+                        $this->load->model('payments_model');
+
+                        if (!$this->payments_model->transaction_exists($pi_id, $invoice_id)) {
+                            $cur    = $this->db->select('name')->where('id', (int) $invoice->currency)->get(db_prefix() . 'currencies')->row();
+                            $is_jpy = $cur && strcasecmp($cur->name, 'JPY') === 0;
+                            $amount = $is_jpy ? (int) $session->amount_total : round($session->amount_total / 100, 2);
+
+                            $this->payments_model->add([
+                                'invoiceid'     => $invoice_id,
+                                'amount'        => $amount,
+                                'paymentmode'   => 'stripe',
+                                'transactionid' => $pi_id,
+                            ]);
+
+                            $this->_log('stripe_checkout', 'Payment recorded via payment_complete', [
+                                'invoice_id'     => $invoice_id,
+                                'payment_intent' => $pi_id,
+                                'amount'         => $amount,
+                            ]);
+                            log_activity('PitchSnap: Invoice #' . $invoice_id . ' payment recorded [PI: ' . $pi_id . ']');
+                        }
+                    } else {
+                        $this->_log('stripe_checkout', 'payment_complete: session not paid or missing payment_intent', [
+                            'invoice_id'     => $invoice_id,
+                            'session_id'     => $session_id,
+                            'payment_status' => $session->payment_status ?? null,
+                        ]);
+                    }
+                }
+            } catch (\Throwable $e) {
+                $this->_log('stripe_checkout', 'payment_complete error: ' . $e->getMessage(), [
+                    'invoice_id' => $invoice_id,
+                    'session_id' => $session_id,
+                ]);
+                log_activity('PitchSnap: payment_complete error: ' . $e->getMessage());
+            }
+        }
+
+        set_alert('success', _l('online_payment_recorded_success'));
+        redirect(site_url('invoice/' . $invoice_id . '/' . $invoice_hash));
+    }
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
@@ -508,6 +591,10 @@ class Pitchsnap_runtime extends CI_Controller
         if (!get_option('pitchsnap_logging_enabled')) {
             return;
         }
+        $category = $this->_log_category($context);
+        if ($category !== null && !get_option('pitchsnap_log_' . $category)) {
+            return;
+        }
         try {
             $this->db->insert(db_prefix() . 'pitchsnap_logs', [
                 'context'    => substr((string) $context, 0, 50),
@@ -518,6 +605,19 @@ class Pitchsnap_runtime extends CI_Controller
         } catch (\Throwable $e) {
             // intentional no-op
         }
+    }
+
+    private function _log_category($context)
+    {
+        static $map = [
+            'stripe_checkout'     => 'stripe',
+            'stripe_sub'          => 'stripe',
+            'invoice_url'         => 'stripe',
+            'create_subscription' => 'stripe',
+            'purchase'            => 'sales',
+            'accept_agreement'    => 'sales',
+        ];
+        return $map[$context] ?? null;
     }
 
     private function _find_existing_pitchsnap_invoice($client_id)
@@ -644,7 +744,7 @@ class Pitchsnap_runtime extends CI_Controller
                     'quantity' => 1,
                 ],
             ],
-            'success_url'         => site_url('gateways/stripe/success/' . $invoice->id . '/' . $invoice->hash),
+            'success_url'         => site_url('pitchsnap/payment_complete/' . $invoice->id . '/' . $invoice->hash . '?session_id={CHECKOUT_SESSION_ID}'),
             'cancel_url'          => site_url('invoice/' . $invoice->id . '/' . $invoice->hash),
             'payment_intent_data' => [
                 'description' => $description,

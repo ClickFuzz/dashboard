@@ -312,6 +312,171 @@
                             <p class="text-muted" style="margin-top:4px;font-size:12px;">Used to provision apex (root domain) redirects via the ClickFuzz Apex API. Leave blank to keep the existing token.</p>
                         </div>
 
+                        <hr>
+
+                        <!-- ================================================
+                             Sales Flow
+                             ================================================ -->
+                        <h5 class="tw-font-semibold mtop20 mbot10">Sales Flow</h5>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_video_demo_url">Video Sales Letter URL</label>
+                            <input type="text"
+                                   name="pitchsnap_video_demo_url"
+                                   id="pitchsnap_video_demo_url"
+                                   class="form-control"
+                                   style="max-width:480px;"
+                                   value="<?php echo e(get_option('pitchsnap_video_demo_url') ?: ''); ?>"
+                                   placeholder="https://www.youtube.com/watch?v=... or Vimeo URL">
+                            <p class="text-muted" style="margin-top:4px;font-size:12px;">
+                                Shown in the sales modal when a prospect clicks "I like it". Accepts YouTube or Vimeo URLs — automatically converted to embed format. Leave blank to hide the video section.
+                            </p>
+                        </div>
+
+                        <hr>
+
+                        <!-- ================================================
+                             Agreement
+                             ================================================ -->
+                        <h5 class="tw-font-semibold mtop20 mbot10">Service Agreement</h5>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_agreement_version">Agreement Version</label>
+                            <input type="text"
+                                   name="pitchsnap_agreement_version"
+                                   id="pitchsnap_agreement_version"
+                                   class="form-control"
+                                   style="max-width:120px;"
+                                   value="<?php echo e(get_option('pitchsnap_agreement_version') ?: '1.0'); ?>"
+                                   placeholder="1.0">
+                            <p class="text-muted" style="margin-top:4px;font-size:12px;">
+                                Increment when the agreement text changes. Stored on each signed agreement record for audit purposes.
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_agreement_text">Agreement Text</label>
+                            <textarea name="pitchsnap_agreement_text"
+                                      id="pitchsnap_agreement_text"
+                                      class="form-control"
+                                      rows="18"
+                                      style="font-family: monospace; font-size: 12px;"><?php echo e(get_option('pitchsnap_agreement_text')); ?></textarea>
+                            <p class="text-muted" style="margin-top:6px;font-size:12px;">
+                                Plain text displayed on the prospect agreement page. Leave blank to use the built-in default placeholder.
+                                <strong>Have this reviewed by an attorney before use in production.</strong>
+                            </p>
+                        </div>
+
+                        <hr>
+
+                        <!-- ================================================
+                             Pricing & Stripe
+                             ================================================ -->
+                        <h5 class="tw-font-semibold mtop20 mbot10">Pricing &amp; Stripe</h5>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_payment_type">Payment Type</label>
+                            <select name="pitchsnap_payment_type" id="pitchsnap_payment_type" class="form-control" style="max-width:220px;">
+                                <?php $pay_type = get_option('pitchsnap_payment_type') ?: 'onetime'; ?>
+                                <option value="onetime"      <?php echo $pay_type === 'onetime'      ? 'selected' : ''; ?>>One-time invoice</option>
+                                <option value="subscription" <?php echo $pay_type === 'subscription' ? 'selected' : ''; ?>>Subscription</option>
+                            </select>
+                            <p class="text-muted" style="margin-top:4px;font-size:12px;">
+                                One-time: creates a Perfex invoice and redirects to Stripe Checkout.
+                                Subscription: creates a Perfex subscription and redirects to a Stripe subscription checkout.
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_price">Price (USD)</label>
+                            <div class="input-group" style="max-width:180px;">
+                                <span class="input-group-addon">$</span>
+                                <input type="text"
+                                       name="pitchsnap_price"
+                                       id="pitchsnap_price"
+                                       class="form-control"
+                                       value="<?php echo e(get_option('pitchsnap_price') ?: '295.00'); ?>"
+                                       placeholder="295.00">
+                            </div>
+                            <p class="text-muted" style="margin-top:4px;font-size:12px;">
+                                Used for one-time invoice creation and displayed in the sales modal. Enter a decimal amount (e.g. <code>295.00</code>).
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_stripe_plan_id">Stripe Price / Plan ID</label>
+                            <input type="text"
+                                   name="pitchsnap_stripe_plan_id"
+                                   id="pitchsnap_stripe_plan_id"
+                                   class="form-control"
+                                   style="max-width:380px;"
+                                   value="<?php echo e(get_option('pitchsnap_stripe_plan_id') ?: ''); ?>"
+                                   placeholder="price_...">
+                            <p class="text-muted" style="margin-top:4px;font-size:12px;">
+                                Required for the subscription flow. Find it in Stripe → Products → your plan → Pricing.
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_sub_name">Subscription Name</label>
+                            <input type="text"
+                                   name="pitchsnap_sub_name"
+                                   id="pitchsnap_sub_name"
+                                   class="form-control"
+                                   style="max-width:380px;"
+                                   value="<?php echo e(get_option('pitchsnap_sub_name') ?: 'PitchSnap Monthly Service'); ?>">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_sub_description">Subscription Description</label>
+                            <textarea name="pitchsnap_sub_description"
+                                      id="pitchsnap_sub_description"
+                                      class="form-control"
+                                      rows="3"
+                                      style="max-width:480px;"><?php echo e(get_option('pitchsnap_sub_description') ?: ''); ?></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_sub_quantity">Quantity</label>
+                            <input type="number"
+                                   name="pitchsnap_sub_quantity"
+                                   id="pitchsnap_sub_quantity"
+                                   class="form-control"
+                                   style="max-width:100px;"
+                                   min="1"
+                                   value="<?php echo (int)(get_option('pitchsnap_sub_quantity') ?: 1); ?>">
+                        </div>
+
+                        <div class="form-group">
+                            <label style="font-weight:normal;">
+                                <input type="hidden"   name="pitchsnap_sub_include_desc" value="0">
+                                <input type="checkbox" name="pitchsnap_sub_include_desc" value="1" <?php echo get_option('pitchsnap_sub_include_desc') === '1' ? 'checked' : ''; ?>>
+                                Include description as line item
+                            </label>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_sub_tax1">Stripe Tax Rate ID 1</label>
+                            <input type="text"
+                                   name="pitchsnap_sub_tax1"
+                                   id="pitchsnap_sub_tax1"
+                                   class="form-control"
+                                   style="max-width:320px;"
+                                   value="<?php echo e(get_option('pitchsnap_sub_tax1') ?: ''); ?>"
+                                   placeholder="txr_... (optional)">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_sub_tax2">Stripe Tax Rate ID 2</label>
+                            <input type="text"
+                                   name="pitchsnap_sub_tax2"
+                                   id="pitchsnap_sub_tax2"
+                                   class="form-control"
+                                   style="max-width:320px;"
+                                   value="<?php echo e(get_option('pitchsnap_sub_tax2') ?: ''); ?>"
+                                   placeholder="txr_... (optional)">
+                        </div>
+
                         <input type="hidden" name="active_tab" value="general">
 
                         <div class="mbot20">
@@ -327,6 +492,45 @@
                              TAB: Logs
                              ══════════════════════════════════ -->
                         <div class="tab-pane <?php echo $active_tab === 'logs' ? 'active' : ''; ?>" id="tab-logs">
+
+                            <!-- ── Log category controls ── -->
+                            <?php echo form_open(admin_url('pitchsnap/settings')); ?>
+                            <input type="hidden" name="pitchsnap_log_cats_submitted" value="1">
+                            <input type="hidden" name="active_tab" value="logs">
+                            <div style="border:1px solid #ddd; border-radius:4px; padding:14px 16px; margin-bottom:20px; background:#fafafa;">
+                                <p style="font-size:13px; font-weight:600; margin:0 0 4px;">Log Categories</p>
+                                <p class="text-muted" style="font-size:12px; margin:0 0 12px;">Controls which flows write to the log. The master <strong>Enable activity logging</strong> toggle (General tab) must also be on.</p>
+                                <table class="table table-condensed" style="max-width:600px; margin-bottom:10px;">
+                                    <tbody>
+                                        <tr>
+                                            <td style="width:28px; vertical-align:middle;">
+                                                <input type="hidden"   name="pitchsnap_log_stripe" value="0">
+                                                <input type="checkbox" name="pitchsnap_log_stripe" value="1" <?php echo get_option('pitchsnap_log_stripe') ? 'checked' : ''; ?>>
+                                            </td>
+                                            <td style="vertical-align:middle;"><strong>Stripe &amp; Payments</strong></td>
+                                            <td style="vertical-align:middle; color:#777; font-size:12px;">checkout sessions, subscription creation, invoice URL lookups</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="vertical-align:middle;">
+                                                <input type="hidden"   name="pitchsnap_log_sales" value="0">
+                                                <input type="checkbox" name="pitchsnap_log_sales" value="1" <?php echo get_option('pitchsnap_log_sales') ? 'checked' : ''; ?>>
+                                            </td>
+                                            <td style="vertical-align:middle;"><strong>Purchase &amp; Agreement</strong></td>
+                                            <td style="vertical-align:middle; color:#777; font-size:12px;">purchase initiation, agreement acceptance, customer creation</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="vertical-align:middle;">
+                                                <input type="hidden"   name="pitchsnap_log_generation" value="0">
+                                                <input type="checkbox" name="pitchsnap_log_generation" value="1" <?php echo get_option('pitchsnap_log_generation') ? 'checked' : ''; ?>>
+                                            </td>
+                                            <td style="vertical-align:middle;"><strong>Generation Pipeline</strong></td>
+                                            <td style="vertical-align:middle; color:#777; font-size:12px;">Manus/Anthropic jobs, completions, failures</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <button type="submit" class="btn btn-primary btn-sm">Save Categories</button>
+                            </div>
+                            <?php echo form_close(); ?>
 
                             <div class="row" style="margin-bottom:12px;">
                                 <div class="col-xs-12">

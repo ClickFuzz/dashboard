@@ -711,8 +711,16 @@ class Pitchsnap extends AdminController
             update_option('pitchsnap_sub_tax2',         trim((string) $this->input->post('pitchsnap_sub_tax2', true)));
         }
 
+        if (array_key_exists('pitchsnap_log_cats_submitted', $_POST)) {
+            foreach (['stripe', 'sales', 'generation'] as $cat) {
+                update_option('pitchsnap_log_' . $cat, $this->input->post('pitchsnap_log_' . $cat) ? '1' : '0');
+            }
+        }
+
+        $tab = $this->input->post('active_tab', true);
+        $tab = in_array($tab, ['general', 'logs']) ? $tab : 'general';
         set_alert('success', 'ClickFuzz Web settings saved.');
-        redirect(admin_url('pitchsnap/settings'));
+        redirect(admin_url('pitchsnap/settings?tab=' . $tab));
     }
 
     public function queue_generate($id = '')

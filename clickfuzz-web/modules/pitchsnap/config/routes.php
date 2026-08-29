@@ -11,8 +11,9 @@ $route['pitchsnap/chat']       = 'pitchsnap_runtime/chat';
 $route['pitchsnap/purchase']          = 'pitchsnap_runtime/purchase';
 $route['pitchsnap/agreement/(:any)'] = 'pitchsnap_runtime/agreement/$1';
 $route['pitchsnap/accept_agreement']             = 'pitchsnap_runtime/accept_agreement';
-$route['pitchsnap/subscription_complete/(:any)'] = 'pitchsnap_runtime/subscription_complete/$1';
-$route['pitchsnap/track_view/(:any)']            = 'pitchsnap_runtime/track_view/$1';
+$route['pitchsnap/subscription_complete/(:any)']        = 'pitchsnap_runtime/subscription_complete/$1';
+$route['pitchsnap/payment_complete/(:num)/(:any)']      = 'pitchsnap_runtime/payment_complete/$1/$2';
+$route['pitchsnap/track_view/(:any)']                   = 'pitchsnap_runtime/track_view/$1';
 
 $route['pitchsnap/redesigns']  = 'pitchsnap/websites';
 
