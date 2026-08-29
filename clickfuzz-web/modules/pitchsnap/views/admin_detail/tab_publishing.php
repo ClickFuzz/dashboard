@@ -59,10 +59,7 @@
                     <div class="panel-body">
                         <h5 class="tw-font-semibold mbot10">HTML Hosting</h5>
                         <?php
-                        $_pf_domain = null;
-                        if (isset($this->pitchsnap_model)) {
-                            $_pf_domain = $this->pitchsnap_model->get_platform_domain_for_site($site->id);
-                        }
+                        $_pf_domain = $platform_domain ?? null;
                         $_pub_url = $_pf_domain ? 'https://' . $_pf_domain->hostname . '/' : null;
                         ?>
                         <table class="table table-bordered table-condensed mbot15" style="max-width:520px;">
@@ -116,10 +113,7 @@
 
                 <!-- ── Custom Domain ─────────────────────────────────────── -->
                 <?php
-                $_cd = null;
-                if (isset($this->pitchsnap_model)) {
-                    $_cd = $this->pitchsnap_model->get_custom_domain_for_site($site->id);
-                }
+                $_cd = $custom_domain ?? null;
                 $_cd_verification = $_cd ? ($_cd->verification_status ?? 'pending') : null;
                 $_cd_ssl          = $_cd ? ($_cd->ssl_status          ?? 'pending') : null;
 
@@ -128,14 +122,14 @@
                     $_cd_is_apex = (substr_count($_cd->hostname, '.') === 1);
                     if ($_cd_is_apex) {
                         $_cd_dns_records = [
-                            ['type' => 'A',     'host' => '@',   'value' => '104.152.168.38',      'note' => 'Points your root domain to ClickFuzz'],
-                            ['type' => 'CNAME', 'host' => 'www', 'value' => 'sites.clickfuzz.com', 'note' => 'www → ClickFuzz (required)'],
+                            ['type' => 'A',     'host' => '@',   'value' => '104.152.168.38',           'note' => 'Points your root domain to ClickFuzz'],
+                            ['type' => 'CNAME', 'host' => 'www', 'value' => 'customers.clickfuzz.com',  'note' => 'www → ClickFuzz via Cloudflare (required)'],
                         ];
                     } else {
                         $_cd_parts = explode('.', $_cd->hostname);
                         $_cd_label = $_cd_parts[0];
                         $_cd_dns_records = [
-                            ['type' => 'CNAME', 'host' => $_cd_label, 'value' => 'sites.clickfuzz.com', 'note' => 'Points your subdomain to ClickFuzz'],
+                            ['type' => 'CNAME', 'host' => $_cd_label, 'value' => 'customers.clickfuzz.com', 'note' => 'Points your subdomain to ClickFuzz via Cloudflare'],
                         ];
                     }
                 }
@@ -145,46 +139,58 @@
                         <h5 class="tw-font-semibold mbot10">Custom Domain</h5>
 
                         <?php if ($_cd) { ?>
+                        <?php $_cd_cf_status = $_cd->cf_status ?? null; ?>
+                        <div style="display:flex; align-items:center; gap:6px; max-width:560px; margin-bottom:14px; flex-wrap:wrap;">
+                            <form method="POST" action="<?php echo admin_url('pitchsnap/save_custom_domain/' . (int) $redesign->id); ?>" style="flex:1; min-width:200px;">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <div class="input-group">
+                                    <input type="text" name="custom_domain" class="form-control input-sm"
+                                           value="<?php echo e($_cd->hostname); ?>" autocomplete="off">
+                                    <span class="input-group-btn">
+                                        <button type="submit" class="btn btn-primary btn-sm">
+                                            <i class="fa fa-save"></i> Update
+                                        </button>
+                                    </span>
+                                </div>
+                            </form>
+                            <form method="POST" action="<?php echo admin_url('pitchsnap/remove_custom_domain/' . (int) $redesign->id); ?>" style="flex-shrink:0;">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-danger btn-sm"
+                                        onclick="return confirm('Remove custom domain <?php echo e($_cd->hostname); ?>?');">
+                                    <i class="fa fa-times"></i> Remove
+                                </button>
+                            </form>
+                        </div>
                         <table class="table table-bordered table-condensed mbot15" style="max-width:520px;">
                             <tbody>
                                 <tr>
-                                    <th width="35%">Domain</th>
-                                    <td><strong><?php echo e($_cd->hostname); ?></strong></td>
-                                </tr>
-                                <tr>
-                                    <th>Verification</th>
+                                    <th width="35%">DNS</th>
                                     <td>
-                                        <?php if ($_cd_verification === 'verified') { ?>
-                                        <span class="label label-success">Verified</span>
-                                        <?php } elseif ($_cd_verification === 'failed') { ?>
-                                        <span class="label label-danger">DNS Misconfigured</span>
+                                        <?php if ($dns_connected ?? false) { ?>
+                                        <span class="label label-success">Connected</span>
                                         <?php } else { ?>
-                                        <span class="label label-warning">Pending DNS setup</span>
+                                        <span class="label label-default">Not Connected</span>
                                         <?php } ?>
                                     </td>
                                 </tr>
-                                <?php if (!empty($_cd->verified_at) && $_cd_verification === 'verified') { ?>
                                 <tr>
-                                    <th>Verified at</th>
-                                    <td><?php echo _dt($_cd->verified_at); ?></td>
-                                </tr>
-                                <?php } ?>
-                                <tr>
-                                    <th>SSL</th>
+                                    <th>Cloudflare</th>
                                     <td>
-                                        <?php if ($_cd_ssl === 'active') { ?>
-                                        <span class="label label-success">Active</span>
-                                        <?php } elseif ($_cd_ssl === 'failed') { ?>
+                                        <?php if ($_cd_cf_status === 'connected') { ?>
+                                        <span class="label label-success">Connected</span>
+                                        <?php } elseif ($_cd_cf_status === 'failed') { ?>
                                         <span class="label label-danger">Failed</span>
+                                        <?php } elseif ($_cd_cf_status) { ?>
+                                        <span class="label label-warning">Waiting for SSL</span>
                                         <?php } else { ?>
-                                        <span class="label label-default">Pending (after verification)</span>
+                                        <span class="label label-default">Not provisioned</span>
                                         <?php } ?>
                                     </td>
                                 </tr>
                             </tbody>
                         </table>
 
-                        <?php if ($_cd_verification !== 'verified') { ?>
+                        <?php if (!($dns_connected ?? false)) { ?>
                         <div class="well well-sm" style="font-size:12px; margin-bottom:14px; background:#f8fbff; border-color:#c4daf5;">
                             <p style="margin:0 0 8px; font-weight:600;">Add these DNS records at your domain registrar:</p>
                             <p style="margin:0 0 8px; color:#555;"><i class="fa fa-shield"></i> Keep your existing nameservers and email/DNS records. Only add or update the records shown below.</p>
@@ -201,48 +207,30 @@
                                     <?php } ?>
                                 </tbody>
                             </table>
-                            <p style="margin:8px 0 0; color:#666;">DNS changes can take up to 48 hours to propagate. Click <strong>Verify DNS</strong> after adding the records.</p>
+                            <p style="margin:8px 0 0; color:#666;">DNS changes can take up to 48 hours to propagate.</p>
                         </div>
                         <?php } ?>
-
-                        <form method="POST" action="<?php echo admin_url('pitchsnap/verify_custom_domain/' . (int) $redesign->id); ?>" style="display:inline; margin-right:6px;">
-                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                            <button type="submit" class="btn btn-<?php echo $_cd_verification === 'verified' ? 'default' : 'info'; ?> btn-sm">
-                                <i class="fa fa-refresh"></i> Verify DNS
-                            </button>
-                        </form>
 
                         <?php } else { ?>
                         <p class="text-muted" style="font-size:13px; margin-bottom:14px;">
                             No custom domain configured. Enter a domain below to begin setup.
                         </p>
-                        <?php } ?>
-
-                        <form method="POST" action="<?php echo admin_url('pitchsnap/save_custom_domain/' . (int) $redesign->id); ?>" style="max-width:480px; margin-top:<?php echo $_cd ? '10px' : '0'; ?>;">
+                        <form method="POST" action="<?php echo admin_url('pitchsnap/save_custom_domain/' . (int) $redesign->id); ?>" style="max-width:480px;">
                             <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
                             <div class="input-group" style="margin-bottom:10px;">
                                 <input type="text" name="custom_domain" class="form-control input-sm"
-                                       value="<?php echo $_cd ? e($_cd->hostname) : ''; ?>"
-                                       placeholder="yourdomain.com">
+                                       placeholder="yourdomain.com" autocomplete="off">
                                 <span class="input-group-btn">
                                     <button type="submit" class="btn btn-primary btn-sm">
-                                        <i class="fa fa-save"></i> <?php echo $_cd ? 'Update Domain' : 'Save Domain'; ?>
+                                        <i class="fa fa-save"></i> Save Domain
                                     </button>
                                 </span>
                             </div>
                         </form>
-                        <?php if ($_cd) { ?>
-                        <form method="POST" action="<?php echo admin_url('pitchsnap/remove_custom_domain/' . (int) $redesign->id); ?>" style="display:inline;">
-                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                            <button type="submit" class="btn btn-default btn-xs"
-                                    onclick="return confirm('Remove custom domain <?php echo e($_cd->hostname); ?>?');">
-                                <i class="fa fa-times"></i> Remove Domain
-                            </button>
-                        </form>
                         <?php } ?>
 
                         <p class="text-muted" style="font-size:12px; margin-top:12px; margin-bottom:0;">
-                            <i class="fa fa-info-circle"></i> Your ClickFuzz platform URL remains active throughout. SSL provisioning follows after DNS is verified.
+                            <i class="fa fa-info-circle"></i> Your ClickFuzz platform URL remains active. To use a different domain, remove the current one first.
                         </p>
                     </div>
                 </div>

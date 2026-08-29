@@ -2,7 +2,8 @@
 defined('BASEPATH') or exit('No direct script access allowed');
 
 if (!defined('CFZ_DNS_SERVER_IP'))    { define('CFZ_DNS_SERVER_IP',    '104.152.168.38'); }
-if (!defined('CFZ_DNS_RUNTIME_HOST')) { define('CFZ_DNS_RUNTIME_HOST', 'sites.clickfuzz.com'); }
+if (!defined('CFZ_DNS_RUNTIME_HOST')) { define('CFZ_DNS_RUNTIME_HOST', 'customers.clickfuzz.com'); }
+if (!defined('CFZ_DNS_FALLBACK_HOST')) { define('CFZ_DNS_FALLBACK_HOST', 'sites.clickfuzz.com'); }
 
 /**
  * True when hostname is an apex/root domain (exactly one dot: example.com).
@@ -17,11 +18,11 @@ function clickfuzz_web_hostname_is_apex($hostname)
  * Return the DNS records the customer needs to create.
  *
  * For an apex domain both records are REQUIRED:
- *   A     @   → 104.152.168.38      (root domain)
- *   CNAME www → sites.clickfuzz.com (www alias — also verified)
+ *   A     @   → 104.152.168.38         (root domain)
+ *   CNAME www → customers.clickfuzz.com (www via Cloudflare for SaaS — required)
  *
  * For a subdomain one record is required:
- *   CNAME {label} → sites.clickfuzz.com
+ *   CNAME {label} → customers.clickfuzz.com
  *
  * Each record: ['type', 'host', 'value', 'note']
  * 'host' is the relative label used in most DNS UIs (@ for apex).
@@ -48,7 +49,7 @@ function clickfuzz_web_expected_dns_records($hostname)
  *
  * For APEX hostnames (e.g. example.com), BOTH of these must be correct:
  *   1. example.com  → A record → 104.152.168.38
- *   2. www.example.com → CNAME → sites.clickfuzz.com (and IP chain resolves)
+ *   2. www.example.com → CNAME → customers.clickfuzz.com (and IP chain resolves)
  * Status is 'verified' only when both pass.
  *
  * For subdomain hostnames (e.g. www.example.com), only that hostname is checked.

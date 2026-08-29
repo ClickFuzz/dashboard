@@ -596,23 +596,27 @@ class Pitchsnap_model extends App_Model
                         ->count_all_results($this->domain_table) === 0;
     }
 
-    public function save_custom_domain($site_id, $hostname)
+    public function save_custom_domain($site_id, $hostname, $cf_hostname_id = null, $cf_status = null)
     {
         $site_id  = (int) $site_id;
         $existing = $this->get_custom_domain_for_site($site_id);
         $now      = date('Y-m-d H:i:s');
+        $cf_data  = [];
+        if ($cf_hostname_id !== null) { $cf_data['cf_hostname_id'] = $cf_hostname_id; }
+        if ($cf_status !== null)      { $cf_data['cf_status']      = $cf_status; }
+
         if ($existing) {
             $this->db->where('id', (int) $existing->id)
-                     ->update($this->domain_table, [
-                         'hostname'             => $hostname,
-                         'verification_status'  => 'pending',
-                         'verified_at'          => null,
-                         'ssl_status'           => 'pending',
-                         'dateupdated'          => $now,
-                     ]);
+                     ->update($this->domain_table, array_merge([
+                         'hostname'            => $hostname,
+                         'verification_status' => 'pending',
+                         'verified_at'         => null,
+                         'ssl_status'          => 'pending',
+                         'dateupdated'         => $now,
+                     ], $cf_data));
             return (int) $existing->id;
         }
-        return $this->create_site_domain([
+        return $this->create_site_domain(array_merge([
             'site_id'             => $site_id,
             'hostname'            => $hostname,
             'domain_type'         => 'custom',
@@ -622,7 +626,7 @@ class Pitchsnap_model extends App_Model
             'verified_at'         => null,
             'ssl_status'          => 'pending',
             'dateadded'           => $now,
-        ]);
+        ], $cf_data));
     }
 
     public function remove_custom_domain($site_id)
@@ -633,6 +637,26 @@ class Pitchsnap_model extends App_Model
         }
         $this->db->where('id', (int) $existing->id)->delete($this->domain_table);
         return $this->db->affected_rows() > 0;
+    }
+
+    public function get_pending_cf_hostnames($limit = 20)
+    {
+        return $this->db
+            ->where('domain_type', 'custom')
+            ->where('cf_status', 'pending')
+            ->where('cf_hostname_id IS NOT NULL', null, false)
+            ->limit($limit)
+            ->get($this->domain_table)
+            ->result();
+    }
+
+    public function update_cf_status($domain_id, $cf_status)
+    {
+        $this->db->where('id', (int) $domain_id)
+                 ->update($this->domain_table, [
+                     'cf_status'   => $cf_status,
+                     'dateupdated' => date('Y-m-d H:i:s'),
+                 ]);
     }
 
     public function update_domain_verification($domain_id, $status, $verified_at)

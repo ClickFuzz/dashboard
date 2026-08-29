@@ -8,6 +8,22 @@
                     <div class="panel-body">
                         <h4 class="tw-font-semibold tw-mb-4">ClickFuzz Web Settings</h4>
 
+                        <ul class="nav nav-tabs mbot20" id="settings-tabs">
+                            <li class="<?php echo $active_tab !== 'logs' ? 'active' : ''; ?>">
+                                <a href="#tab-general" data-toggle="tab">General</a>
+                            </li>
+                            <li class="<?php echo $active_tab === 'logs' ? 'active' : ''; ?>">
+                                <a href="#tab-logs" data-toggle="tab">Logs</a>
+                            </li>
+                        </ul>
+
+                        <div class="tab-content">
+
+                        <!-- ══════════════════════════════════
+                             TAB: General
+                             ══════════════════════════════════ -->
+                        <div class="tab-pane <?php echo $active_tab !== 'logs' ? 'active' : ''; ?>" id="tab-general">
+
                         <?php echo form_open(admin_url('pitchsnap/settings')); ?>
 
                         <!-- ================================================
@@ -245,6 +261,43 @@
                             </p>
                         </div>
 
+                        <hr>
+
+                        <!-- ================================================
+                             Cloudflare
+                             ================================================ -->
+                        <h5 class="tw-font-semibold mtop20 mbot10">Cloudflare</h5>
+                        <p class="text-muted" style="font-size:12px; margin-bottom:12px;">
+                            Required for automatic Custom Hostname provisioning when a custom domain is saved.
+                            Create an API Token in Cloudflare → My Profile → API Tokens with
+                            <strong>Zone:Custom Hostnames:Edit</strong> permission on the clickfuzz.com zone.
+                            The Zone ID is on your Cloudflare zone dashboard.
+                        </p>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_cf_api_token">Cloudflare API Token</label>
+                            <input type="password"
+                                   name="pitchsnap_cf_api_token"
+                                   id="pitchsnap_cf_api_token"
+                                   class="form-control"
+                                   autocomplete="new-password"
+                                   style="max-width:480px;"
+                                   placeholder="<?php echo get_option('pitchsnap_cf_api_token') ? '●●●●●●●●●● (saved — leave blank to keep)' : 'Your Cloudflare API Token'; ?>">
+                            <p class="text-muted" style="margin-top:4px;font-size:12px;">Stored server-side only. Leave blank to keep the existing token.</p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_cf_zone_id">Cloudflare Zone ID</label>
+                            <input type="text"
+                                   name="pitchsnap_cf_zone_id"
+                                   id="pitchsnap_cf_zone_id"
+                                   class="form-control"
+                                   style="max-width:480px;"
+                                   value="<?php echo e(get_option('pitchsnap_cf_zone_id') ?: ''); ?>"
+                                   placeholder="clickfuzz.com Zone ID">
+                            <p class="text-muted" style="margin-top:4px;font-size:12px;">The Zone ID for clickfuzz.com from the Cloudflare dashboard overview.</p>
+                        </div>
+
                         <input type="hidden" name="active_tab" value="general">
 
                         <div class="mbot20">
@@ -253,6 +306,61 @@
                         </div>
 
                         <?php echo form_close(); ?>
+
+                        </div><!-- #tab-general -->
+
+                        <!-- ══════════════════════════════════
+                             TAB: Logs
+                             ══════════════════════════════════ -->
+                        <div class="tab-pane <?php echo $active_tab === 'logs' ? 'active' : ''; ?>" id="tab-logs">
+
+                            <div class="row" style="margin-bottom:12px;">
+                                <div class="col-xs-12">
+                                    <form method="POST" action="<?php echo admin_url('pitchsnap/clear_logs'); ?>" style="display:inline;" onsubmit="return confirm('Clear all ClickFuzz Web logs?');">
+                                        <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                        <button type="submit" class="btn btn-default btn-sm pull-right">
+                                            <i class="fa fa-trash"></i> Clear Logs
+                                        </button>
+                                    </form>
+                                    <p class="text-muted" style="font-size:12px; margin:6px 0 0;">
+                                        Most recent <?php echo count($logs); ?> entries (cap 500).
+                                    </p>
+                                </div>
+                            </div>
+
+                            <?php if (empty($logs)) { ?>
+                            <p class="text-muted" style="font-size:13px;">No log entries yet.</p>
+                            <?php } else { ?>
+                            <div class="table-responsive">
+                                <table class="table table-condensed table-bordered" style="font-size:12px; font-family:monospace;">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:140px; font-family:sans-serif;">Time</th>
+                                            <th style="width:100px; font-family:sans-serif;">Context</th>
+                                            <th style="font-family:sans-serif;">Message</th>
+                                            <th style="font-family:sans-serif;">Data</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($logs as $log) { ?>
+                                        <tr>
+                                            <td style="white-space:nowrap; color:#888;"><?php echo e($log['created_at']); ?></td>
+                                            <td><span class="label label-default"><?php echo e($log['context']); ?></span></td>
+                                            <td><?php echo e($log['message']); ?></td>
+                                            <td style="color:#666; max-width:300px; word-break:break-all;">
+                                                <?php echo !empty($log['data_json']) ? e($log['data_json']) : ''; ?>
+                                            </td>
+                                        </tr>
+                                        <?php } ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <?php } ?>
+
+                        </div><!-- #tab-logs -->
+
+                        </div><!-- .tab-content -->
+
                     </div>
                 </div>
             </div>
