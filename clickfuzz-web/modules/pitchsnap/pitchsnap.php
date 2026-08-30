@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 19) {
+    if ((int) get_option('pitchsnap_db_version') >= 21) {
         return;
     }
 
@@ -588,11 +588,37 @@ function clickfuzz_web_db_upgrade()
         add_option('pitchsnap_apex_api_token', '');
     }
 
+    // v20: connector API key + connection status columns on pitchsnap_sites
+    $ts20 = db_prefix() . 'pitchsnap_sites';
+    if ($CI->db->table_exists($ts20)) {
+        if (!$CI->db->field_exists('wp_api_key', $ts20)) {
+            $CI->db->query("ALTER TABLE `{$ts20}` ADD COLUMN `wp_api_key` TEXT DEFAULT NULL AFTER `wp_site_url`");
+        }
+        if (!$CI->db->field_exists('wp_connected_at', $ts20)) {
+            $CI->db->query("ALTER TABLE `{$ts20}` ADD COLUMN `wp_connected_at` DATETIME DEFAULT NULL");
+        }
+        if (!$CI->db->field_exists('wp_connector_version', $ts20)) {
+            $CI->db->query("ALTER TABLE `{$ts20}` ADD COLUMN `wp_connector_version` VARCHAR(20) DEFAULT NULL");
+        }
+        if (!$CI->db->field_exists('wp_wp_version', $ts20)) {
+            $CI->db->query("ALTER TABLE `{$ts20}` ADD COLUMN `wp_wp_version` VARCHAR(20) DEFAULT NULL");
+        }
+        if (!$CI->db->field_exists('wp_active_theme_slug', $ts20)) {
+            $CI->db->query("ALTER TABLE `{$ts20}` ADD COLUMN `wp_active_theme_slug` VARCHAR(255) DEFAULT NULL");
+        }
+    }
+
+    // v21: pairing token column — ClickFuzz generates & shows token, plugin sends it back
+    $ts21 = db_prefix() . 'pitchsnap_sites';
+    if ($CI->db->table_exists($ts21) && !$CI->db->field_exists('wp_pairing_token', $ts21)) {
+        $CI->db->query("ALTER TABLE `{$ts21}` ADD COLUMN `wp_pairing_token` VARCHAR(64) DEFAULT NULL AFTER `wp_api_key`");
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '19');
+        add_option('pitchsnap_db_version', '21');
     } else {
-        update_option('pitchsnap_db_version', '19');
+        update_option('pitchsnap_db_version', '21');
     }
 }
 

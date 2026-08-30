@@ -41,3 +41,20 @@ $route['pitchsnap/page_generation_set_current/(:num)'] = 'pitchsnap/page_generat
 
 // Phase 5 — page publishing
 $route['pitchsnap/page_publish/(:num)'] = 'pitchsnap/page_publish/$1';
+
+// WordPress Connector — public callback (WP plugin POSTs token + site_url here)
+$route['pitchsnap/wp_pair_callback']             = 'pitchsnap_runtime/wp_pair_callback';
+// WordPress Connector — signed one-time theme download (WP pulls ZIP from here)
+$route['pitchsnap/wp_theme_download/(:any)']     = 'pitchsnap_runtime/wp_theme_download/$1';
+
+// WordPress Connector — admin actions
+$route['pitchsnap/generate_wp_token/(:num)']   = 'pitchsnap/generate_wp_token/$1';
+$route['pitchsnap/download_wp_plugin/(:num)']  = 'pitchsnap/download_wp_plugin/$1';
+$route['pitchsnap/reset_wp_connector/(:num)']  = 'pitchsnap/reset_wp_connector/$1';
+$route['pitchsnap/test_wp_connection/(:num)']  = 'pitchsnap/test_wp_connection/$1';
+$route['pitchsnap/deploy_to_wordpress/(:num)'] = 'pitchsnap/deploy_to_wordpress/$1';
+$route['pitchsnap/redeploy_wp_theme/(:num)']   = 'pitchsnap/redeploy_wp_theme/$1';
+$route['pitchsnap/reimport_wp_content/(:num)'] = 'pitchsnap/reimport_wp_content/$1';
+$route['pitchsnap/export_wordpress/(:num)']    = 'pitchsnap/export_wordpress/$1';
+$route['pitchsnap/download_wordpress/(:num)']  = 'pitchsnap/download_wordpress/$1';
+$route['pitchsnap/update_wp_plugin/(:num)']    = 'pitchsnap/update_wp_plugin/$1';

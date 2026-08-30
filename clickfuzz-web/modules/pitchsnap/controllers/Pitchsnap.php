@@ -338,6 +338,282 @@ class Pitchsnap extends AdminController
         redirect($detail_url);
     }
 
+    // ── WordPress Connector ───────────────────────────────────────────────────
+
+    public function generate_wp_token($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        $website = $this->pitchsnap_model->get($id);
+        if (!$website) { show_404(); }
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) { set_alert('danger', 'No site record found for this website.'); redirect(admin_url('pitchsnap/websites')); }
+
+        $this->pitchsnap_model->generate_wp_pairing_token($site->id);
+        log_activity('ClickFuzz Web: WordPress pairing token generated [Website ID: ' . $id . ']');
+        redirect(admin_url('pitchsnap/detail/' . $id) . '#tab-publishing');
+    }
+
+    public function download_wp_plugin($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        $id = (int) $id;
+        if (!$id || !$this->pitchsnap_model->get($id)) { show_404(); }
+
+        $plugin_src = FCPATH . 'wp-plugin/clickfuzz-connector/';
+        if (!is_dir($plugin_src)) {
+            set_alert('danger', 'Plugin package not found. Contact support.');
+            redirect(admin_url('pitchsnap/detail/' . $id) . '#tab-publishing');
+        }
+
+        if (!class_exists('ZipArchive')) {
+            set_alert('danger', 'ZIP support unavailable on this server.');
+            redirect(admin_url('pitchsnap/detail/' . $id) . '#tab-publishing');
+        }
+
+        $tmp = sys_get_temp_dir() . '/clickfuzz-connector-' . time() . '.zip';
+        $zip = new ZipArchive();
+        if ($zip->open($tmp, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            set_alert('danger', 'Failed to create plugin ZIP.');
+            redirect(admin_url('pitchsnap/detail/' . $id) . '#tab-publishing');
+        }
+
+        $iter = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($plugin_src, RecursiveDirectoryIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::LEAVES_ONLY
+        );
+        foreach ($iter as $file) {
+            $relative = 'clickfuzz-connector/' . ltrim(str_replace($plugin_src, '', $file->getRealPath()), '/\\');
+            $zip->addFile($file->getRealPath(), $relative);
+        }
+        $zip->close();
+
+        header('Content-Type: application/zip');
+        header('Content-Disposition: attachment; filename="clickfuzz-connector.zip"');
+        header('Content-Length: ' . filesize($tmp));
+        header('Cache-Control: no-cache');
+        readfile($tmp);
+        @unlink($tmp);
+        exit;
+    }
+
+    public function reset_wp_connector($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        if (!$this->pitchsnap_model->get($id)) { show_404(); }
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) { set_alert('danger', 'No site record found for this website.'); redirect(admin_url('pitchsnap/websites')); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-publishing';
+
+        $this->pitchsnap_model->clear_wp_connector($site->id);
+        log_activity('ClickFuzz Web: WordPress connector reset [Website ID: ' . $id . ']');
+        set_alert('success', 'WordPress connector reset. Re-pair from the plugin settings page.');
+        redirect($detail_url);
+    }
+
+    public function test_wp_connection($id = '')
+    {
+        if (!is_admin()) { $this->_json(['success' => false, 'error' => 'Access denied.']); return; }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { $this->_json(['success' => false, 'error' => 'POST required.']); return; }
+        $id = (int) $id;
+        if (!$id) { $this->_json(['success' => false, 'error' => 'Invalid ID.']); return; }
+        $website = $this->pitchsnap_model->get($id);
+        if (!$website) { $this->_json(['success' => false, 'error' => 'Website not found.']); return; }
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site) { $this->_json(['success' => false, 'error' => 'No site record found.']); return; }
+
+        if (!function_exists('clickfuzz_web_wordpress_connector_request')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_wordpress_helper.php';
+        }
+
+        $r = clickfuzz_web_wordpress_connector_request($id, 'GET', '/clickfuzz/v1/status');
+        if (!$r['success']) {
+            $this->_json(['success' => false, 'error' => $r['error']]);
+            return;
+        }
+
+        $body = (array) $r['body'];
+        $this->pitchsnap_model->save_wp_status($site->id, [
+            'wp_connected_at'      => date('Y-m-d H:i:s'),
+            'wp_connector_version' => $body['version']           ?? null,
+            'wp_wp_version'        => $body['wp']                ?? null,
+            'wp_active_theme_slug' => $body['active_theme_slug'] ?? null,
+        ]);
+
+        $this->_json([
+            'success'           => true,
+            'connector_version' => $body['version']           ?? '',
+            'wp_version'        => $body['wp']                ?? '',
+            'active_theme_slug' => $body['active_theme_slug'] ?? '',
+            'active_theme_name' => $body['active_theme_name'] ?? '',
+        ]);
+    }
+
+    public function deploy_to_wordpress($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        if (!$this->pitchsnap_model->get($id)) { show_404(); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-publishing';
+
+        if (!function_exists('clickfuzz_web_deploy_to_wordpress')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_wordpress_helper.php';
+        }
+
+        $result = clickfuzz_web_deploy_to_wordpress($id);
+
+        if ($result['success']) {
+            set_alert('success', 'WordPress deployment complete.');
+        } else {
+            set_alert('danger', 'Deployment failed at step "' . (end($result['steps'])['label'] ?? '?') . '": ' . $result['error']);
+        }
+        $this->session->set_flashdata('wp_deploy_result', json_encode($result));
+        redirect($detail_url);
+    }
+
+    public function redeploy_wp_theme($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        if (!$this->pitchsnap_model->get($id)) { show_404(); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-publishing';
+
+        if (!function_exists('clickfuzz_web_redeploy_wp_theme')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_wordpress_helper.php';
+        }
+
+        $result = clickfuzz_web_redeploy_wp_theme($id);
+
+        if ($result['success']) {
+            set_alert('success', 'WordPress theme redeployed.');
+        } else {
+            set_alert('danger', 'Theme redeploy failed: ' . $result['error']);
+        }
+        $this->session->set_flashdata('wp_deploy_result', json_encode($result));
+        redirect($detail_url);
+    }
+
+    public function reimport_wp_content($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        if (!$this->pitchsnap_model->get($id)) { show_404(); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-publishing';
+
+        if (!function_exists('clickfuzz_web_reimport_wp_content')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_wordpress_helper.php';
+        }
+
+        $result = clickfuzz_web_reimport_wp_content($id);
+
+        if ($result['success']) {
+            set_alert('success', 'WordPress content reimported.');
+        } else {
+            set_alert('danger', 'Content reimport failed: ' . $result['error']);
+        }
+        $this->session->set_flashdata('wp_deploy_result', json_encode($result));
+        redirect($detail_url);
+    }
+
+    public function export_wordpress($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') { redirect(admin_url('pitchsnap/websites')); }
+        $id = (int) $id;
+        if (!$id) { set_alert('danger', 'Invalid website ID.'); redirect(admin_url('pitchsnap/websites')); }
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-publishing';
+        $website = $this->pitchsnap_model->get($id);
+        if (!$website) { show_404(); }
+        if (empty($website->generation_result)) {
+            set_alert('danger', 'No generated HTML found. Generate the site first.');
+            redirect($detail_url);
+        }
+        if (!function_exists('clickfuzz_web_export_wordpress_site')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_wordpress_helper.php';
+        }
+        $result = clickfuzz_web_export_wordpress_site($id);
+        if ($result['success']) {
+            $warnings = !empty($result['warnings']) ? ' Warnings: ' . implode('; ', $result['warnings']) : '';
+            log_activity('ClickFuzz Web: WordPress export created [Website ID: ' . $id . ']');
+            set_alert('success', 'WordPress package exported.' . $warnings);
+        } else {
+            set_alert('danger', 'WordPress export failed: ' . $result['error']);
+        }
+        redirect($detail_url);
+    }
+
+    public function download_wordpress($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        $id = (int) $id;
+        if (!$id) { show_404(); }
+        $website = $this->pitchsnap_model->get($id);
+        if (!$website) { show_404(); }
+
+        $export_dir = dirname(FCPATH) . '/exports/wordpress/' . $id;
+        $real_base  = realpath(dirname(FCPATH) . '/exports/wordpress');
+        if (!$real_base) { show_404(); }
+
+        $zips = glob($export_dir . '/*.zip') ?: [];
+        if (empty($zips)) { show_404(); }
+
+        $zip_path = $zips[0];
+        $real_zip = realpath($zip_path);
+        if (!$real_zip || strpos($real_zip, $real_base . '/') !== 0) { show_404(); }
+        if (!is_file($real_zip)) { show_404(); }
+
+        $filename = basename($real_zip);
+        header('Content-Type: application/zip');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . filesize($real_zip));
+        readfile($real_zip);
+        exit;
+    }
+
+    public function update_wp_plugin($id = '')
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        $id = (int) $id;
+        if (!$id) { show_404(); }
+
+        $detail_url = admin_url('pitchsnap/detail/' . $id) . '#tab-publishing';
+
+        $site = $this->pitchsnap_model->get_site_by_website_id($id);
+        if (!$site || empty($site->wp_api_key)) {
+            $this->session->set_flashdata('wp_update_result', json_encode([
+                'success' => false,
+                'error'   => 'WordPress Connector is not connected.',
+                'version' => null,
+            ]));
+            redirect($detail_url);
+            return;
+        }
+
+        if (!function_exists('clickfuzz_web_update_wp_plugin')) {
+            require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_wordpress_helper.php';
+        }
+        $result = clickfuzz_web_update_wp_plugin($id);
+
+        $this->session->set_flashdata('wp_update_result', json_encode([
+            'success' => $result['success'],
+            'error'   => $result['success'] ? null : ($result['error'] ?? 'Update failed.'),
+            'version' => $result['body']['version'] ?? null,
+        ]));
+
+        redirect($detail_url);
+    }
+
     public function save_custom_domain($id = '')
     {
         if (!is_admin()) { access_denied('ClickFuzz Web'); }

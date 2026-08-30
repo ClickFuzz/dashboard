@@ -128,6 +128,20 @@ class CF_Settings
 
             <?php } ?>
 
+            <h2>Endpoints</h2>
+            <table class="widefat striped" style="max-width:780px">
+                <thead>
+                    <tr><th>Method</th><th>Path</th><th>Auth</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>GET</td>      <td><code>/clickfuzz/v1/status</code></td>          <td>API key</td> <td>Connection health check</td></tr>
+                    <tr><td>POST</td>     <td><code>/clickfuzz/v1/theme</code></td>           <td>API key</td> <td>Install theme ZIP</td></tr>
+                    <tr><td>POST</td>     <td><code>/clickfuzz/v1/theme/activate</code></td>  <td>API key</td> <td>Activate installed theme</td></tr>
+                    <tr><td>POST</td>     <td><code>/clickfuzz/v1/import</code></td>          <td>API key</td> <td>Import WXR content + logo</td></tr>
+                    <tr><td>GET/POST</td> <td><code>/clickfuzz/v1/pages</code></td>           <td>API key</td> <td>List / create pages</td></tr>
+                    <tr><td>GET/PUT/DELETE</td><td><code>/clickfuzz/v1/pages/{id}</code></td> <td>API key</td> <td>Read / update / delete page</td></tr>
+                </tbody>
+            </table>
         </div>
         <?php
     }

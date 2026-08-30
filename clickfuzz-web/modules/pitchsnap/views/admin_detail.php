@@ -121,7 +121,7 @@ $(function() {
         var $target = $('[data-toggle="tab"][href="' + hash + '"]');
         if ($target.length) {
             var $pane = $(hash);
-            var $parentPane = $pane.closest('.tab-pane');
+            var $parentPane = $pane.parent().closest('.tab-pane');
             if ($parentPane.length) {
                 $('[data-toggle="tab"][href="#' + $parentPane.attr('id') + '"]').tab('show');
             }

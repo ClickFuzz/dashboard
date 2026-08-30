@@ -1375,4 +1375,81 @@ class Pitchsnap_model extends App_Model
         $this->update_page((int) $page_id, ['generation_status' => 'failed']);
         $this->create_log('page_generation', 'Page generation failed [Page #' . (int) $page_id . ']', ['error' => substr((string) $error, 0, 1000)]);
     }
+
+    // ── WordPress connector ───────────────────────────────────────────────────
+
+    public function generate_wp_pairing_token($site_id)
+    {
+        $token = rtrim(strtr(base64_encode(random_bytes(48)), '+/', '-_'), '=');
+        $token = substr($token, 0, 32);
+        $this->db->where('id', (int) $site_id)->update($this->site_table, [
+            'wp_pairing_token'     => $token,
+            'wp_api_key'           => null,
+            'wp_site_url'          => null,
+            'wp_connected_at'      => null,
+            'wp_connector_version' => null,
+            'wp_wp_version'        => null,
+            'wp_active_theme_slug' => null,
+            'dateupdated'          => date('Y-m-d H:i:s'),
+        ]);
+        return $token;
+    }
+
+    public function find_site_by_pairing_token($token)
+    {
+        return $this->db
+            ->where('wp_pairing_token', (string) $token)
+            ->limit(1)
+            ->get($this->site_table)
+            ->row();
+    }
+
+    public function confirm_wp_connection($site_id, $site_url, $encrypted_api_key)
+    {
+        return $this->db->where('id', (int) $site_id)->update($this->site_table, [
+            'wp_site_url'      => $site_url,
+            'wp_api_key'       => $encrypted_api_key,
+            'wp_connected_at'  => date('Y-m-d H:i:s'),
+            'wp_pairing_token' => null,
+            'dateupdated'      => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    public function save_wp_connector($site_id, $url, $encrypted_api_key)
+    {
+        $data = [
+            'wp_site_url' => $url,
+            'dateupdated' => date('Y-m-d H:i:s'),
+        ];
+        if ($encrypted_api_key !== null) {
+            $data['wp_api_key'] = $encrypted_api_key;
+        }
+        return $this->db->where('id', (int) $site_id)->update($this->site_table, $data);
+    }
+
+    public function save_wp_status($site_id, array $data)
+    {
+        $allowed = ['wp_connected_at', 'wp_connector_version', 'wp_wp_version', 'wp_active_theme_slug'];
+        $update  = ['dateupdated' => date('Y-m-d H:i:s')];
+        foreach ($allowed as $k) {
+            if (array_key_exists($k, $data)) {
+                $update[$k] = $data[$k];
+            }
+        }
+        return $this->db->where('id', (int) $site_id)->update($this->site_table, $update);
+    }
+
+    public function clear_wp_connector($site_id)
+    {
+        return $this->db->where('id', (int) $site_id)->update($this->site_table, [
+            'wp_pairing_token'     => null,
+            'wp_api_key'           => null,
+            'wp_site_url'          => null,
+            'wp_connected_at'      => null,
+            'wp_connector_version' => null,
+            'wp_wp_version'        => null,
+            'wp_active_theme_slug' => null,
+            'dateupdated'          => date('Y-m-d H:i:s'),
+        ]);
+    }
 }

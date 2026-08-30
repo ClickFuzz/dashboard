@@ -205,7 +205,27 @@ See `docs/workstreams/` for detailed subsystem history and status.
 | `claude/settings` | `worktrees/dashboard/settings` | **Fresh** — from `7e0871e` (main post-publishing-domains merge). Global Settings page redesign. No feature changes yet. |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
 | `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix + tab extraction. Uncommitted changes: `admin_detail.php` (shell only), `Pitchsnap.php`, `Pitchsnap_model.php`, new `views/admin_detail/tab_*.php` (6 files). New partials not yet deployed to production. Needs deploy + verify + commit + merge to main. |
-| `claude/convert-to-wp` | `worktrees/dashboard/convert-to-wp` | Fresh — from `0fe1d30`, no feature changes yet |
+| `claude/convert-to-wp` | `worktrees/dashboard/convert-to-wp` | **Active** — Phases 1-4+C complete (nav, footer, custom logo, WP connector v1.3.0). Committed. `admin_detail.php` has uncommitted UI changes. |
+| `claude/wp-connector` | `worktrees/dashboard/wp-connector` | **Active** — WP connector v2 (ClickFuzz-generated key pairing). Significant uncommitted changes (routes, controller, model, helpers, plugin files, assets copy). Needs commit + merge to main. |
+
+---
+
+## WordPress Connector — Confirmed Working (2026-08-30)
+
+Full "Deploy to WordPress" flow confirmed end-to-end on `https://homesincda.com`:
+
+- Theme build + deploy + activate ✓
+- WXR content import (with logo) ✓
+
+**Plugin source:** `wp-plugin/clickfuzz-connector/` (wp-connector worktree) + copy in `modules/pitchsnap/assets/wp-plugin/` (bundled with Perfex module for ZIP download/self-update).
+
+**Key fixes landed (uncommitted in wp-connector worktree):**
+- `wp_tempnam` guard — `deploy_theme()` + `update_plugin()` now `require_once` `wp-admin/includes/file.php` before calling `wp_tempnam()` (fatal in REST API context otherwise)
+- `import_content()` — was passing `get_file_params()` array directly as `$xml_content`; now reads `$_FILES['xml']['tmp_name']` via `file_get_contents()` and extracts body params correctly
+
+**Deploy method:** User downloads plugin ZIP from ClickFuzz dashboard and installs via WP Admin → Upload Plugin. Do NOT try to locate the installed plugin via DA MCP — it's not findable that way.
+
+**Uncommitted changes in `claude/wp-connector`:** routes, Pitchsnap controller, model, wordpress helper, pitchsnap.php, plugin source files, assets copy. Must commit + merge to main.
 
 ---
 
@@ -214,6 +234,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 - Production deployment of 2026-08-23 recovery changes (lead tab + conversation empty state)
 - End-to-end purchase path not confirmed tested
 - Lead Connect not started (gating Reviews and full Reporting)
+- `claude/wp-connector` has significant uncommitted changes — needs commit + merge to main
 
 ---
 

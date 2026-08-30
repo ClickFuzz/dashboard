@@ -2005,17 +2005,17 @@ function clickfuzz_web_wordpress_connector_request($website_id, $method, $endpoi
         $CI->pitchsnap_model = new Pitchsnap_model();
     }
 
-    $website = $CI->pitchsnap_model->get((int) $website_id);
-    if (!$website || empty($website->wp_site_url) || empty($website->wp_api_key)) {
+    $site = $CI->pitchsnap_model->get_site_by_website_id((int) $website_id);
+    if (!$site || empty($site->wp_site_url) || empty($site->wp_api_key)) {
         return ['success' => false, 'code' => 0, 'body' => null, 'error' => 'WordPress connection not configured.'];
     }
 
-    $api_key = $CI->encryption->decrypt($website->wp_api_key);
+    $api_key = $CI->encryption->decrypt($site->wp_api_key);
     if (empty($api_key)) {
         return ['success' => false, 'code' => 0, 'body' => null, 'error' => 'Could not decrypt API key.'];
     }
 
-    $url = rtrim($website->wp_site_url, '/') . '/wp-json' . $endpoint;
+    $url = rtrim($site->wp_site_url, '/') . '/wp-json' . $endpoint;
     $ch  = curl_init();
 
     curl_setopt_array($ch, [
@@ -2074,12 +2074,19 @@ function clickfuzz_web_wordpress_connector_request($website_id, $method, $endpoi
     }
 
     if ($http_code < 200 || $http_code >= 300) {
-        $msg = is_array($decoded) && isset($decoded['message']) ? $decoded['message'] : '';
+        if (is_array($decoded) && isset($decoded['message'])) {
+            $msg = $decoded['message'];
+        } elseif (is_string($response) && strlen($response) > 0) {
+            // Surface raw body (HTML from WAF/security plugin) truncated to 200 chars
+            $msg = ': ' . substr(strip_tags($response), 0, 200);
+        } else {
+            $msg = '';
+        }
         return [
             'success' => false,
             'code'    => $http_code,
             'body'    => $decoded,
-            'error'   => 'HTTP ' . $http_code . ($msg ? ': ' . $msg : ''),
+            'error'   => 'HTTP ' . $http_code . ($msg ? (is_array($decoded) ? ': ' . $msg : $msg) : ''),
         ];
     }
 
@@ -2126,10 +2133,11 @@ function clickfuzz_web_deploy_to_wordpress($website_id)
     $steps[] = ['label' => 'Extract package files', 'ok' => true, 'message' => 'Files ready.'];
 
     try {
-        // Step 4: Upload theme
-        $r = clickfuzz_web_wordpress_connector_request(
-            $website_id, 'POST', '/clickfuzz/v1/theme', [],
-            ['zip' => $extracted['theme_zip']]
+        // Step 4: Upload theme — WP pulls ZIP from a signed ClickFuzz URL (avoids rate-limited file POSTs)
+        $theme_url = _cfw_wp_make_theme_download_url($extracted['theme_zip']);
+        $r = _cfw_wp_request_with_retry(
+            $website_id, 'POST', '/clickfuzz/v1/theme',
+            ['theme_url' => $theme_url]
         );
         if (!$r['success']) {
             $steps[] = ['label' => 'Upload theme', 'ok' => false, 'message' => $r['error']];
@@ -2138,9 +2146,9 @@ function clickfuzz_web_deploy_to_wordpress($website_id)
         $steps[] = ['label' => 'Upload theme', 'ok' => true, 'message' => ($r['body']['action'] ?? 'installed') . '.'];
 
         // Step 5: Activate theme
-        $r = clickfuzz_web_wordpress_connector_request(
+        $r = _cfw_wp_request_with_retry(
             $website_id, 'POST', '/clickfuzz/v1/theme/activate',
-            ['theme_slug' => $export['theme_slug']]
+            ['slug' => $export['theme_slug']]
         );
         if (!$r['success']) {
             $steps[] = ['label' => 'Activate theme', 'ok' => false, 'message' => $r['error']];
@@ -2210,9 +2218,10 @@ function clickfuzz_web_redeploy_wp_theme($website_id)
     $steps[] = ['label' => 'Extract package files', 'ok' => true, 'message' => 'Files ready.'];
 
     try {
-        $r = clickfuzz_web_wordpress_connector_request(
-            $website_id, 'POST', '/clickfuzz/v1/theme', [],
-            ['zip' => $extracted['theme_zip']]
+        $theme_url = _cfw_wp_make_theme_download_url($extracted['theme_zip']);
+        $r = _cfw_wp_request_with_retry(
+            $website_id, 'POST', '/clickfuzz/v1/theme',
+            ['theme_url' => $theme_url]
         );
         if (!$r['success']) {
             $steps[] = ['label' => 'Upload theme', 'ok' => false, 'message' => $r['error']];
@@ -2220,9 +2229,9 @@ function clickfuzz_web_redeploy_wp_theme($website_id)
         }
         $steps[] = ['label' => 'Upload theme', 'ok' => true, 'message' => ($r['body']['action'] ?? 'installed') . '.'];
 
-        $r = clickfuzz_web_wordpress_connector_request(
+        $r = _cfw_wp_request_with_retry(
             $website_id, 'POST', '/clickfuzz/v1/theme/activate',
-            ['theme_slug' => $export['theme_slug']]
+            ['slug' => $export['theme_slug']]
         );
         if (!$r['success']) {
             $steps[] = ['label' => 'Activate theme', 'ok' => false, 'message' => $r['error']];
@@ -2294,6 +2303,38 @@ function clickfuzz_web_reimport_wp_content($website_id)
     } finally {
         _cfw_wp_rm_dir($extracted['tmp_dir']);
     }
+}
+
+/**
+ * Generate a one-time signed token that lets WordPress pull a theme ZIP from ClickFuzz.
+ * Writes a .meta file to /tmp; the Pitchsnap_runtime::wp_theme_download() endpoint reads it.
+ *
+ * @return string  Full public URL for the WordPress plugin to GET the ZIP from.
+ */
+function _cfw_wp_make_theme_download_url($theme_zip_path)
+{
+    $token     = bin2hex(random_bytes(16)); // 32 hex chars
+    $meta_file = sys_get_temp_dir() . '/cf_td_' . $token . '.meta';
+    file_put_contents($meta_file, json_encode([
+        'zip'    => $theme_zip_path,
+        'expiry' => time() + 900, // 15 minutes
+    ]));
+    return base_url('pitchsnap/wp_theme_download/' . $token);
+}
+
+/**
+ * Wrapper around clickfuzz_web_wordpress_connector_request that retries on HTTP 429.
+ * Sleeps $delays[i] seconds before each attempt (including the first).
+ */
+function _cfw_wp_request_with_retry($website_id, $method, $endpoint, $body = [], $files = [])
+{
+    $r = clickfuzz_web_wordpress_connector_request($website_id, $method, $endpoint, $body, $files);
+    if ($r['success'] || $r['code'] !== 429) {
+        return $r;
+    }
+    // Single retry after a short pause
+    sleep(5);
+    return clickfuzz_web_wordpress_connector_request($website_id, $method, $endpoint, $body, $files);
 }
 
 /**
@@ -2394,4 +2435,56 @@ function _cfw_wp_extract_package_files($zip_path)
         'logo_file' => $logo_file,
         'error'     => null,
     ];
+}
+
+/**
+ * ZIP the ClickFuzz Connector plugin from the server's wp-plugin directory and
+ * POST it to the connected WordPress site's /clickfuzz/v1/plugin/update endpoint.
+ *
+ * @return array ['success'=>bool, 'code'=>int, 'body'=>array|null, 'error'=>string|null]
+ */
+function clickfuzz_web_update_wp_plugin($website_id)
+{
+    $plugin_src = FCPATH . 'wp-plugin/clickfuzz-connector/';
+    if (!is_dir($plugin_src)) {
+        return ['success' => false, 'code' => 0, 'body' => null, 'error' => 'Plugin source directory not found on server.'];
+    }
+
+    if (!class_exists('ZipArchive')) {
+        return ['success' => false, 'code' => 0, 'body' => null, 'error' => 'ZipArchive extension not available.'];
+    }
+
+    $tmp_zip = sys_get_temp_dir() . '/cf-plugin-' . bin2hex(random_bytes(6)) . '.zip';
+    $zip     = new ZipArchive();
+    if ($zip->open($tmp_zip, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+        return ['success' => false, 'code' => 0, 'body' => null, 'error' => 'Could not create plugin ZIP.'];
+    }
+
+    $src_real = realpath($plugin_src);
+    $it       = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($plugin_src, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($it as $item) {
+        $item_real = realpath((string) $item);
+        $relative  = 'clickfuzz-connector/' . ltrim(str_replace($src_real, '', $item_real), DIRECTORY_SEPARATOR);
+        $relative  = str_replace('\\', '/', $relative);
+        if (is_dir($item_real)) {
+            $zip->addEmptyDir($relative);
+        } else {
+            $zip->addFile($item_real, $relative);
+        }
+    }
+    $zip->close();
+
+    // Use pull model: WP fetches the ZIP from a signed ClickFuzz URL (avoids rate-limited multipart POSTs)
+    $plugin_url = _cfw_wp_make_theme_download_url($tmp_zip);
+
+    $result = clickfuzz_web_wordpress_connector_request(
+        $website_id, 'POST', '/clickfuzz/v1/plugin/update',
+        ['plugin_url' => $plugin_url]
+    );
+
+    @unlink($tmp_zip);
+    return $result;
 }

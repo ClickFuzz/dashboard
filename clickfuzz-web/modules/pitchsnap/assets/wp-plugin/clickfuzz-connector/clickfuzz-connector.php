@@ -27,7 +27,6 @@ require_once CF_CONNECTOR_DIR . 'includes/class-cf-theme.php';
 require_once CF_CONNECTOR_DIR . 'includes/class-cf-xml.php';
 require_once CF_CONNECTOR_DIR . 'includes/class-cf-logo.php';
 require_once CF_CONNECTOR_DIR . 'includes/class-cf-import.php';
-require_once CF_CONNECTOR_DIR . 'includes/class-cf-plugin.php';
 require_once CF_CONNECTOR_DIR . 'includes/class-cf-api.php';
 require_once CF_CONNECTOR_DIR . 'includes/class-cf-settings.php';
 

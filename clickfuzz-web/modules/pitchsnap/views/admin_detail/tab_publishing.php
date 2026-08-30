@@ -349,80 +349,30 @@
 
                 <!-- ── WordPress Connector ──────────────────────────────── -->
                 <?php
-                $_wp_id          = (int) $redesign->id;
-                $_wp_url         = !empty($redesign->wp_url)         ? $redesign->wp_url         : '';
-                $_wp_user        = !empty($redesign->wp_username)     ? $redesign->wp_username    : '';
-                $_wp_has_pass    = !empty($redesign->wp_app_password);
-                $_wp_connected   = !empty($redesign->wp_connected_at);
-                $_wp_conn_ver    = !empty($redesign->wp_connector_version) ? $redesign->wp_connector_version : '';
-                $_wp_version     = !empty($redesign->wp_wp_version)        ? $redesign->wp_wp_version        : '';
-                $_wp_theme_slug  = !empty($redesign->wp_active_theme_slug) ? $redesign->wp_active_theme_slug : '';
-                $_wp_has_html    = !empty($redesign->generation_result);
-                $_wp_deploy_raw  = $this->session->flashdata('wp_deploy_result');
-                $_wp_deploy      = $_wp_deploy_raw ? json_decode($_wp_deploy_raw, true) : null;
-                $_wp_zips        = glob(dirname(FCPATH) . '/exports/wordpress/' . $_wp_id . '/*.zip') ?: [];
-                $_wp_has_export  = !empty($_wp_zips);
-                $_wp_configured  = $_wp_url && $_wp_user && $_wp_has_pass;
+                $_wp_id         = (int) $redesign->id;
+                $_wp_token      = !empty($site->wp_pairing_token) ? $site->wp_pairing_token : '';
+                $_wp_connected  = !empty($site->wp_api_key) && !empty($site->wp_connected_at);
+                $_wp_url        = !empty($site->wp_site_url)         ? $site->wp_site_url         : '';
+                $_wp_conn_ver   = !empty($site->wp_connector_version) ? $site->wp_connector_version : '';
+                $_wp_version    = !empty($site->wp_wp_version)        ? $site->wp_wp_version        : '';
+                $_wp_theme_slug = !empty($site->wp_active_theme_slug) ? $site->wp_active_theme_slug : '';
+                $_wp_has_html   = !empty($redesign->generation_result);
+                $_wp_deploy_raw = $this->session->flashdata('wp_deploy_result');
+                $_wp_deploy     = $_wp_deploy_raw ? json_decode($_wp_deploy_raw, true) : null;
+                $_wp_zips       = glob(dirname(FCPATH) . '/exports/wordpress/' . $_wp_id . '/*.zip') ?: [];
+                $_wp_has_export = !empty($_wp_zips);
                 ?>
                 <div class="panel_s">
                     <div class="panel-body">
-                        <h5 class="tw-font-semibold mbot10"><i class="fa fa-wordpress" style="color:#21759b;"></i> WordPress</h5>
-
-                        <?php if (!$_wp_configured) { ?>
-                        <div class="well well-sm" style="font-size:13px; margin-bottom:16px; background:#f8f8f8;">
-                            <p class="mbot5"><strong>Setup Instructions</strong></p>
-                            <ol style="margin:0 0 0 16px; padding:0;">
-                                <li>Install the <strong>ClickFuzz Connector</strong> plugin on the WordPress site.</li>
-                                <li>In WordPress, go to <em>Users → Profile</em> and create a new <strong>Application Password</strong> (not your account password).</li>
-                                <li>Enter the WordPress site URL, your WordPress username, and the Application Password below, then save.</li>
-                                <li>Click <strong>Test Connection</strong> to verify.</li>
-                            </ol>
-                        </div>
-                        <?php } ?>
-
-                        <form method="POST" action="<?php echo admin_url('pitchsnap/save_wp_connection/' . $_wp_id); ?>" style="max-width:480px;">
-                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                            <div class="form-group" style="margin-bottom:10px;">
-                                <label style="font-size:13px; font-weight:600;">WordPress Site URL</label>
-                                <input type="url" name="wp_url" class="form-control input-sm"
-                                       value="<?php echo e($_wp_url); ?>"
-                                       placeholder="https://client-site.com">
-                            </div>
-                            <div class="form-group" style="margin-bottom:10px;">
-                                <label style="font-size:13px; font-weight:600;">WordPress Username</label>
-                                <input type="text" name="wp_username" class="form-control input-sm"
-                                       value="<?php echo e($_wp_user); ?>"
-                                       placeholder="admin"
-                                       autocomplete="off">
-                            </div>
-                            <div class="form-group" style="margin-bottom:14px;">
-                                <label style="font-size:13px; font-weight:600;">Application Password</label>
-                                <input type="password" name="wp_app_password" class="form-control input-sm"
-                                       value=""
-                                       placeholder="<?php echo $_wp_has_pass ? 'Leave blank to keep existing password' : 'xxxx xxxx xxxx xxxx xxxx xxxx'; ?>"
-                                       autocomplete="new-password">
-                                <p class="text-muted" style="font-size:11px; margin:4px 0 0;">
-                                    Use an <strong>Application Password</strong> from WordPress → Users → Profile. Not your account login password.
-                                    <?php if ($_wp_has_pass) { ?><br>A password is currently saved. Leave blank to keep it.<?php } ?>
-                                </p>
-                            </div>
-                            <button type="submit" class="btn btn-default btn-sm mright5">
-                                <i class="fa fa-save"></i> Save Connection
-                            </button>
-                            <?php if ($_wp_configured) { ?>
-                            <button type="button" class="btn btn-info btn-sm" id="wp-test-btn"
-                                    onclick="ps_test_wp_connection(<?php echo $_wp_id; ?>)">
-                                <i class="fa fa-plug"></i> Test Connection
-                            </button>
-                            <?php } ?>
-                        </form>
-
-                        <div id="wp-test-result" style="margin-top:10px; font-size:13px;"></div>
+                        <h5 class="tw-font-semibold mbot10"><i class="fa fa-wordpress" style="color:#21759b;"></i> WordPress Connector</h5>
 
                         <?php if ($_wp_connected) { ?>
-                        <div style="margin-top:14px; padding-top:12px; border-top:1px solid #eee;">
-                            <span class="text-success"><i class="fa fa-circle"></i> Connected</span>
-                            <span class="text-muted" style="font-size:12px; margin-left:6px;">as of <?php echo _dt($redesign->wp_connected_at); ?></span>
+                        <!-- ── State 3: Connected ─────────────────────────────── -->
+                        <div style="margin-bottom:12px;">
+                            <span class="text-success"><i class="fa fa-check-circle"></i> Connected</span>
+                            <?php if ($_wp_url) { ?>
+                            <span class="text-muted" style="font-size:12px; margin-left:8px;"><i class="fa fa-globe"></i> <?php echo e($_wp_url); ?></span>
+                            <?php } ?>
                             <?php if ($_wp_conn_ver || $_wp_version || $_wp_theme_slug) { ?>
                             <br><span class="text-muted" style="font-size:12px;">
                                 <?php
@@ -432,16 +382,26 @@
                                 if ($_wp_theme_slug) { $parts[] = 'Theme: ' . e($_wp_theme_slug); }
                                 echo implode(' &middot; ', $parts);
                                 ?>
+                                <?php if (!empty($site->wp_connected_at)) { ?>
+                                &middot; last verified <?php echo _dt($site->wp_connected_at); ?>
+                                <?php } ?>
                             </span>
                             <?php } ?>
                         </div>
-                        <?php } elseif ($_wp_configured) { ?>
-                        <div style="margin-top:10px; font-size:13px;">
-                            <span class="text-muted"><i class="fa fa-circle-o"></i> Not tested yet — click Test Connection to verify.</span>
-                        </div>
+
+                        <div id="wp-test-result" style="margin-bottom:10px; font-size:13px;"></div>
+
+                        <button type="button" class="btn btn-default btn-sm mright5" id="wp-test-btn"
+                                onclick="ps_test_wp_connection(<?php echo $_wp_id; ?>)">
+                            <i class="fa fa-plug"></i> Test Connection
+                        </button>
+                        <?php if ($_wp_url) { ?>
+                        <a href="<?php echo e($_wp_url); ?>" target="_blank" rel="noopener noreferrer" class="btn btn-default btn-sm">
+                            <i class="fa fa-external-link"></i> View WordPress Site
+                        </a>
                         <?php } ?>
 
-                        <?php if ($_wp_has_html && $_wp_configured) { ?>
+                        <?php if ($_wp_has_html) { ?>
                         <div style="margin-top:18px; padding-top:14px; border-top:1px solid #eee;">
                             <p class="text-muted" style="font-size:12px; margin-bottom:10px;">
                                 Deployment uploads the theme and imports content into WordPress.
@@ -453,31 +413,23 @@
                                     <i class="fa fa-rocket"></i> Deploy to WordPress
                                 </button>
                             </form>
-                            <?php if ($_wp_connected) { ?>
                             <form method="POST" action="<?php echo admin_url('pitchsnap/redeploy_wp_theme/' . $_wp_id); ?>" style="display:inline;">
                                 <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
                                 <button type="submit" class="btn btn-default btn-sm mright5"
-                                        onclick="return confirm('Redeploy theme only (content unchanged)?');">
+                                        onclick="return confirm('Redeploy theme only?');">
                                     <i class="fa fa-refresh"></i> Redeploy Theme
                                 </button>
                             </form>
                             <form method="POST" action="<?php echo admin_url('pitchsnap/reimport_wp_content/' . $_wp_id); ?>" style="display:inline;">
                                 <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                <button type="submit" class="btn btn-default btn-sm mright5"
+                                <button type="submit" class="btn btn-default btn-sm"
                                         onclick="return confirm('Reimport WXR content? Existing ClickFuzz-owned pages and menus will be updated.');">
                                     <i class="fa fa-cloud-upload"></i> Reimport Content
                                 </button>
                             </form>
-                            <?php if ($_wp_url) { ?>
-                            <a href="<?php echo e($_wp_url); ?>" target="_blank" rel="noopener noreferrer" class="btn btn-default btn-sm">
-                                <i class="fa fa-external-link"></i> View WordPress Site
-                            </a>
-                            <?php } ?>
-                            <?php } ?>
                         </div>
                         <?php } ?>
 
-                        <?php if ($_wp_has_html) { ?>
                         <div style="margin-top:14px; padding-top:12px; border-top:1px solid #eee;">
                             <?php if ($_wp_has_export) { ?>
                             <a href="<?php echo admin_url('pitchsnap/download_wordpress/' . $_wp_id); ?>" class="btn btn-default btn-xs mright5">
@@ -487,7 +439,7 @@
                                 <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
                                 <button type="submit" class="btn btn-default btn-xs"
                                         onclick="return confirm('Regenerate the WordPress package?');">
-                                    <i class="fa fa-refresh"></i> Regenerate
+                                    <i class="fa fa-refresh"></i> Regenerate Package
                                 </button>
                             </form>
                             <?php } else { ?>
@@ -499,7 +451,6 @@
                             </form>
                             <?php } ?>
                         </div>
-                        <?php } ?>
 
                         <?php if ($_wp_deploy) { ?>
                         <div style="margin-top:14px; padding-top:12px; border-top:1px solid #eee;">
@@ -522,8 +473,101 @@
                         </div>
                         <?php } ?>
 
+                        <?php
+                        $_wp_update_raw = $this->session->flashdata('wp_update_result');
+                        $_wp_update     = $_wp_update_raw ? json_decode($_wp_update_raw, true) : null;
+                        ?>
+                        <div style="margin-top:14px; padding-top:12px; border-top:1px solid #eee;">
+                            <form method="POST" action="<?php echo admin_url('pitchsnap/update_wp_plugin/' . $_wp_id); ?>" style="display:inline;">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-default btn-sm"
+                                        onclick="return confirm('Push the latest ClickFuzz Connector plugin to WordPress and update it automatically?');">
+                                    <i class="fa fa-arrow-circle-up"></i> Update WP Connector Plugin
+                                </button>
+                            </form>
+                            <?php if ($_wp_update) { ?>
+                            <span class="<?php echo $_wp_update['success'] ? 'text-success' : 'text-danger'; ?>" style="font-size:12px; margin-left:10px;">
+                                <i class="fa fa-<?php echo $_wp_update['success'] ? 'check' : 'times'; ?>"></i>
+                                <?php if ($_wp_update['success']) { ?>
+                                Plugin updated<?php echo !empty($_wp_update['version']) ? ' to v' . e($_wp_update['version']) : ''; ?>.
+                                <?php } else { ?>
+                                <?php echo e($_wp_update['error'] ?? 'Update failed.'); ?>
+                                <?php } ?>
+                            </span>
+                            <?php } ?>
+                        </div>
+
+                        <div style="margin-top:18px; padding-top:12px; border-top:1px solid #eee;">
+                            <form method="POST" action="<?php echo admin_url('pitchsnap/generate_wp_token/' . $_wp_id); ?>" style="display:inline;">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-warning btn-sm"
+                                        onclick="return confirm('Get a new token? This disconnects the current WordPress site. You will need to enter the new token in the plugin settings to reconnect.');">
+                                    <i class="fa fa-key"></i> Get New Token
+                                </button>
+                            </form>
+                        </div>
+
+                        <?php } elseif ($_wp_token) { ?>
+                        <!-- ── State 2: Token ready, waiting for plugin ────────── -->
+                        <div class="well well-sm" style="font-size:13px; margin-bottom:16px; background:#f8f8f8;">
+                            <p class="mbot5"><strong>Setup Instructions</strong></p>
+                            <ol style="margin:0 0 0 16px; padding:0;">
+                                <li>Click <strong>Download Plugin</strong> below and install it on the WordPress site.</li>
+                                <li>Activate the plugin, then go to <strong>WP Settings → ClickFuzz Connector</strong>.</li>
+                                <li>Paste the token below into the plugin and click <strong>Connect</strong>.</li>
+                            </ol>
+                        </div>
+
+                        <div style="margin-bottom:16px;">
+                            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Connection Token</label>
+                            <div class="input-group" style="max-width:420px;">
+                                <input type="text" id="wp-token-display" class="form-control input-sm"
+                                       value="<?php echo e($_wp_token); ?>"
+                                       readonly
+                                       onclick="this.select()"
+                                       style="font-family:monospace; font-size:15px; letter-spacing:1px; background:#fff;">
+                                <span class="input-group-btn">
+                                    <button type="button" class="btn btn-default btn-sm"
+                                            onclick="var el=document.getElementById('wp-token-display'); el.select(); document.execCommand('copy'); this.innerHTML='<i class=\'fa fa-check\'></i> Copied';">
+                                        <i class="fa fa-copy"></i> Copy
+                                    </button>
+                                </span>
+                            </div>
+                            <p class="text-muted" style="font-size:11px; margin:4px 0 0;">
+                                Once the plugin connects, a new token is required to reconnect.
+                            </p>
+                        </div>
+
+                        <a href="<?php echo admin_url('pitchsnap/download_wp_plugin/' . $_wp_id); ?>" class="btn btn-primary btn-sm">
+                            <i class="fa fa-download"></i> Download Plugin
+                        </a>
+
+                        <div style="margin-top:18px; padding-top:12px; border-top:1px solid #eee;">
+                            <form method="POST" action="<?php echo admin_url('pitchsnap/generate_wp_token/' . $_wp_id); ?>" style="display:inline;">
+                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                                <button type="submit" class="btn btn-link btn-xs text-muted"
+                                        style="padding:0; font-size:11px;"
+                                        onclick="return confirm('Regenerate token? The current token will be invalidated.');">
+                                    <i class="fa fa-refresh"></i> Regenerate Token
+                                </button>
+                            </form>
+                        </div>
+
+                        <?php } else { ?>
+                        <!-- ── State 1: No token yet ──────────────────────────── -->
+                        <p class="text-muted" style="font-size:13px; margin-bottom:14px;">
+                            Generate a connection token to pair this website with a WordPress installation.
+                        </p>
+                        <form method="POST" action="<?php echo admin_url('pitchsnap/generate_wp_token/' . $_wp_id); ?>">
+                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+                            <button type="submit" class="btn btn-default btn-sm">
+                                <i class="fa fa-key"></i> Generate Token
+                            </button>
+                        </form>
+                        <?php } ?>
+
                     </div>
-                </div><!-- /.panel_s WordPress -->
+                </div><!-- /.panel_s WordPress Connector -->
 
                 <?php } ?>
                 <?php } /* end site/publish_type block */ ?>
