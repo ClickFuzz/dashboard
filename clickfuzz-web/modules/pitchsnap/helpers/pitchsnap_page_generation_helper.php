@@ -176,7 +176,10 @@ function clickfuzz_web_page_builder_rules($site_html)
         return compact('header_html', 'footer_html', 'design_rules', 'color_palette');
     }
 
+    // Prefer <header> element; fall back to <nav> for sites that use nav directly.
     if (preg_match('/<header\b[^>]*>[\s\S]*?<\/header>/i', $site_html, $m)) {
+        $header_html = $m[0];
+    } elseif (preg_match('/<nav\b[^>]*>[\s\S]*?<\/nav>/i', $site_html, $m)) {
         $header_html = $m[0];
     }
 
@@ -202,25 +205,49 @@ function clickfuzz_web_page_builder_rules($site_html)
 }
 
 /**
- * Extracts the most-used hex colors from CSS + key HTML chrome.
- * Returns a comma-separated string of up to 12 colors sorted by frequency.
+ * Extracts brand colors from CSS + key HTML chrome.
+ * Returns a comma-separated string of up to 12 colors.
+ *
+ * Priority 1: hex values declared in :root {} (CSS custom properties) — these
+ * are the explicit brand palette regardless of how often they appear elsewhere.
+ * Priority 2: any other hex colors with frequency >= 2 in the full CSS/HTML.
  */
 function _cfw_extract_color_palette($css, $chrome_html)
 {
+    $palette = [];
+    $seen    = [];
+
+    // Extract hex colors from :root CSS custom properties (explicit brand palette).
+    if (preg_match('/:root\s*\{([^}]+)\}/i', $css, $rm)) {
+        if (preg_match_all('/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/', $rm[1], $m)) {
+            foreach ($m[0] as $color) {
+                $norm = strtolower($color);
+                if (!isset($seen[$norm])) {
+                    $palette[] = $norm;
+                    $seen[$norm] = true;
+                }
+            }
+        }
+    }
+
+    // Add frequently-used colors not already in the palette.
     $counts = [];
     if (preg_match_all('/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/', $css . ' ' . $chrome_html, $m)) {
         foreach ($m[0] as $color) {
-            $norm           = strtolower($color);
-            $counts[$norm]  = ($counts[$norm] ?? 0) + 1;
+            $norm = strtolower($color);
+            $counts[$norm] = ($counts[$norm] ?? 0) + 1;
         }
     }
     arsort($counts);
-    $palette = [];
     foreach ($counts as $color => $freq) {
         if ($freq < 2) break;
-        $palette[] = $color;
+        if (!isset($seen[$color])) {
+            $palette[] = $color;
+            $seen[$color] = true;
+        }
         if (count($palette) >= 12) break;
     }
+
     return $palette ? implode(', ', $palette) : '';
 }
 
