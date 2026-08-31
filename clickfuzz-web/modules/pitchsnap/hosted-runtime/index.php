@@ -236,9 +236,35 @@ if (in_array($ext, ['html', 'htm'], true)) {
 
 // ── 8. Serve ──────────────────────────────────────────────────────────────────
 
-header('Content-Type: '   . $mime);
-header('Content-Length: ' . (string) filesize($real_file));
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
-readfile($real_file);
+// HTML files: process <!--#include virtual="..." --> directives before serving.
+// This enables shared header/footer partials (_cf/*.html) without Apache SSI.
+if ($ext === 'html' || $ext === 'htm') {
+    $content = @file_get_contents($real_file);
+    if ($content === false) { abort(500); }
+    $content = preg_replace_callback(
+        '/<!--#include virtual="([^"]{1,512})"-->/i',
+        function ($m) use ($real_root) {
+            $rel = ltrim($m[1], '/');
+            // Reject empty paths or any traversal attempt
+            if ($rel === '' || strpos($rel, '..') !== false) { return ''; }
+            $real_inc = realpath($real_root . $rel);
+            if ($real_inc === false
+                || strpos($real_inc, $real_root) !== 0
+                || !is_file($real_inc)) {
+                return '';
+            }
+            return (string) (@file_get_contents($real_inc) ?: '');
+        },
+        $content
+    );
+    header('Content-Type: text/html; charset=utf-8');
+    header('Content-Length: ' . strlen($content));
+    echo $content;
+} else {
+    header('Content-Type: ' . $mime);
+    header('Content-Length: ' . (string) filesize($real_file));
+    readfile($real_file);
+}

@@ -11,11 +11,14 @@ defined('ABSPATH') || exit;
 class CF_Pages
 {
     // Meta keys — must match the ClickFuzz WordPress exporter contract.
-    const META_MARKER  = '_clickfuzz_generated_page';
-    const META_HTML    = '_clickfuzz_generated_html';
-    const META_CSS     = '_clickfuzz_generated_css';
-    const META_JS      = '_clickfuzz_generated_js';
-    const META_VERSION = '_clickfuzz_version';
+    const META_MARKER   = '_clickfuzz_generated_page';
+    const META_HTML     = '_clickfuzz_generated_html';
+    const META_CSS      = '_clickfuzz_generated_css';
+    const META_JS       = '_clickfuzz_generated_js';
+    const META_VERSION  = '_clickfuzz_version';
+    const META_META_TITLE = '_clickfuzz_meta_title';
+    const META_META_DESC  = '_clickfuzz_meta_description';
+    const META_NOINDEX    = '_clickfuzz_noindex';
 
     // ── Predicates ────────────────────────────────────────────────────────────
 
@@ -79,7 +82,8 @@ class CF_Pages
             'post_status'  => isset($params['status']) ? sanitize_key($params['status']) : 'draft',
             'post_title'   => sanitize_text_field($params['title'] ?? ''),
             'post_name'    => sanitize_title($params['slug'] ?? ($params['title'] ?? '')),
-            'post_content' => '',
+            'post_content' => $params['html'] ?? '',
+            'post_parent'  => (int) ($params['parent_wp_id'] ?? 0),
         ];
 
         $post_id = wp_insert_post($post_data, true);
@@ -92,6 +96,14 @@ class CF_Pages
         update_post_meta($post_id, self::META_CSS, $params['css'] ?? '');
         update_post_meta($post_id, self::META_JS, $params['js'] ?? '');
         update_post_meta($post_id, self::META_VERSION, 1);
+        if (isset($params['meta_title']))       update_post_meta($post_id, self::META_META_TITLE, sanitize_text_field($params['meta_title']));
+        if (isset($params['meta_description'])) update_post_meta($post_id, self::META_META_DESC,  sanitize_text_field($params['meta_description']));
+        if (isset($params['noindex']))          update_post_meta($post_id, self::META_NOINDEX,     $params['noindex'] ? '1' : '0');
+
+        if (!empty($params['set_as_front'])) {
+            update_option('show_on_front', 'page');
+            update_option('page_on_front', $post_id);
+        }
 
         return self::format_page(get_post($post_id));
     }
@@ -141,9 +153,11 @@ class CF_Pages
 
         // ── Update WP post fields ─────────────────────────────────────────────
         $post_data = ['ID' => $id];
-        if (isset($params['title']))  $post_data['post_title']  = sanitize_text_field($params['title']);
-        if (isset($params['slug']))   $post_data['post_name']   = sanitize_title($params['slug']);
-        if (isset($params['status'])) $post_data['post_status'] = sanitize_key($params['status']);
+        if (isset($params['title']))         $post_data['post_title']   = sanitize_text_field($params['title']);
+        if (isset($params['slug']))          $post_data['post_name']    = sanitize_title($params['slug']);
+        if (isset($params['status']))        $post_data['post_status']  = sanitize_key($params['status']);
+        if (isset($params['parent_wp_id']))  $post_data['post_parent']  = (int) $params['parent_wp_id'];
+        if (array_key_exists('html', $params)) $post_data['post_content'] = $params['html'];
 
         if (count($post_data) > 1) {
             $result = wp_update_post($post_data, true);
@@ -154,11 +168,19 @@ class CF_Pages
 
         // ── Update generated content meta ─────────────────────────────────────
         if (array_key_exists('html', $params)) update_post_meta($id, self::META_HTML, $params['html']);
-        if (array_key_exists('css', $params))  update_post_meta($id, self::META_CSS, $params['css']);
-        if (array_key_exists('js', $params))   update_post_meta($id, self::META_JS, $params['js']);
+        if (array_key_exists('css', $params))  update_post_meta($id, self::META_CSS,  $params['css']);
+        if (array_key_exists('js', $params))   update_post_meta($id, self::META_JS,   $params['js']);
+        if (array_key_exists('meta_title', $params))       update_post_meta($id, self::META_META_TITLE, sanitize_text_field($params['meta_title']));
+        if (array_key_exists('meta_description', $params)) update_post_meta($id, self::META_META_DESC,  sanitize_text_field($params['meta_description']));
+        if (array_key_exists('noindex', $params))          update_post_meta($id, self::META_NOINDEX,    $params['noindex'] ? '1' : '0');
 
         $new_version = (int) get_post_meta($id, self::META_VERSION, true) + 1;
         update_post_meta($id, self::META_VERSION, $new_version);
+
+        if (!empty($params['set_as_front'])) {
+            update_option('show_on_front', 'page');
+            update_option('page_on_front', $id);
+        }
 
         return self::format_page(get_post($id));
     }
@@ -211,16 +233,19 @@ class CF_Pages
     private static function format_page(WP_Post $post): array
     {
         return [
-            'id'           => $post->ID,
-            'title'        => $post->post_title,
-            'slug'         => $post->post_name,
-            'status'       => $post->post_status,
-            'link'         => get_permalink($post->ID),
-            'modified_gmt' => $post->post_modified_gmt,
-            'version'      => (int) get_post_meta($post->ID, self::META_VERSION, true),
-            'html'         => (string) get_post_meta($post->ID, self::META_HTML, true),
-            'css'          => (string) get_post_meta($post->ID, self::META_CSS, true),
-            'js'           => (string) get_post_meta($post->ID, self::META_JS, true),
+            'id'               => $post->ID,
+            'title'            => $post->post_title,
+            'slug'             => $post->post_name,
+            'status'           => $post->post_status,
+            'link'             => get_permalink($post->ID),
+            'modified_gmt'     => $post->post_modified_gmt,
+            'version'          => (int) get_post_meta($post->ID, self::META_VERSION, true),
+            'html'             => (string) get_post_meta($post->ID, self::META_HTML, true),
+            'css'              => (string) get_post_meta($post->ID, self::META_CSS, true),
+            'js'               => (string) get_post_meta($post->ID, self::META_JS, true),
+            'meta_title'       => (string) get_post_meta($post->ID, self::META_META_TITLE, true),
+            'meta_description' => (string) get_post_meta($post->ID, self::META_META_DESC,  true),
+            'noindex'          => (string) get_post_meta($post->ID, self::META_NOINDEX,    true) === '1',
         ];
     }
 }

@@ -180,10 +180,10 @@ $_is_trashed = $page->status === 'trash';
                             <div class="form-group" style="margin-bottom:0;">
                                 <div class="checkbox" style="margin:0;">
                                     <label>
-                                        <input type="checkbox" name="index_page" value="1"
-                                               <?php echo (int)$page->index_page ? 'checked' : ''; ?>
+                                        <input type="checkbox" name="noindex_page" value="1"
+                                               <?php echo (int)($page->noindex_page ?? 0) ? 'checked' : ''; ?>
                                                <?php echo $_is_trashed ? 'disabled' : ''; ?>>
-                                        Index this page (allow search engines to crawl)
+                                        Hide from search engines (noindex)
                                     </label>
                                 </div>
                             </div>
@@ -258,6 +258,36 @@ $_is_trashed = $page->status === 'trash';
                             </div>
                         </div>
                     </div>
+
+                    <!-- Panel: Page Content (HTML editor) -->
+                    <?php if ($current_gen && !empty($current_gen->html_content) && !$_is_trashed) { ?>
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h5 class="tw-font-semibold mbot10">
+                                Page Content
+                                <a href="<?php echo admin_url('pitchsnap/page_preview/' . (int)$page->id); ?>"
+                                   target="_blank" class="btn btn-info btn-xs" style="float:right; margin-top:-2px;">
+                                    <i class="fa fa-eye"></i> Preview
+                                </a>
+                            </h5>
+                            <p class="text-muted" style="font-size:12px; margin-bottom:10px;">
+                                Edit the page HTML directly. Saving creates a new version and sets it as primary.
+                            </p>
+                            <textarea id="ps-page-html-editor" class="form-control" rows="22"
+                                      style="font-family:'Courier New',Courier,monospace; font-size:11px; line-height:1.6; resize:vertical; tab-size:2;"
+                                      ><?php echo htmlspecialchars($current_gen->html_content, ENT_QUOTES | ENT_HTML5, 'UTF-8'); ?></textarea>
+                            <div style="margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                                <button type="button" class="btn btn-primary btn-sm" onclick="psSavePageContent();">
+                                    <i class="fa fa-save"></i> Save as New Version
+                                </button>
+                                <button type="button" class="btn btn-default btn-sm" onclick="psResetHtmlEditor();">
+                                    Reset
+                                </button>
+                                <span id="ps-html-save-status" style="font-size:12px;"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <?php } ?>
 
                     <!-- Panel: Page Media -->
                     <div class="panel_s">
@@ -370,6 +400,12 @@ $_is_trashed = $page->status === 'trash';
                             </a>
                             <?php } ?>
                             <?php if (!$_is_trashed) { ?>
+                            <button type="button" class="btn btn-primary btn-block mbot5"
+                                    data-url="<?php echo e(admin_url('pitchsnap/page_publish/' . (int)$page->id)); ?>"
+                                    data-confirm="Re-publish this page to WordPress?"
+                                    onclick="psSubmitPublish(this);">
+                                <i class="fa fa-upload"></i> Re-publish
+                            </button>
                             <a href="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>"
                                class="btn btn-warning btn-block"
                                onclick="return confirm('Regenerate this page? The live page stays up until you publish the new version.');">
@@ -392,13 +428,12 @@ $_is_trashed = $page->status === 'trash';
                                 <i class="fa fa-eye"></i> Preview Draft
                             </a>
                             <?php if (!$_is_trashed) { ?>
-                            <form action="<?php echo admin_url('pitchsnap/page_publish/' . (int)$page->id); ?>" method="post">
-                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                <button type="submit" class="btn btn-primary btn-block"
-                                        onclick="return confirm('Publish this updated version? The live page will be replaced.');">
-                                    <i class="fa fa-upload"></i> Publish Update
+                            <button type="button" class="btn btn-primary btn-block"
+                                        data-url="<?php echo e(admin_url('pitchsnap/page_publish/' . (int)$page->id)); ?>"
+                                        data-confirm="Publish this new version? The live page will be replaced."
+                                        onclick="psSubmitPublish(this);">
+                                    <i class="fa fa-upload"></i> Publish New Version
                                 </button>
-                            </form>
                             <a href="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>"
                                class="btn btn-warning btn-block btn-xs" style="margin-top:4px;"
                                onclick="return confirm('Regenerate again? This will replace the current unpublished draft.');">
@@ -416,12 +451,11 @@ $_is_trashed = $page->status === 'trash';
                                 <i class="fa fa-eye"></i> Preview Page
                             </a>
                             <?php if (!$_is_trashed) { ?>
-                            <form action="<?php echo admin_url('pitchsnap/page_publish/' . (int)$page->id); ?>" method="post">
-                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                <button type="submit" class="btn btn-primary btn-block">
+                            <button type="button" class="btn btn-primary btn-block"
+                                        data-url="<?php echo e(admin_url('pitchsnap/page_publish/' . (int)$page->id)); ?>"
+                                        onclick="psSubmitPublish(this);">
                                     <i class="fa fa-upload"></i> Publish Page
                                 </button>
-                            </form>
                             <a href="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>"
                                class="btn btn-warning btn-block btn-xs" style="margin-top:4px;"
                                onclick="return confirm('Regenerate this page? The current draft will be replaced.');">
@@ -485,23 +519,33 @@ $_is_trashed = $page->status === 'trash';
                     <div class="panel_s">
                         <div class="panel-body">
                             <h5 class="tw-font-semibold mbot10">Version History</h5>
+                            <?php $_pub_gen_id = (int)($page->published_generation_id ?? 0); ?>
                             <table class="table table-condensed" style="font-size:12px; margin-bottom:0;">
-                                <thead><tr><th>#</th><th>Date</th><th>Actions</th></tr></thead>
+                                <thead><tr><th>#</th><th>Date</th><th>Source</th><th></th></tr></thead>
                                 <tbody>
-                                <?php foreach ($generations as $_gi => $_gen) { ?>
+                                <?php foreach ($generations as $_gi => $_gen) {
+                                    $_ver_num = count($generations) - $_gi;
+                                    $_is_pub  = ($_pub_gen_id > 0 && $_pub_gen_id === (int)$_gen->id);
+                                    $_src = $_gen->source ?? 'ai_generated';
+                                    $_src_label = $_src === 'manual_edit' ? 'Edited' : ($_src === 'homepage_seed' ? 'Seeded' : 'AI');
+                                ?>
                                 <tr class="<?php echo $_gen->is_current ? 'success' : ''; ?>">
-                                    <td><?php echo count($generations) - $_gi; ?><?php echo $_gen->is_current ? ' <span class="label label-success">current</span>' : ''; ?></td>
-                                    <td><?php echo _dt($_gen->dateadded); ?></td>
                                     <td>
+                                        v<?php echo $_ver_num; ?>
+                                        <?php if ($_gen->is_current) { ?>&nbsp;<span class="label label-success" style="font-size:9px;">primary</span><?php } ?>
+                                        <?php if ($_is_pub) { ?>&nbsp;<span class="label label-primary" style="font-size:9px;">published</span><?php } ?>
+                                    </td>
+                                    <td style="white-space:nowrap;"><?php echo _dt($_gen->dateadded); ?></td>
+                                    <td><?php echo $_src_label; ?></td>
+                                    <td style="white-space:nowrap;">
                                         <a href="<?php echo admin_url('pitchsnap/page_preview/' . (int)$page->id . '?gen=' . (int)$_gen->id); ?>"
                                            target="_blank" title="Preview" style="margin-right:4px;">
                                             <i class="fa fa-eye"></i>
                                         </a>
                                         <?php if (!$_gen->is_current) { ?>
-                                        <form action="<?php echo admin_url('pitchsnap/page_generation_set_current/' . (int)$_gen->id); ?>" method="post" style="display:inline;">
-                                            <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                            <button type="submit" class="btn btn-xs btn-default" title="Set as current">Use</button>
-                                        </form>
+                                        <button type="button" class="btn btn-xs btn-default" title="Set as primary"
+                                                data-url="<?php echo e(admin_url('pitchsnap/page_generation_set_current/' . (int)$_gen->id)); ?>"
+                                                onclick="psSubmitPublish(this);">Use</button>
                                         <?php } ?>
                                     </td>
                                 </tr>
@@ -553,11 +597,60 @@ $_is_trashed = $page->status === 'trash';
 
 <?php init_tail(); ?>
 <script>
-var PS_PAGE_ID   = <?php echo (int)$page->id; ?>;
-var PS_CSRF_NAME = <?php echo json_encode($this->security->get_csrf_token_name()); ?>;
-var PS_CSRF_HASH = <?php echo json_encode($this->security->get_csrf_hash()); ?>;
-var PS_ATTACH_URL = '<?php echo admin_url("pitchsnap/page_media_attach/" . (int)$page->id); ?>';
-var PS_DETACH_URL = '<?php echo admin_url("pitchsnap/page_media_detach/" . (int)$page->id); ?>';
+var PS_PAGE_ID          = <?php echo (int)$page->id; ?>;
+var PS_CSRF_NAME        = <?php echo json_encode($this->security->get_csrf_token_name()); ?>;
+var PS_CSRF_HASH        = <?php echo json_encode($this->security->get_csrf_hash()); ?>;
+var PS_ATTACH_URL       = '<?php echo admin_url("pitchsnap/page_media_attach/" . (int)$page->id); ?>';
+var PS_DETACH_URL       = '<?php echo admin_url("pitchsnap/page_media_detach/" . (int)$page->id); ?>';
+var PS_CONTENT_SAVE_URL = '<?php echo admin_url("pitchsnap/page_content_save/" . (int)$page->id); ?>';
+var psOriginalHtml      = <?php echo json_encode($current_gen ? ($current_gen->html_content ?? '') : ''); ?>;
+
+function psSavePageContent() {
+    var editor = document.getElementById('ps-page-html-editor');
+    var status = document.getElementById('ps-html-save-status');
+    if (!editor) { return; }
+    status.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Saving&hellip;';
+    var body = PS_CSRF_NAME + '=' + encodeURIComponent(PS_CSRF_HASH)
+             + '&html=' + encodeURIComponent(editor.value);
+    fetch(PS_CONTENT_SAVE_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: body
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+        if (j.success) {
+            psOriginalHtml = editor.value;
+            status.innerHTML = '<span class="text-success"><i class="fa fa-check"></i> ' + j.message + ' Reloading&hellip;</span>';
+            setTimeout(function() { window.location.reload(); }, 1200);
+        } else {
+            status.innerHTML = '<span class="text-danger"><i class="fa fa-times"></i> ' + j.error + '</span>';
+        }
+    })
+    .catch(function() {
+        status.innerHTML = '<span class="text-danger"><i class="fa fa-times"></i> Request failed.</span>';
+    });
+}
+
+function psResetHtmlEditor() {
+    var editor = document.getElementById('ps-page-html-editor');
+    if (editor) { editor.value = psOriginalHtml; }
+    document.getElementById('ps-html-save-status').innerHTML = '';
+}
+
+function psSubmitPublish(btn) {
+    var url = btn.getAttribute('data-url');
+    var msg = btn.getAttribute('data-confirm');
+    if (msg && !confirm(msg)) { return; }
+    var f = document.createElement('form');
+    f.method = 'POST';
+    f.action = url;
+    var t = document.createElement('input');
+    t.type = 'hidden'; t.name = PS_CSRF_NAME; t.value = PS_CSRF_HASH;
+    f.appendChild(t);
+    document.body.appendChild(f);
+    f.submit();
+}
 
 // Slug auto-suggest from title
 document.getElementById('ps-edit-title').addEventListener('input', function() {

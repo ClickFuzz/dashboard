@@ -350,6 +350,69 @@ function clickfuzz_web_remote_put(string $relative_path, string $content): array
 }
 
 /**
+ * Writes $content to sites/{slug}/{relative_path}: always locally (page builder
+ * infrastructure), and also via FTP when credentials are configured.
+ * Creates intermediate directories as needed.
+ * Returns ['success'=>bool, 'error'=>string|null].
+ */
+function clickfuzz_web_site_put(string $slug, string $relative_path, string $content): array
+{
+    $local_path = dirname(FCPATH) . '/sites/' . $slug . '/' . ltrim($relative_path, '/');
+    $local_dir  = dirname($local_path);
+    if (!is_dir($local_dir) && !@mkdir($local_dir, 0755, true)) {
+        return ['success' => false, 'error' => 'Could not create directory for: ' . $relative_path];
+    }
+    if (file_put_contents($local_path, $content) === false) {
+        return ['success' => false, 'error' => 'Could not write: ' . $relative_path];
+    }
+    if (get_option('pitchsnap_publish_ftp_host')) {
+        return clickfuzz_web_remote_put($slug . '/' . ltrim($relative_path, '/'), $content);
+    }
+    return ['success' => true, 'error' => null];
+}
+
+/**
+ * Separates published site HTML into chrome partials and shared stylesheet,
+ * then persists them locally and pushes to the hosted server.
+ * Writes: _cf/header.html, _cf/footer.html, _cf/head.html, assets/style.css
+ * Non-blocking — errors are returned but do not fail the calling publish.
+ * Returns ['success'=>bool, 'errors'=>string[]].
+ */
+function clickfuzz_web_write_site_chrome(string $slug, string $html): array
+{
+    if (!function_exists('clickfuzz_web_extract_site_chrome')) {
+        require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_page_publish_helper.php';
+    }
+
+    $css = '';
+    if (preg_match_all('/<style[^>]*>([\s\S]*?)<\/style>/i', $html, $m)) {
+        $css = trim(implode("\n", $m[1]));
+    }
+
+    $chrome = clickfuzz_web_extract_site_chrome($html);
+    $errors = [];
+
+    if ($css) {
+        $r = clickfuzz_web_site_put($slug, 'assets/style.css', $css);
+        if (!$r['success']) { $errors[] = $r['error']; }
+    }
+
+    $partials = [
+        'header'     => '_cf/header.html',
+        'footer'     => '_cf/footer.html',
+        'head_inner' => '_cf/head.html',
+    ];
+    foreach ($partials as $key => $path) {
+        if (!empty($chrome[$key])) {
+            $r = clickfuzz_web_site_put($slug, $path, $chrome[$key]);
+            if (!$r['success']) { $errors[] = $r['error']; }
+        }
+    }
+
+    return ['success' => empty($errors), 'errors' => $errors];
+}
+
+/**
  * Publish a site: copy the latest preview HTML to sites/{slug}/index.html.
  * Returns ['success'=>bool, 'url'=>string|null, 'error'=>string|null].
  */
@@ -432,28 +495,13 @@ function clickfuzz_web_publish_site($site_id)
         ? str_ireplace('</body>', $widget . "\n</body>", $html)
         : $html . "\n" . $widget;
 
-    // Transfer to hosted-sites server if FTP credentials are configured;
-    // fall back to local write (development / unconfigured environments).
-    if (get_option('pitchsnap_publish_ftp_host')) {
-        $upload = clickfuzz_web_remote_put($slug . '/index.html', $html);
-        if (!$upload['success']) {
-            return ['success' => false, 'url' => null, 'error' => $upload['error']];
-        }
-    } else {
-        $sites_base = dirname(FCPATH) . '/sites';
-        $site_dir   = $sites_base . '/' . $slug;
-
-        if (!is_dir($sites_base) && !mkdir($sites_base, 0755, true)) {
-            return ['success' => false, 'url' => null, 'error' => 'Could not create sites directory.'];
-        }
-        if (!is_dir($site_dir) && !mkdir($site_dir, 0755, true)) {
-            return ['success' => false, 'url' => null, 'error' => 'Could not create site directory.'];
-        }
-
-        if (file_put_contents($site_dir . '/index.html', $html) === false) {
-            return ['success' => false, 'url' => null, 'error' => 'Failed to write site HTML file.'];
-        }
+    // Write index.html locally (page builder infrastructure) and push to FTP when configured.
+    $index_result = clickfuzz_web_site_put($slug, 'index.html', $html);
+    if (!$index_result['success']) {
+        return ['success' => false, 'url' => null, 'error' => $index_result['error']];
     }
+    // Separate chrome into partials (_cf/) and stylesheet (assets/style.css); push alongside index.html.
+    clickfuzz_web_write_site_chrome($slug, $html);
 
     $CI->pitchsnap_model->update_site($site_id, [
         'status'       => 'published',
@@ -568,6 +616,28 @@ function clickfuzz_web_publish_site_wp($site_id)
     $html = clickfuzz_web_normalize_copyright_year($html);
     // Remove the pitchsnap preview widget — WP sites use their own session handling
     $html = preg_replace('/<script[^>]+\bsrc=[^>]*pitchsnap[^>]*>\s*<\/script>/i', '', $html);
+
+    // Always write HTML version to the hosted server so the page builder has a preview host.
+    // Resolve or generate a slug (WP sites may not have one yet).
+    $wp_html_slug = '';
+    $wp_domain    = $site->domain ?? '';
+    if ($wp_domain) {
+        $wp_after = strstr($wp_domain, '/sites/');
+        $wp_cand  = ($wp_after !== false) ? substr($wp_after, strlen('/sites/')) : '';
+        if (preg_match('/^[a-z0-9\-]+$/', $wp_cand)) { $wp_html_slug = $wp_cand; }
+    }
+    if (!$wp_html_slug) {
+        $wp_html_slug = clickfuzz_web_generate_site_slug((int) $site->source_website_id);
+        if ($wp_html_slug && preg_match('/^[a-z0-9\-]+$/', $wp_html_slug)) {
+            $CI->pitchsnap_model->update_site($site_id, ['domain' => 'clickfuzz.com/sites/' . $wp_html_slug]);
+        } else {
+            $wp_html_slug = '';
+        }
+    }
+    if ($wp_html_slug) {
+        clickfuzz_web_site_put($wp_html_slug, 'index.html', $html);
+        clickfuzz_web_write_site_chrome($wp_html_slug, $html);
+    }
 
     $wp_url      = rtrim($site->wp_site_url, '/');
     $credentials = base64_encode($site->wp_username . ':' . $site->wp_app_password);
@@ -684,7 +754,8 @@ function clickfuzz_web_ensure_homepage_page($CI, $site_id)
         'menu_primary'      => 0,
         'menu_footer'       => 0,
         'menu_order'        => 0,
-        'index_page'        => 1,
+        'noindex_page'      => 0,
+        'is_home_page'      => 0,
     ]);
 }
 

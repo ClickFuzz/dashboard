@@ -208,7 +208,17 @@ Core pipeline is implemented and confirmed working in production. Both Anthropic
 
 ## In Progress
 
-- Nothing in progress. Phases 1–5 deployed, tested, and merged to `main` (2026-08-28). Workstream parked pending new Website Details architecture.
+**Phase 6 — Chrome separation + SSI publish** (branch `claude/pages-publish`, 2026-08-31)
+
+- `clickfuzz_web_site_put($slug, $relative_path, $content)` — dual-write: always local, also FTP when configured. Replaces the old FTP/local branch in `publish_site()`.
+- `clickfuzz_web_write_site_chrome($slug, $html)` — separates published HTML into `_cf/header.html`, `_cf/footer.html`, `_cf/head.html`, `assets/style.css` and pushes all files to hosted server.
+- `clickfuzz_web_publish_site()` — now uses `site_put()` + `write_site_chrome()`; always writes locally (page builder needs it) even in FTP mode.
+- `clickfuzz_web_publish_site_wp()` — also writes HTML files to hosted server for page builder preview; generates slug if site doesn't have one.
+- `clickfuzz_web_render_full_page_html()` — new `$use_ssi` and `$css_url` params; in SSI mode emits `<!--#include virtual="/_cf/header.html"-->` / `/_cf/footer.html` instead of baked-in HTML; links `assets/style.css` when `$css_url` provided.
+- `clickfuzz_web_publish_page_html()` — loads from `_cf/` partials when available (SSI mode); falls back to parsing `index.html`; uses `site_put()` to write + push page file.
+- `clickfuzz_web_update_all_site_navs()` — SSI mode: updates `_cf/header.html` and pushes; patches homepage only. Legacy mode: updates all page files as before.
+- `hosted-runtime/index.php` — processes `<!--#include virtual="..." -->` directives for HTML files before serving (enables SSI without Apache config).
+- **Status**: implemented, not yet deployed/tested.
 
 ---
 

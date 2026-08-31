@@ -1558,8 +1558,11 @@ class Pitchsnap extends AdminController
                     $live_url = 'https://' . $domain_row->hostname . '/' . $page->published_path . '/';
                 }
             }
-            if ($data['current_gen'] && !empty($page->published_at)) {
-                $has_newer_gen = ($data['current_gen']->dateadded > $page->published_at);
+            if ($data['current_gen']) {
+                $pub_gen_id    = (int) ($page->published_generation_id ?? 0);
+                $has_newer_gen = $pub_gen_id > 0
+                    ? ($pub_gen_id !== (int) $data['current_gen']->id)
+                    : ($data['current_gen']->dateadded > $page->published_at);
             }
         }
         $data['live_url']      = $live_url;
@@ -1591,10 +1594,19 @@ class Pitchsnap extends AdminController
         $type      = trim($this->input->post('page_type', true));
         $parent_id = (int) $this->input->post('parent_page_id');
 
-        $valid_types = ['about','service','service_area','contact','gallery','financing','faq','custom'];
+        $valid_types = ['homepage','about','service','service_area','contact','gallery','financing','faq','custom'];
         if ($title === '' || $slug === '' || !in_array($type, $valid_types, true)) {
             set_alert('danger', 'Page name, type, and slug are required.');
             redirect($edit_url);
+        }
+
+        // Enforce homepage exclusivity: only one page per site may have type 'homepage'
+        if ($type === 'homepage') {
+            $existing_hp = $this->pitchsnap_model->get_homepage_page_for_site($page->site_id, $page_id);
+            if ($existing_hp) {
+                set_alert('danger', '"' . e($existing_hp->title) . '" is already assigned as the Homepage. Change its page type first.');
+                redirect($edit_url);
+            }
         }
 
         if (!$this->pitchsnap_model->page_slug_available($page->site_id, $slug, $page_id)) {
@@ -1619,7 +1631,8 @@ class Pitchsnap extends AdminController
             'primary_keyword'     => trim($this->input->post('primary_keyword', true)) ?: null,
             'supporting_keywords' => trim($this->input->post('supporting_keywords', true)) ?: null,
             'instructions'        => trim($this->input->post('instructions', true)) ?: null,
-            'index_page'          => $this->input->post('index_page') ? 1 : 0,
+            'noindex_page'        => $this->input->post('noindex_page') ? 1 : 0,
+            'is_home_page'        => ($type === 'homepage') ? 1 : 0,
             'menu_primary'        => $this->input->post('menu_primary') ? 1 : 0,
             'menu_footer'         => $this->input->post('menu_footer') ? 1 : 0,
             'menu_label'          => trim($this->input->post('menu_label', true)) ?: null,
@@ -1628,7 +1641,56 @@ class Pitchsnap extends AdminController
 
         $this->pitchsnap_model->update_page($page_id, $fields);
         log_activity('ClickFuzz Web: Page updated [Page ID: ' . $page_id . ']');
-        set_alert('success', 'Page saved.');
+
+        // When setting as homepage, clear is_home_page on all other pages of this site
+        if ($type === 'homepage') {
+            $this->pitchsnap_model->clear_home_page_for_site($page->site_id, $page_id);
+        }
+
+        // Seed a generation record for homepage pages that have none yet
+        if ($type === 'homepage' && !$this->pitchsnap_model->get_current_page_generation($page_id)) {
+            $seed_html = $this->_resolve_site_preview_html($site);
+            if ($seed_html) {
+                $seed_gen_id = $this->pitchsnap_model->create_page_generation($page_id, $page->site_id, [
+                    'html_content' => $seed_html,
+                    'css_content'  => '',
+                    'js_content'   => '',
+                    'source'       => 'homepage_seed',
+                ]);
+                if ($seed_gen_id) {
+                    $this->pitchsnap_model->set_current_page_generation($page_id, $seed_gen_id);
+                    $this->pitchsnap_model->update_page($page_id, ['generation_status' => 'generated']);
+                }
+            }
+        }
+
+        // Auto-push to WordPress when already published
+        $fresh_page   = $this->pitchsnap_model->get_page($page_id);
+        $publish_type = $site->publish_type ?? 'html';
+        if ($publish_type === 'wordpress' && !empty($fresh_page->wp_page_id)) {
+            $gen = $this->pitchsnap_model->get_current_page_generation($page_id);
+            if ($gen) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_page_publish_helper.php';
+                $parent_wp_page_id = null;
+                if (!empty($fresh_page->parent_page_id)) {
+                    $parent_page = $this->pitchsnap_model->get_page((int) $fresh_page->parent_page_id);
+                    if ($parent_page && !empty($parent_page->wp_page_id)) {
+                        $parent_wp_page_id = (int) $parent_page->wp_page_id;
+                    }
+                }
+                $push = clickfuzz_web_publish_page_wp($fresh_page, $site, $gen, $parent_wp_page_id, 0);
+                if ($push['success']) {
+                    $this->pitchsnap_model->publish_page($page_id, $fresh_page->published_path ?? '', $push['wp_page_id'] ?? null, null, null);
+                    set_alert('success', 'Page saved and pushed to WordPress.');
+                } else {
+                    set_alert('warning', 'Page saved. WordPress push failed: ' . $push['error']);
+                }
+            } else {
+                set_alert('success', 'Page saved.');
+            }
+        } else {
+            set_alert('success', 'Page saved.');
+        }
         redirect($edit_url);
     }
 
@@ -1868,6 +1930,24 @@ class Pitchsnap extends AdminController
 
         $gen = $this->pitchsnap_model->get_current_page_generation($page_id);
 
+        // Homepage pages may have no page generation record — fall back to the main site preview HTML.
+        if ($page->page_type === 'homepage' && !$gen) {
+            $fallback_html = $this->_resolve_site_preview_html($site);
+            if (!$fallback_html) {
+                set_alert('danger', 'No generated site HTML found. Generate the site first before publishing the homepage.');
+                redirect($edit_url);
+            }
+            $gen = (object) [
+                'id'                         => 0,
+                'page_id'                    => $page->id,
+                'site_id'                    => $page->site_id,
+                'html_content'               => $fallback_html,
+                'css_content'                => '',
+                'js_content'                 => '',
+                'meta_description_generated' => '',
+            ];
+        }
+
         // Eligibility
         require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_page_publish_helper.php';
         $eligibility_error = clickfuzz_web_page_publish_eligible($page, $site, $gen);
@@ -1912,23 +1992,62 @@ class Pitchsnap extends AdminController
         $wp_page_id_to_store              = ($publish_type === 'wordpress') ? ($result['wp_page_id'] ?? null) : null;
         $wp_primary_menu_item_id_to_store = ($publish_type === 'wordpress') ? ($result['wp_primary_menu_item_id'] ?? null) : null;
         $wp_footer_menu_item_id_to_store  = ($publish_type === 'wordpress') ? ($result['wp_footer_menu_item_id'] ?? null) : null;
+        $gen_id_published = ((int) $gen->id > 0) ? (int) $gen->id : null;
         $this->pitchsnap_model->publish_page(
             $page_id,
             $result['published_path'] ?? '',
             $wp_page_id_to_store,
             $wp_primary_menu_item_id_to_store,
-            $wp_footer_menu_item_id_to_store
+            $wp_footer_menu_item_id_to_store,
+            $gen_id_published
         );
 
-        // Purge obsolete generation history — keep only the current generation
-        $gen_id = (int) $gen->id;
-        $this->pitchsnap_model->cleanup_page_generations($page_id, $gen_id);
+        // Purge obsolete generation history — keep only the current generation (skip for synthetic homepage gen)
+        if ((int) $gen->id > 0) {
+            $this->pitchsnap_model->cleanup_page_generations($page_id, (int) $gen->id);
+        }
 
         $live_url = $result['url'] ?? '';
-        $url_html = $live_url ? ' <a href="' . e($live_url) . '" target="_blank">' . e($live_url) . '</a>' : '';
+        $url_html = $live_url ? ' <a href=\'' . e($live_url) . '\' target=\'_blank\'>' . e($live_url) . '</a>' : '';
         log_activity('ClickFuzz Web: Internal page published [Page #' . $page_id . ', URL: ' . $live_url . ']');
         set_alert('success', 'Page published successfully.' . $url_html);
         redirect($edit_url);
+    }
+
+    // POST pitchsnap/page_content_save/{page_id} — AJAX: save HTML as new page version
+    public function page_content_save($page_id = '')
+    {
+        header('Content-Type: application/json');
+        if (!is_admin()) { echo json_encode(['success' => false, 'error' => 'Forbidden']); return; }
+        if ($this->input->method() !== 'post') { echo json_encode(['success' => false, 'error' => 'POST required']); return; }
+
+        $page_id = (int) $page_id;
+        $page    = $this->pitchsnap_model->get_page($page_id);
+        if (!$page) { echo json_encode(['success' => false, 'error' => 'Page not found']); return; }
+
+        $html = $this->input->post('html') ?? '';
+        if (trim($html) === '') {
+            echo json_encode(['success' => false, 'error' => 'HTML content cannot be empty']);
+            return;
+        }
+
+        $gen_id = $this->pitchsnap_model->create_page_generation($page_id, $page->site_id, [
+            'html_content' => $html,
+            'css_content'  => '',
+            'js_content'   => '',
+            'source'       => 'manual_edit',
+        ]);
+
+        if (!$gen_id) {
+            echo json_encode(['success' => false, 'error' => 'Failed to save version']);
+            return;
+        }
+
+        $this->pitchsnap_model->set_current_page_generation($page_id, $gen_id);
+        $this->pitchsnap_model->update_page($page_id, ['generation_status' => 'generated']);
+        log_activity('ClickFuzz Web: Page HTML saved as new version [Page #' . $page_id . ']');
+
+        echo json_encode(['success' => true, 'message' => 'New version saved.', 'gen_id' => $gen_id]);
     }
 
     // -----------------------------------------------------------------------
@@ -2002,40 +2121,68 @@ class Pitchsnap extends AdminController
         $shared_head      = '';
 
         if ($site) {
+            $homepage_html = '';
+
+            // Primary: read from the published homepage on the sites server filesystem.
+            // Only works when dashboard and sites server share the same filesystem.
             $domain    = $site->domain ?? '';
             $site_slug = ltrim(strstr($domain, '/sites/'), '/sites/');
             if ($site_slug && preg_match('/^[a-z0-9\-]+$/', $site_slug)) {
                 $homepage_file = dirname(FCPATH) . '/sites/' . $site_slug . '/index.html';
                 if (file_exists($homepage_file)) {
-                    $homepage_html = @file_get_contents($homepage_file);
-                    $chrome        = clickfuzz_web_extract_site_chrome((string) $homepage_html);
-                    $canonical_footer = $chrome['footer'];
-                    $shared_head      = $chrome['head_inner'];
+                    $homepage_html = (string) @file_get_contents($homepage_file);
+                }
+            }
 
-                    // Build nav from current published page registry
-                    $domain_row    = $this->pitchsnap_model->get_platform_domain_for_site($site->id);
-                    $site_base_url = $domain_row ? 'https://' . $domain_row->hostname : null;
+            // Fallback: the source website's stored generation HTML (always accessible
+            // on the dashboard server — used when sites are hosted on a separate server).
+            if (empty($homepage_html) && !empty($site->source_website_id)) {
+                $source_redesign = $this->pitchsnap_model->get((int) $site->source_website_id);
+                if ($source_redesign && !empty($source_redesign->generation_result)) {
+                    $homepage_html = $source_redesign->generation_result;
+                }
+            }
 
-                    if ($site_base_url && !empty($chrome['header'])) {
-                        $all_pages     = $this->pitchsnap_model->get_pages_for_site($site->id, true);
-                        $pages_indexed = [];
-                        foreach ($all_pages as $p) { $pages_indexed[(int) $p->id] = $p; }
+            if (!empty($homepage_html)) {
+                $chrome           = clickfuzz_web_extract_site_chrome($homepage_html);
+                $canonical_footer = $chrome['footer'];
 
-                        $nav_data = clickfuzz_web_build_nav_items($pages_indexed, $site_base_url);
-                        $nav_html = clickfuzz_web_render_primary_nav_html($nav_data['primary'], $site_base_url . '/');
-
-                        // Update nav links in the extracted canonical header
-                        $canonical_header = clickfuzz_web_update_html_nav($chrome['header'], $nav_html);
-                    } else {
-                        $canonical_header = $chrome['header'];
+                // head_inner has <style> blocks stripped (publish flow uses assets/style.css).
+                // For preview we have no live URL for that file, so embed the site CSS inline.
+                $site_css_chunks = [];
+                if (preg_match_all('/<style[^>]*>([\s\S]*?)<\/style>/i', $homepage_html, $cm)) {
+                    foreach ($cm[1] as $chunk) {
+                        $t = trim($chunk);
+                        if ($t !== '') { $site_css_chunks[] = $t; }
                     }
+                }
+                $shared_head = $chrome['head_inner'];
+                if ($site_css_chunks) {
+                    $shared_head .= "\n<style>" . implode("\n", $site_css_chunks) . '</style>';
+                }
+
+                // Build nav from current published page registry
+                $domain_row    = $this->pitchsnap_model->get_platform_domain_for_site($site->id);
+                $site_base_url = $domain_row ? 'https://' . $domain_row->hostname : null;
+
+                if ($site_base_url && !empty($chrome['header'])) {
+                    $all_pages     = $this->pitchsnap_model->get_pages_for_site($site->id, true);
+                    $pages_indexed = [];
+                    foreach ($all_pages as $p) { $pages_indexed[(int) $p->id] = $p; }
+
+                    $nav_data = clickfuzz_web_build_nav_items($pages_indexed, $site_base_url);
+                    $nav_html = clickfuzz_web_render_primary_nav_html($nav_data['primary'], $site_base_url . '/');
+
+                    $canonical_header = clickfuzz_web_update_html_nav($chrome['header'], $nav_html);
+                } else {
+                    $canonical_header = $chrome['header'] ?? '';
                 }
             }
         }
 
         // Force noindex on preview — never influence search indexing
         $preview_page             = clone $page;
-        $preview_page->index_page = 0;
+        $preview_page->noindex_page = 1;
 
         // No canonical URL on preview (page may not yet be published)
         $html = clickfuzz_web_render_full_page_html(
@@ -2069,7 +2216,34 @@ class Pitchsnap extends AdminController
         $ok = $this->pitchsnap_model->set_current_page_generation($gen->page_id, $generation_id);
         if ($ok) {
             log_activity('ClickFuzz Web: Page generation version set [Page #' . $gen->page_id . ', Gen #' . $generation_id . ']');
-            set_alert('success', 'Version set as current.');
+
+            // Auto-push to WordPress when already published
+            $site         = $this->pitchsnap_model->get_site_by_id($page->site_id);
+            $publish_type = $site ? ($site->publish_type ?? 'html') : 'html';
+            if ($publish_type === 'wordpress' && !empty($page->wp_page_id) && $site) {
+                $new_gen = $this->pitchsnap_model->get_page_generation($generation_id);
+                if ($new_gen) {
+                    require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_page_publish_helper.php';
+                    $parent_wp_page_id = null;
+                    if (!empty($page->parent_page_id)) {
+                        $parent_page = $this->pitchsnap_model->get_page((int) $page->parent_page_id);
+                        if ($parent_page && !empty($parent_page->wp_page_id)) {
+                            $parent_wp_page_id = (int) $parent_page->wp_page_id;
+                        }
+                    }
+                    $push = clickfuzz_web_publish_page_wp($page, $site, $new_gen, $parent_wp_page_id, 0);
+                    if ($push['success']) {
+                        $this->pitchsnap_model->publish_page($page->id, $page->published_path ?? '', $push['wp_page_id'] ?? null, null, null);
+                        set_alert('success', 'Version set and pushed to WordPress.');
+                    } else {
+                        set_alert('warning', 'Version set. WordPress push failed: ' . $push['error']);
+                    }
+                } else {
+                    set_alert('success', 'Version set as current.');
+                }
+            } else {
+                set_alert('success', 'Version set as current.');
+            }
         } else {
             set_alert('danger', 'Could not set version — it may not belong to this page.');
         }
@@ -2081,5 +2255,29 @@ class Pitchsnap extends AdminController
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($data));
+    }
+
+    /**
+     * Resolves the primary site preview HTML from disk for a given site record.
+     * Uses the same resolution logic as clickfuzz_web_publish_site.
+     */
+    private function _resolve_site_preview_html($site)
+    {
+        $source_website = $this->pitchsnap_model->get((int) ($site->source_website_id ?? 0));
+        if (!$source_website) { return null; }
+
+        $lead_id = $source_website->lead_id ?? null;
+        if ($lead_id) {
+            $primary = $this->pitchsnap_model->get_primary_for_lead((int) $lead_id);
+            $website = ($primary && !empty($primary->preview_token)) ? $primary : $source_website;
+        } else {
+            $website = $source_website;
+        }
+
+        if (empty($website->preview_token)) { return null; }
+
+        $preview_file = dirname(FCPATH) . '/previews/' . $website->preview_token . '/index.html';
+        $html = @file_get_contents($preview_file);
+        return $html ?: null;
     }
 }

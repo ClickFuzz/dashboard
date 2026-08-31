@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 22) {
+    if ((int) get_option('pitchsnap_db_version') >= 24) {
         return;
     }
 
@@ -473,7 +473,8 @@ function clickfuzz_web_db_upgrade()
                 `primary_keyword`       VARCHAR(255) DEFAULT NULL,
                 `supporting_keywords`   TEXT DEFAULT NULL,
                 `instructions`          TEXT DEFAULT NULL,
-                `index_page`            TINYINT(1) NOT NULL DEFAULT 1,
+                `noindex_page`          TINYINT(1) NOT NULL DEFAULT 0,
+                `is_home_page`          TINYINT(1) NOT NULL DEFAULT 0,
                 `menu_primary`          TINYINT(1) NOT NULL DEFAULT 0,
                 `menu_footer`           TINYINT(1) NOT NULL DEFAULT 0,
                 `menu_label`            VARCHAR(255) DEFAULT NULL,
@@ -624,11 +625,37 @@ function clickfuzz_web_db_upgrade()
         $CI->db->query("ALTER TABLE `{$tpm22}` ADD COLUMN `sort_order` TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `media_id`");
     }
 
+    // v23: rename index_page → noindex_page (value-flipped: indexed=0, noindex=1), add is_home_page
+    $tp23 = db_prefix() . 'pitchsnap_pages';
+    if ($CI->db->table_exists($tp23) && $CI->db->field_exists('index_page', $tp23)) {
+        if (!$CI->db->field_exists('noindex_page', $tp23)) {
+            $CI->db->query("ALTER TABLE `{$tp23}` ADD COLUMN `noindex_page` TINYINT(1) NOT NULL DEFAULT 0 AFTER `index_page`");
+            $CI->db->query("UPDATE `{$tp23}` SET `noindex_page` = 1 - `index_page`");
+        }
+        $CI->db->query("ALTER TABLE `{$tp23}` DROP COLUMN `index_page`");
+    }
+    if ($CI->db->table_exists($tp23) && !$CI->db->field_exists('noindex_page', $tp23)) {
+        $CI->db->query("ALTER TABLE `{$tp23}` ADD COLUMN `noindex_page` TINYINT(1) NOT NULL DEFAULT 0");
+    }
+    if ($CI->db->table_exists($tp23) && !$CI->db->field_exists('is_home_page', $tp23)) {
+        $CI->db->query("ALTER TABLE `{$tp23}` ADD COLUMN `is_home_page` TINYINT(1) NOT NULL DEFAULT 0");
+    }
+
+    // v24: source column on page generations, published_generation_id on pages
+    $tpg24 = db_prefix() . 'pitchsnap_page_generations';
+    if ($CI->db->table_exists($tpg24) && !$CI->db->field_exists('source', $tpg24)) {
+        $CI->db->query("ALTER TABLE `{$tpg24}` ADD COLUMN `source` VARCHAR(30) NOT NULL DEFAULT 'ai_generated' AFTER `is_current`");
+    }
+    $tp24 = db_prefix() . 'pitchsnap_pages';
+    if ($CI->db->table_exists($tp24) && !$CI->db->field_exists('published_generation_id', $tp24)) {
+        $CI->db->query("ALTER TABLE `{$tp24}` ADD COLUMN `published_generation_id` INT(11) NULL DEFAULT NULL");
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '22');
+        add_option('pitchsnap_db_version', '24');
     } else {
-        update_option('pitchsnap_db_version', '22');
+        update_option('pitchsnap_db_version', '24');
     }
 }
 
