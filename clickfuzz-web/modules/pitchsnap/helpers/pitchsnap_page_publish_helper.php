@@ -377,24 +377,25 @@ function clickfuzz_web_extract_site_chrome($homepage_html)
 /**
  * Builds a complete HTML document for an internal page.
  *
- * The approved site's canonical header (with updated nav) and footer are used
- * so the internal page is visually another page of the same approved website.
- * The generated page body is placed inside <main class="cf-page-content"> between them.
+ * When $use_ssi is true, header and footer are emitted as SSI include directives
+ * (<!--#include virtual="/_cf/header.html"-->) rather than inlined HTML. The
+ * hosted-runtime processes these at serve time, enabling one-file nav updates.
  *
- * Normalization is applied to $gen->html_content at render time so existing
- * stored generations (which may contain accidental site chrome) are handled
- * safely without rewriting DB records.
+ * When $css_url is provided, a <link> tag is emitted before any inline <style>
+ * block so shared site styles (assets/style.css) are loaded from the hosted server.
  *
  * @param  object $page          Page row
  * @param  object $site          Site row
  * @param  object $gen           Page generation row
  * @param  string $canonical_url Full canonical URL for this page
- * @param  string $header_html   Canonical site header (with nav already updated by caller)
- * @param  string $footer_html   Canonical site footer
- * @param  string $shared_head   Shared <head> content from approved homepage (fonts/stylesheets)
+ * @param  string $header_html   Canonical site header (used when $use_ssi is false)
+ * @param  string $footer_html   Canonical site footer (used when $use_ssi is false)
+ * @param  string $shared_head   Shared <head> content from approved homepage
+ * @param  bool   $use_ssi       Emit SSI include tags instead of inlining header/footer
+ * @param  string $css_url       URL for shared site stylesheet (emits <link> when set)
  * @return string Complete HTML document
  */
-function clickfuzz_web_render_full_page_html($page, $site, $gen, $canonical_url, $header_html, $footer_html = '', $shared_head = '')
+function clickfuzz_web_render_full_page_html($page, $site, $gen, $canonical_url, $header_html, $footer_html = '', $shared_head = '', $use_ssi = false, $css_url = '')
 {
     $meta_title = '';
     if (!empty($page->meta_title)) {
@@ -414,6 +415,9 @@ function clickfuzz_web_render_full_page_html($page, $site, $gen, $canonical_url,
 
     $noindex = !(bool) ($page->index_page ?? 1);
 
+    $css_link  = $css_url
+        ? '<link rel="stylesheet" href="' . htmlspecialchars($css_url, ENT_QUOTES, 'UTF-8') . '">'
+        : '';
     $css_block = !empty($gen->css_content)
         ? '<style>' . $gen->css_content . '</style>'
         : '';
@@ -449,19 +453,23 @@ function clickfuzz_web_render_full_page_html($page, $site, $gen, $canonical_url,
     if ($shared_head) {
         $head_parts[] = $shared_head;
     }
-    if ($css_block) {
-        $head_parts[] = $css_block;
-    }
+    if ($css_link)  { $head_parts[] = $css_link; }
+    if ($css_block) { $head_parts[] = $css_block; }
 
-    // Build <body>: canonical header + page content wrapper + canonical footer
+    // Build <body>: header + page content wrapper + footer.
+    // In SSI mode, header/footer are loaded at serve time from _cf/ partials.
     $body_parts = [];
-    if ($header_html) {
+    if ($use_ssi) {
+        $body_parts[] = '<!--#include virtual="/_cf/header.html"-->';
+    } elseif ($header_html) {
         $body_parts[] = $header_html;
     }
     $body_parts[] = '<main class="cf-page-content">';
     $body_parts[] = $body_content;
     $body_parts[] = '</main>';
-    if ($footer_html) {
+    if ($use_ssi) {
+        $body_parts[] = '<!--#include virtual="/_cf/footer.html"-->';
+    } elseif ($footer_html) {
         $body_parts[] = $footer_html;
     }
 
@@ -602,42 +610,54 @@ function clickfuzz_web_publish_page_html($page, $site, $gen)
         require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
     }
 
-    // Extract canonical site chrome from the approved homepage
-    // The header block is updated with the current page registry's nav before rendering.
-    // If the homepage file is unreadable, header/footer fall back to empty strings.
-    $homepage_html = '';
-    $homepage_file = $site_dir . '/index.html';
-    if (file_exists($homepage_file)) {
-        $homepage_html = @file_get_contents($homepage_file);
+    // Load chrome from pre-separated _cf/ partials if available (fast path),
+    // otherwise fall back to parsing index.html on each page publish.
+    $cf_dir  = $site_dir . '/_cf';
+    $use_ssi = false;
+    $css_url = '';
+
+    if (file_exists($cf_dir . '/header.html')) {
+        // _cf/ partials exist — render with SSI includes.
+        // Nav is served live from _cf/header.html; update_all_site_navs keeps it current.
+        $canonical_head_ext = @file_get_contents($cf_dir . '/head.html') ?: '';
+        $canonical_header   = ''; // SSI handles header at serve time
+        $canonical_footer   = ''; // SSI handles footer at serve time
+        $use_ssi = true;
+        $css_url = rtrim($site_base_url, '/') . '/assets/style.css';
+    } else {
+        // Fall back: parse index.html for chrome, render with baked-in header/footer.
+        $homepage_html = '';
+        $homepage_file = $site_dir . '/index.html';
+        if (file_exists($homepage_file)) {
+            $homepage_html = @file_get_contents($homepage_file);
+        }
+        $chrome = clickfuzz_web_extract_site_chrome((string) $homepage_html);
+        $canonical_header = !empty($chrome['header'])
+            ? clickfuzz_web_update_html_nav($chrome['header'], $nav_html)
+            : $nav_html;
+        $canonical_footer   = $chrome['footer'];
+        $canonical_head_ext = $chrome['head_inner'];
     }
-    $chrome = clickfuzz_web_extract_site_chrome((string) $homepage_html);
-
-    // Update the nav in the extracted canonical header so link set is current
-    $canonical_header = !empty($chrome['header'])
-        ? clickfuzz_web_update_html_nav($chrome['header'], $nav_html)
-        : $nav_html; // Fallback: no canonical header found — use CF nav block alone
-
-    $canonical_footer   = $chrome['footer'];
-    $canonical_head_ext = $chrome['head_inner'];
 
     // Render full HTML document using canonical approved site chrome
     $html = clickfuzz_web_render_full_page_html(
         $page, $site, $gen, $canonical_url,
         $canonical_header,
         $canonical_footer,
-        $canonical_head_ext
+        $canonical_head_ext,
+        $use_ssi,
+        $css_url
     );
 
-    // Write page file
-    if (!is_dir($page_dir) && !mkdir($page_dir, 0755, true)) {
-        return ['success' => false, 'url' => null, 'published_path' => null, 'error' => 'Could not create page directory: ' . $url_path];
+    // Write page file locally and push to FTP when configured
+    if (!function_exists('clickfuzz_web_site_put')) {
+        require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
     }
-    $page_file = $page_dir . '/index.html';
-    if (file_put_contents($page_file, $html) === false) {
-        return ['success' => false, 'url' => null, 'published_path' => null, 'error' => 'Failed to write page HTML file.'];
+    $page_result = clickfuzz_web_site_put($site_slug, $url_path . '/index.html', $html);
+    if (!$page_result['success']) {
+        return ['success' => false, 'url' => null, 'published_path' => null, 'error' => $page_result['error']];
     }
-
-    // Verify write succeeded
+    $page_file = $site_dir . '/' . $url_path . '/index.html';
     if (!file_exists($page_file)) {
         return ['success' => false, 'url' => null, 'published_path' => null, 'error' => 'Page file not found after write (filesystem error).'];
     }
@@ -665,27 +685,59 @@ function clickfuzz_web_publish_page_html($page, $site, $gen)
 }
 
 /**
- * Updates the ClickFuzz nav block in every published HTML file for the site.
- * Updates the homepage index.html and all published page directories.
- * Skips the page file that was just written (already has the updated nav).
+ * Updates the ClickFuzz nav block across all published HTML files for the site.
+ *
+ * SSI mode (when _cf/header.html exists): updates _cf/header.html only and pushes
+ * it to the hosted server — all SSI pages pick up the new nav at serve time.
+ * Also updates the monolithic homepage (index.html) which does not use SSI.
+ *
+ * Legacy mode (no _cf/ partials): updates index.html and every published page file.
+ *
  * Fails silently per file — partial nav update is better than blocking publish.
  */
 function clickfuzz_web_update_all_site_navs($site_dir, $real_site_dir, array $published_pages, array $pages_indexed, $nav_html, $skip_file = null)
 {
-    // Homepage
-    $homepage_file = $site_dir . '/index.html';
-    if (file_exists($homepage_file) && realpath($homepage_file) !== $skip_file) {
-        clickfuzz_web_update_nav_in_file($homepage_file, $real_site_dir, $nav_html);
+    if (!function_exists('clickfuzz_web_site_put')) {
+        require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
     }
 
-    // Each published internal page
-    foreach ($published_pages as $p) {
-        if (empty($p->published_path)) { continue; }
-        $file = $site_dir . '/' . $p->published_path . '/index.html';
-        $real = realpath($file);
-        if (!$real || $real === $skip_file) { continue; }
-        if (strpos(rtrim($real, '/') . '/', rtrim($real_site_dir, '/') . '/') !== 0) { continue; } // traversal guard
-        clickfuzz_web_update_nav_in_file($file, $real_site_dir, $nav_html);
+    $slug    = basename($site_dir);
+    $cf_file = $site_dir . '/_cf/header.html';
+
+    if (file_exists($cf_file)) {
+        // SSI mode: update _cf/header.html and push — page files pick it up at serve time.
+        $header = @file_get_contents($cf_file) ?: '';
+        if ($header) {
+            $updated = clickfuzz_web_update_html_nav($header, $nav_html);
+            clickfuzz_web_site_put($slug, '_cf/header.html', $updated);
+        }
+
+        // Homepage is monolithic — patch it directly and push.
+        $homepage_file = $site_dir . '/index.html';
+        if (file_exists($homepage_file) && realpath($homepage_file) !== $skip_file) {
+            clickfuzz_web_update_nav_in_file($homepage_file, $real_site_dir, $nav_html);
+            if (get_option('pitchsnap_publish_ftp_host')) {
+                $homepage_html = @file_get_contents($homepage_file);
+                if ($homepage_html !== false) {
+                    clickfuzz_web_remote_put($slug . '/index.html', $homepage_html);
+                }
+            }
+        }
+    } else {
+        // Legacy mode: update every published HTML file individually.
+        $homepage_file = $site_dir . '/index.html';
+        if (file_exists($homepage_file) && realpath($homepage_file) !== $skip_file) {
+            clickfuzz_web_update_nav_in_file($homepage_file, $real_site_dir, $nav_html);
+        }
+
+        foreach ($published_pages as $p) {
+            if (empty($p->published_path)) { continue; }
+            $file = $site_dir . '/' . $p->published_path . '/index.html';
+            $real = realpath($file);
+            if (!$real || $real === $skip_file) { continue; }
+            if (strpos(rtrim($real, '/') . '/', rtrim($real_site_dir, '/') . '/') !== 0) { continue; }
+            clickfuzz_web_update_nav_in_file($file, $real_site_dir, $nav_html);
+        }
     }
 }
 
