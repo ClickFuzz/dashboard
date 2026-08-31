@@ -3,7 +3,7 @@
  * Plugin Name: ClickFuzz Connector
  * Plugin URI:  https://clickfuzz.com
  * Description: Secure API bridge between ClickFuzz Web and WordPress.
- * Version:     2.1.0
+ * Version:     2.2.0
  * Author:      ClickFuzz
  * License:     GPL-2.0-or-later
  * Text Domain: clickfuzz-connector
@@ -13,7 +13,7 @@
 
 defined('ABSPATH') || exit;
 
-define('CF_CONNECTOR_VERSION', '2.1.0');
+define('CF_CONNECTOR_VERSION', '2.2.0');
 define('CF_CONNECTOR_FILE', __FILE__);
 define('CF_CONNECTOR_DIR', plugin_dir_path(__FILE__));
 
@@ -27,6 +27,7 @@ require_once CF_CONNECTOR_DIR . 'includes/class-cf-theme.php';
 require_once CF_CONNECTOR_DIR . 'includes/class-cf-xml.php';
 require_once CF_CONNECTOR_DIR . 'includes/class-cf-logo.php';
 require_once CF_CONNECTOR_DIR . 'includes/class-cf-import.php';
+require_once CF_CONNECTOR_DIR . 'includes/class-cf-plugin.php';
 require_once CF_CONNECTOR_DIR . 'includes/class-cf-api.php';
 require_once CF_CONNECTOR_DIR . 'includes/class-cf-settings.php';
 

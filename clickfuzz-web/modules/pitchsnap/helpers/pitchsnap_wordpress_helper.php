@@ -1168,14 +1168,6 @@ CSS;
         return _cfw_wp_err('Could not write footer.php.');
     }
 
-    // ── front-page.php ───────────────────────────────────────────────────────
-    $front = "<?php get_header(); ?>\n\n"
-           . $parts['main_html']
-           . "\n\n<?php get_footer(); ?>\n";
-    if (!_cfw_wp_write_file($theme_dir . '/front-page.php', $front)) {
-        return _cfw_wp_err('Could not write front-page.php.');
-    }
-
     // ── index.php (blog list) ────────────────────────────────────────────────
     if (!_cfw_wp_write_file($theme_dir . '/index.php', _cfw_wp_tpl_index())) {
         return _cfw_wp_err('Could not write index.php.');
@@ -1645,7 +1637,7 @@ function _cfw_wp_validate($theme_dir, $theme_slug)
     $warnings = [];
 
     // Required files
-    $required = ['style.css', 'index.php', 'functions.php', 'header.php', 'footer.php', 'front-page.php', 'page.php'];
+    $required = ['style.css', 'index.php', 'functions.php', 'header.php', 'footer.php', 'page.php'];
     foreach ($required as $f) {
         if (!file_exists($theme_dir . '/' . $f)) {
             return ['success' => false, 'error' => 'Required file missing: ' . $f, 'warnings' => $warnings];
@@ -1708,11 +1700,6 @@ function _cfw_wp_validate($theme_dir, $theme_slug)
         }
     } else {
         $warnings[] = 'PHP CLI not found; skipped PHP syntax lint.';
-    }
-
-    // front-page.php exists (mandatory for generated sites)
-    if (!file_exists($theme_dir . '/front-page.php')) {
-        return ['success' => false, 'error' => 'front-page.php is missing.', 'warnings' => $warnings];
     }
 
     return ['success' => true, 'error' => null, 'warnings' => $warnings];

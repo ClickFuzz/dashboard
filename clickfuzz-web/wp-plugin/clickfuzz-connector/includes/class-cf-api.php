@@ -46,7 +46,7 @@ class CF_API
                 'args'                => ['id' => ['type' => 'integer']],
             ],
             [
-                'methods'             => WP_REST_Server::EDITABLE,
+                'methods'             => ['POST', 'PUT', 'PATCH'],
                 'callback'            => [self::class, 'update_page'],
                 'permission_callback' => [self::class, 'check_key'],
                 'args'                => array_merge(
@@ -280,11 +280,17 @@ class CF_API
     {
         $req = !$all_optional;
         return [
-            'title'        => ['type' => 'string',  'required' => $req, 'sanitize_callback' => 'sanitize_text_field'],
-            'content'      => ['type' => 'string',  'required' => $req],
-            'slug'         => ['type' => 'string',  'required' => false, 'sanitize_callback' => 'sanitize_title'],
-            'status'       => ['type' => 'string',  'required' => false, 'enum' => ['publish', 'draft', 'private'], 'default' => 'publish'],
-            'set_as_front' => ['type' => 'boolean', 'required' => false, 'default' => false],
+            'title'            => ['type' => 'string',  'required' => $req, 'sanitize_callback' => 'sanitize_text_field'],
+            'slug'             => ['type' => 'string',  'required' => false, 'sanitize_callback' => 'sanitize_title'],
+            'status'           => ['type' => 'string',  'required' => false, 'enum' => ['publish', 'draft', 'private'], 'default' => 'publish'],
+            'html'             => ['type' => 'string',  'required' => false],
+            'css'              => ['type' => 'string',  'required' => false],
+            'js'               => ['type' => 'string',  'required' => false],
+            'meta_title'       => ['type' => 'string',  'required' => false, 'sanitize_callback' => 'sanitize_text_field'],
+            'meta_description' => ['type' => 'string',  'required' => false, 'sanitize_callback' => 'sanitize_text_field'],
+            'noindex'          => ['type' => 'boolean', 'required' => false, 'default' => false],
+            'parent_wp_id'     => ['type' => 'integer', 'required' => false, 'default' => 0],
+            'set_as_front'     => ['type' => 'boolean', 'required' => false, 'default' => false],
         ];
     }
 }

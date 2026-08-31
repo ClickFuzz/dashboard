@@ -1007,7 +1007,8 @@ class Pitchsnap_model extends App_Model
             'status'            => 'draft',
             'generation_status' => 'not_generated',
             'page_type'         => 'custom',
-            'index_page'        => 1,
+            'noindex_page'      => 0,
+            'is_home_page'      => 0,
             'menu_primary'      => 0,
             'menu_footer'       => 0,
             'menu_order'        => 0,
@@ -1041,6 +1042,24 @@ class Pitchsnap_model extends App_Model
         unset($data['id'], $data['site_id'], $data['dateadded']);
         $this->db->where('id', (int) $id)->update($this->pages_table, $data);
         return $this->db->affected_rows() > 0;
+    }
+
+    public function get_homepage_page_for_site($site_id, $exclude_page_id = null)
+    {
+        $this->db->where('site_id', (int) $site_id)
+                 ->where('page_type', 'homepage')
+                 ->where('status !=', 'trash');
+        if ($exclude_page_id) {
+            $this->db->where('id !=', (int) $exclude_page_id);
+        }
+        return $this->db->get($this->pages_table)->row();
+    }
+
+    public function clear_home_page_for_site($site_id, $except_page_id)
+    {
+        $this->db->where('site_id', (int) $site_id)
+                 ->where('id !=', (int) $except_page_id)
+                 ->update($this->pages_table, ['is_home_page' => 0, 'dateupdated' => date('Y-m-d H:i:s')]);
     }
 
     public function trash_page($id)
@@ -1283,7 +1302,7 @@ class Pitchsnap_model extends App_Model
      * Marks a page as published, storing its live path, WP page ID, and WP menu-item IDs.
      * Only non-null values are written so callers can omit fields they did not set.
      */
-    public function publish_page($page_id, $published_path, $wp_page_id = null, $wp_primary_menu_item_id = null, $wp_footer_menu_item_id = null)
+    public function publish_page($page_id, $published_path, $wp_page_id = null, $wp_primary_menu_item_id = null, $wp_footer_menu_item_id = null, $gen_id = null)
     {
         $data = [
             'status'         => 'published',
@@ -1298,6 +1317,9 @@ class Pitchsnap_model extends App_Model
         }
         if ($wp_footer_menu_item_id !== null) {
             $data['wp_footer_menu_item_id'] = (int) $wp_footer_menu_item_id;
+        }
+        if ($gen_id !== null) {
+            $data['published_generation_id'] = (int) $gen_id;
         }
         return $this->update_page((int) $page_id, $data);
     }

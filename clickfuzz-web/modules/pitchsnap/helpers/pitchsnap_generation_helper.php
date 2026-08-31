@@ -754,7 +754,8 @@ function clickfuzz_web_ensure_homepage_page($CI, $site_id)
         'menu_primary'      => 0,
         'menu_footer'       => 0,
         'menu_order'        => 0,
-        'index_page'        => 1,
+        'noindex_page'      => 0,
+        'is_home_page'      => 0,
     ]);
 }
 
