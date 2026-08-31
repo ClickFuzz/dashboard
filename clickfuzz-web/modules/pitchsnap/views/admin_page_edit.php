@@ -5,6 +5,7 @@ if (!function_exists('clickfuzz_web_media_url')) {
     require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_media_helper.php';
 }
 $_valid_types = [
+    'homepage' => 'Homepage',
     'about' => 'About', 'service' => 'Service', 'service_area' => 'Service Area',
     'contact' => 'Contact', 'gallery' => 'Gallery', 'financing' => 'Financing',
     'faq' => 'FAQ', 'custom' => 'Custom',
@@ -369,13 +370,11 @@ $_is_trashed = $page->status === 'trash';
                             </a>
                             <?php } ?>
                             <?php if (!$_is_trashed) { ?>
-                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post">
-                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                <button type="submit" class="btn btn-warning btn-block"
-                                        onclick="return confirm('Regenerate this page? The live page stays up until you publish the new version.');">
-                                    <i class="fa fa-refresh"></i> Regenerate
-                                </button>
-                            </form>
+                            <a href="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>"
+                               class="btn btn-warning btn-block"
+                               onclick="return confirm('Regenerate this page? The live page stays up until you publish the new version.');">
+                                <i class="fa fa-refresh"></i> Regenerate
+                            </a>
                             <?php } ?>
 
                             <?php } elseif ($_is_published && $has_newer_gen && $_is_generated) { ?>
@@ -400,13 +399,11 @@ $_is_trashed = $page->status === 'trash';
                                     <i class="fa fa-upload"></i> Publish Update
                                 </button>
                             </form>
-                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post" style="margin-top:4px;">
-                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                <button type="submit" class="btn btn-warning btn-block btn-xs"
-                                        onclick="return confirm('Regenerate again? This will replace the current unpublished draft.');">
-                                    <i class="fa fa-refresh"></i> Regenerate Again
-                                </button>
-                            </form>
+                            <a href="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>"
+                               class="btn btn-warning btn-block btn-xs" style="margin-top:4px;"
+                               onclick="return confirm('Regenerate again? This will replace the current unpublished draft.');">
+                                <i class="fa fa-refresh"></i> Regenerate Again
+                            </a>
                             <?php } ?>
 
                             <?php } elseif ($_is_generated && !$_is_published) { ?>
@@ -425,13 +422,11 @@ $_is_trashed = $page->status === 'trash';
                                     <i class="fa fa-upload"></i> Publish Page
                                 </button>
                             </form>
-                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post" style="margin-top:4px;">
-                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                <button type="submit" class="btn btn-warning btn-block btn-xs"
-                                        onclick="return confirm('Regenerate this page? The current draft will be replaced.');">
-                                    <i class="fa fa-refresh"></i> Regenerate
-                                </button>
-                            </form>
+                            <a href="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>"
+                               class="btn btn-warning btn-block btn-xs" style="margin-top:4px;"
+                               onclick="return confirm('Regenerate this page? The current draft will be replaced.');">
+                                <i class="fa fa-refresh"></i> Regenerate
+                            </a>
                             <?php } ?>
 
                             <?php } elseif ($_is_failed) { ?>
@@ -450,12 +445,10 @@ $_is_trashed = $page->status === 'trash';
                             </a>
                             <?php } ?>
                             <?php if (!$_is_trashed && $generate_ready) { ?>
-                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post">
-                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                <button type="submit" class="btn btn-danger btn-block">
-                                    <i class="fa fa-bolt"></i> Retry Generation
-                                </button>
-                            </form>
+                            <a href="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>"
+                               class="btn btn-danger btn-block">
+                                <i class="fa fa-bolt"></i> Retry Generation
+                            </a>
                             <?php } ?>
 
                             <?php } else { ?>
@@ -473,12 +466,10 @@ $_is_trashed = $page->status === 'trash';
                             </ul>
                             <?php } ?>
                             <?php if (!$_is_trashed && $generate_ready) { ?>
-                            <form action="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>" method="post">
-                                <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-                                <button type="submit" class="btn btn-primary btn-block">
-                                    <i class="fa fa-bolt"></i> Generate Page
-                                </button>
-                            </form>
+                            <a href="<?php echo admin_url('pitchsnap/page_generate/' . (int)$page->id); ?>"
+                               class="btn btn-primary btn-block">
+                                <i class="fa fa-bolt"></i> Generate Page
+                            </a>
                             <?php } else { ?>
                             <button type="button" class="btn btn-primary btn-block" disabled>
                                 <i class="fa fa-bolt"></i> Generate Page

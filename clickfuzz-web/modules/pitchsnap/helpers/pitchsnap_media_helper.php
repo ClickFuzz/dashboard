@@ -17,20 +17,32 @@ define('PS_MEDIA_MAX_BYTES', 10 * 1024 * 1024); // 10 MB
  */
 function clickfuzz_web_media_dir($site_id)
 {
-    return dirname(FCPATH) . '/media/' . (int) $site_id;
+    return FCPATH . 'uploads/pitchsnap/media/' . (int) $site_id;
 }
 
 /**
  * Return the public URL for a stored media file.
- * Follows the same convention as /previews and /sites — all stored inside
- * the dashboard directory, accessible via base_url():
  *   FCPATH    = .../public_html/dashboard/
- *   Media dir = .../public_html/dashboard/media/{site_id}/{filename}
- *   URL       = https://domain.com/dashboard/media/{site_id}/{filename}
+ *   Media dir = .../public_html/dashboard/uploads/pitchsnap/media/{site_id}/{filename}
+ *   URL       = https://domain.com/dashboard/uploads/pitchsnap/media/{site_id}/{filename}
  */
 function clickfuzz_web_media_url($site_id, $filename)
 {
-    return rtrim(base_url(), '/') . '/media/' . (int) $site_id . '/' . rawurlencode($filename);
+    return rtrim(base_url(), '/') . '/uploads/pitchsnap/media/' . (int) $site_id . '/' . rawurlencode($filename);
+}
+
+if (!function_exists('ps_badge')) {
+    function ps_badge($status)
+    {
+        $map = [
+            'draft'     => 'label-default',
+            'published' => 'label-success',
+            'trash'     => 'label-danger',
+        ];
+        $cls   = $map[$status] ?? 'label-default';
+        $label = ucfirst($status);
+        return '<span class="label ' . $cls . '">' . htmlspecialchars($label, ENT_QUOTES) . '</span>';
+    }
 }
 
 /**

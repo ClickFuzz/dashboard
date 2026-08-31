@@ -153,6 +153,76 @@ function clickfuzz_web_generate_page($page)
 }
 
 // ---------------------------------------------------------------------------
+// Site chrome extractor (Phase 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extracts the canonical site chrome (header, footer, design rules, color palette) from the
+ * main generated HTML so page builders can match it without re-reading the whole file.
+ *
+ * @param  string $site_html  Full generated HTML of the main site
+ * @return array  ['header_html', 'footer_html', 'design_rules', 'color_palette']
+ */
+function clickfuzz_web_page_builder_rules($site_html)
+{
+    $header_html   = '';
+    $footer_html   = '';
+    $design_rules  = '';
+    $color_palette = '';
+
+    if (empty($site_html)) {
+        return compact('header_html', 'footer_html', 'design_rules', 'color_palette');
+    }
+
+    if (preg_match('/<header\b[^>]*>[\s\S]*?<\/header>/i', $site_html, $m)) {
+        $header_html = $m[0];
+    }
+
+    if (preg_match('/<footer\b[^>]*>[\s\S]*?<\/footer>/i', $site_html, $m)) {
+        $footer_html = $m[0];
+    }
+
+    $css_chunks = [];
+    if (preg_match_all('/<style\b[^>]*>([\s\S]*?)<\/style>/i', $site_html, $m)) {
+        foreach ($m[1] as $css) {
+            $trimmed = trim($css);
+            if ($trimmed !== '') {
+                $css_chunks[] = $trimmed;
+            }
+        }
+    }
+    $all_css      = implode("\n\n", $css_chunks);
+    $design_rules = substr($all_css, 0, 12000);
+
+    $color_palette = _cfw_extract_color_palette($all_css, $header_html . $footer_html);
+
+    return compact('header_html', 'footer_html', 'design_rules', 'color_palette');
+}
+
+/**
+ * Extracts the most-used hex colors from CSS + key HTML chrome.
+ * Returns a comma-separated string of up to 12 colors sorted by frequency.
+ */
+function _cfw_extract_color_palette($css, $chrome_html)
+{
+    $counts = [];
+    if (preg_match_all('/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/', $css . ' ' . $chrome_html, $m)) {
+        foreach ($m[0] as $color) {
+            $norm           = strtolower($color);
+            $counts[$norm]  = ($counts[$norm] ?? 0) + 1;
+        }
+    }
+    arsort($counts);
+    $palette = [];
+    foreach ($counts as $color => $freq) {
+        if ($freq < 2) break;
+        $palette[] = $color;
+        if (count($palette) >= 12) break;
+    }
+    return $palette ? implode(', ', $palette) : '';
+}
+
+// ---------------------------------------------------------------------------
 // Prompt construction
 // ---------------------------------------------------------------------------
 
@@ -185,12 +255,10 @@ function clickfuzz_web_build_page_prompt($page, $site, $lead, $redesign, $parent
         $vertical    = $redesign->vertical ?? '';
     }
 
-    // Main site HTML for design reference (strip scripts/heavy tags, take first 8000 chars)
-    $main_html_snippet = '';
-    if ($redesign && !empty($redesign->generated_html)) {
-        $stripped = preg_replace('/<script\b[^>]*>[\s\S]*?<\/script>/i', '', $redesign->generated_html);
-        $stripped = preg_replace('/<style\b[^>]*>[\s\S]*?<\/style>/i', '', $stripped);
-        $main_html_snippet = substr(trim($stripped), 0, 8000);
+    // Extract canonical site chrome from the main generated HTML
+    $chrome = ['header_html' => '', 'footer_html' => '', 'design_rules' => '', 'color_palette' => ''];
+    if ($redesign && !empty($redesign->generation_result)) {
+        $chrome = clickfuzz_web_page_builder_rules($redesign->generation_result);
     }
 
     // Parent page context
@@ -199,14 +267,18 @@ function clickfuzz_web_build_page_prompt($page, $site, $lead, $redesign, $parent
         $parent_context .= '- ' . $pp->title . ' (/' . $pp->slug . ")\n";
     }
 
-    // Media context
+    // Media context — numbered so prompt can reference "Image 1", "Image 2", etc.
     $media_lines = [];
-    foreach ($page_media as $m) {
-        $url  = rtrim(base_url(), '/') . '/media/' . (int) $m->site_id . '/' . rawurlencode($m->filename);
+    foreach (array_values($page_media) as $idx => $m) {
+        $num  = $idx + 1;
+        $url  = base_url('uploads/pitchsnap/media/' . (int) $m->site_id . '/' . rawurlencode($m->filename));
         $desc = $m->alt_text ?: ($m->title ?: $m->original_filename);
-        $media_lines[] = '- ' . $url . ' (' . htmlspecialchars($desc, ENT_QUOTES, 'UTF-8') . ')';
+        $media_lines[] = 'Image ' . $num . ': ' . $url . ' (' . htmlspecialchars($desc, ENT_QUOTES, 'UTF-8') . ')';
     }
-    $media_context = implode("\n", $media_lines);
+    $media_context = $media_lines ? implode("\n", $media_lines) : 'None provided.';
+
+    // Video URL
+    $video_url = !empty($page->video_url) ? $page->video_url : '';
 
     // Type-specific instructions
     $type_instructions = clickfuzz_web_get_page_type_instructions($page->page_type);
@@ -219,6 +291,11 @@ function clickfuzz_web_build_page_prompt($page, $site, $lead, $redesign, $parent
     if (!empty($page->menu_primary)) $nav_notes[] = 'This page appears in the primary navigation as "' . ($page->menu_label ?: $page->title) . '".';
     if (!empty($page->menu_footer))  $nav_notes[] = 'This page appears in the footer navigation.';
     $nav_context = $nav_notes ? implode(' ', $nav_notes) : 'This page is not in any navigation menu.';
+
+    $header_html   = $chrome['header_html'];
+    $footer_html   = $chrome['footer_html'];
+    $design_rules  = $chrome['design_rules'];
+    $color_palette = $chrome['color_palette'];
 
     $prompt = <<<PROMPT
 You are an expert web designer creating an internal page for a local service business website.
@@ -247,14 +324,34 @@ You are an expert web designer creating an internal page for a local service bus
 ## Parent Page Context
 {$parent_context}
 
-## Available Media (use these image URLs in the HTML)
+## Available Media
+Reference images by number (e.g. "Image 1") in the content description, and use their URLs directly in <img> src attributes.
 {$media_context}
 
-## Design Reference — Main Website HTML Excerpt
-Match the design, color palette, typography, and component style of the main website:
+## Video
+{$video_url}
 
+## Site Chrome — Copy Verbatim Into Your Output
+The header and footer below must appear in your body_html output exactly as written. Copy them character-for-character — do not alter, simplify, or redesign them. Your unique page content goes between them.
+
+### Site Header (copy verbatim at the top of body_html)
 ```html
-{$main_html_snippet}
+{$header_html}
+```
+
+### Site Footer (copy verbatim at the bottom of body_html)
+```html
+{$footer_html}
+```
+
+## Brand Color Palette (extracted from the main site — use ONLY these colors)
+{$color_palette}
+
+CRITICAL: Do NOT introduce colors outside this palette for any new content you generate. Do NOT use white (#fff, #ffffff) or light gray backgrounds unless they appear in the palette above. Every new section background, text color, border, button, and accent must come from this palette.
+
+## Design System (full CSS from the main site)
+```css
+{$design_rules}
 ```
 
 ## Output Format
@@ -262,15 +359,20 @@ Match the design, color palette, typography, and component style of the main web
 Respond ONLY with the following XML-like delimited sections. Do not include any other text, explanation, or markdown outside these tags.
 
 <body_html>
-The page-specific content ONLY. This content will be placed inside <main class="cf-page-content"> between the approved website's canonical header and footer.
+Structure your output as a complete page body in this exact order:
+1. The site header HTML copied exactly as shown above
+2. Your unique page content (hero, content sections, feature lists, testimonials, FAQs, CTAs, etc.)
+3. The site footer HTML copied exactly as shown above
 
-IMPORTANT — DO NOT include:
-- The site header or any <header> element
-- The primary site navigation or any site-level <nav> element
-- The site footer or any <footer> element
-- <html>, <head>, or <body> tags
+Do NOT include <html>, <head>, or <body> tags.
 
-Generate only the unique sections for this specific page: hero/banner, content sections, feature lists, testimonials, FAQs, CTAs, etc. Use the design reference HTML above to match the visual style (colors, typography, component patterns). Optimize for the primary keyword. Include the phone number and business name prominently. Do not duplicate the site chrome — it is provided by the approved website template.
+BRANDING REQUIREMENTS for your unique content sections:
+- Use ONLY the colors from the Brand Color Palette above. Never introduce white or light backgrounds if the site palette is dark.
+- Match the header's visual weight: if the header is dark, your sections must also use dark backgrounds with appropriately contrasting text.
+- Reuse the same button styles, font families, section padding, and component patterns visible in the site header and footer.
+- When in doubt, favor dark backgrounds with light text to match the overall site tone.
+
+Optimize for the primary keyword. Include the phone number and business name prominently in your content sections.
 </body_html>
 
 <page_css>
@@ -300,6 +402,8 @@ PROMPT;
 function clickfuzz_web_get_page_type_instructions($page_type)
 {
     $instructions = [
+        'homepage' => 'Create a high-converting homepage for a local service business. Include: a bold hero section with headline, subheadline, and primary CTA button with the phone number; a services overview section highlighting 3-6 key services; a trust/about section with the business story and credentials; a prominent CTA strip with the phone number; and a contact section. The hero headline must contain the primary keyword. Optimize for local SEO and conversions. This is the most important page — make it distinctive and compelling.',
+
         'about' => 'Create a compelling About page that builds trust and tells the business story. Include: company history and founding story, mission and values, team introduction (use placeholder names if no media provided), service area, years of experience, and certifications or awards. End with a clear call-to-action.',
 
         'service' => 'Create a detailed Service page for a specific service offering. Include: a clear headline with the service name and primary keyword, service description (what it is, how it works, what\'s included), benefits to the customer, process/steps, pricing guidance (if applicable), FAQ section with 3-5 common questions, and a prominent call-to-action with the business phone number.',
@@ -325,16 +429,9 @@ function clickfuzz_web_get_page_type_instructions($page_type)
 // ---------------------------------------------------------------------------
 
 /**
- * Strips document wrappers and site-level chrome from AI-generated page content.
- *
- * Conservative rules:
- *  - Document wrappers (DOCTYPE / html / head / body) are always stripped.
- *  - If AI correctly used <main class="cf-page-content"> wrapper, extract only its inner content.
- *  - Leading <header> or <nav> block is stripped only when it is the very first element
- *    (i.e. a site-level header/nav accidentally generated at position 0).
- *  - Trailing <footer> block is stripped only when it is the very last element.
- *  - Elements in the middle of the content are NEVER touched (page-local breadcrumbs,
- *    sub-navs, article footers, etc. are preserved).
+ * Strips document-level wrappers from AI-generated page content.
+ * Page chrome (header/footer) is preserved — stripping happens at render time
+ * in WordPress (get_header/get_footer) or at HTML export time.
  *
  * @param  string $html  Raw AI-extracted body_html
  * @return string        Normalised page body content
@@ -343,63 +440,15 @@ function clickfuzz_web_normalize_page_body_html($html)
 {
     if (empty($html)) { return $html; }
 
-    // 1. Strip document-level wrappers — always invalid in page body content
+    // Strip document-level wrappers only — never valid in a stored page body
     $html = preg_replace('/<!DOCTYPE[^>]*>/i', '', $html);
     $html = preg_replace('/<html[^>]*>/i',      '', $html);
     $html = preg_replace('/<\/html\s*>/i',       '', $html);
     $html = preg_replace('/<head[^>]*>[\s\S]*?<\/head>/i', '', $html);
     $html = preg_replace('/<body[^>]*>/i',       '', $html);
     $html = preg_replace('/<\/body\s*>/i',        '', $html);
-    $html = trim($html);
 
-    if (empty($html)) { return $html; }
-
-    // 2. If AI correctly wrapped content in <main class="cf-page-content">, extract inner content.
-    //    This is the clean path — the prompt specifically requests this wrapper.
-    if (preg_match('/<main[^>]+class=["\'][^"\']*cf-page-content[^"\']*["\'][^>]*>([\s\S]*?)<\/main>/i', $html, $m)) {
-        return trim($m[1]);
-    }
-
-    // 3. Strip leading <header>...</header> (site-level header at position 0 only)
-    if (preg_match('/^\s*<header[\s>]/i', $html)) {
-        $html = preg_replace('/^\s*<header[\s\S]*?<\/header>/i', '', $html, 1);
-        $html = trim($html);
-    }
-
-    // 4. Strip leading CF nav block or <nav> at position 0 (site primary nav only)
-    $cf_nav_start = '<!-- cf-nav-start -->';
-    $cf_nav_end   = '<!-- cf-nav-end -->';
-    $trimmed      = ltrim($html);
-    if (strncmp($trimmed, $cf_nav_start, strlen($cf_nav_start)) === 0) {
-        // CF nav block right at start — remove it
-        $html = preg_replace(
-            '/' . preg_quote($cf_nav_start, '/') . '[\s\S]*?' . preg_quote($cf_nav_end, '/') . '/s',
-            '', $trimmed, 1
-        );
-        $html = trim($html);
-    } elseif (preg_match('/^\s*<nav[\s>]/i', $html)) {
-        // Plain <nav> at very start — site primary nav accidentally generated
-        $html = preg_replace('/^\s*<nav[\s\S]*?<\/nav>/i', '', $html, 1);
-        $html = trim($html);
-    }
-
-    // 5. Strip trailing <footer>...</footer> (site footer at position-end only)
-    if (preg_match('/<\/footer>\s*$/i', $html)) {
-        $pos = 0;
-        $last_footer = false;
-        while (($found = stripos($html, '<footer', $pos)) !== false) {
-            $next = isset($html[$found + 7]) ? $html[$found + 7] : '';
-            if ($next === '>' || ctype_space($next)) {
-                $last_footer = $found;
-            }
-            $pos = $found + 1;
-        }
-        if ($last_footer !== false) {
-            $html = trim(substr($html, 0, $last_footer));
-        }
-    }
-
-    return $html;
+    return trim($html);
 }
 
 // ---------------------------------------------------------------------------

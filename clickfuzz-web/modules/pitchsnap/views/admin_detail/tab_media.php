@@ -32,20 +32,20 @@
                               enctype="multipart/form-data" style="background:#f9f9f9; padding:14px; border:1px solid #e5e5e5; border-radius:4px; margin-bottom:18px;">
                             <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
                             <div class="row">
-                                <div class="col-md-4">
+                                <div class="col-md-5">
                                     <div class="form-group" style="margin-bottom:8px;">
                                         <label style="font-size:12px; font-weight:600;">File <span class="text-danger">*</span></label>
                                         <input type="file" name="media_file" accept="image/*" required class="form-control input-sm">
                                         <small class="text-muted">JPEG, PNG, GIF, WebP, SVG — max 10 MB</small>
                                     </div>
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-4">
                                     <div class="form-group" style="margin-bottom:8px;">
-                                        <label style="font-size:12px; font-weight:600;">Title</label>
-                                        <input type="text" name="title" class="form-control input-sm" placeholder="Optional title">
+                                        <label style="font-size:12px; font-weight:600;">Alt Text</label>
+                                        <input type="text" name="alt_text" class="form-control input-sm" placeholder="Describe the image">
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-3">
                                     <div class="form-group" style="margin-bottom:8px;">
                                         <label style="font-size:12px; font-weight:600;">Category</label>
                                         <select name="category" class="form-control input-sm">
@@ -53,12 +53,6 @@
                                             <option value="<?php echo $_k; ?>"><?php echo $_v; ?></option>
                                             <?php } ?>
                                         </select>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="form-group" style="margin-bottom:8px;">
-                                        <label style="font-size:12px; font-weight:600;">Alt Text</label>
-                                        <input type="text" name="alt_text" class="form-control input-sm" placeholder="Describe the image">
                                     </div>
                                 </div>
                             </div>
@@ -75,27 +69,22 @@
                             <?php foreach ($site_media as $_m) {
                                 $_murl = clickfuzz_web_media_url($_m->site_id, $_m->filename);
                             ?>
-                            <div class="col-md-3 col-sm-4" style="margin-bottom:16px;">
+                            <div class="col-md-2 col-sm-3 col-xs-4" style="margin-bottom:12px;">
                                 <div style="border:1px solid #ddd; border-radius:4px; overflow:hidden; background:#fff;">
-                                    <div style="height:110px; background:#f5f5f5; display:flex; align-items:center; justify-content:center; overflow:hidden;">
-                                        <?php if (in_array($_m->mime_type ?? '', ['image/svg+xml'])) { ?>
-                                        <img src="<?php echo e($_murl); ?>" alt="<?php echo e($_m->alt_text ?? $_m->title); ?>"
-                                             style="max-height:100px; max-width:100%; object-fit:contain;">
-                                        <?php } else { ?>
-                                        <img src="<?php echo e($_murl); ?>" alt="<?php echo e($_m->alt_text ?? $_m->title); ?>"
-                                             style="max-height:110px; max-width:100%; object-fit:cover; width:100%;">
-                                        <?php } ?>
+                                    <div style="width:100%; padding-top:100%; position:relative; background:#f5f5f5; overflow:hidden;">
+                                        <img src="<?php echo e($_murl); ?>" alt="<?php echo e($_m->alt_text ?? ''); ?>"
+                                             style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:<?php echo ($_m->mime_type ?? '') === 'image/svg+xml' ? 'contain' : 'cover'; ?>;">
                                     </div>
                                     <div style="padding:8px;">
-                                        <div style="font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="<?php echo e($_m->title); ?>">
-                                            <?php echo e($_m->title ?: $_m->original_filename); ?>
+                                        <div style="font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="<?php echo e($_m->alt_text ?: $_m->original_filename); ?>">
+                                            <?php echo e($_m->alt_text ?: $_m->original_filename); ?>
                                         </div>
                                         <div style="font-size:11px; color:#888;">
                                             <?php echo e($_media_cats[$_m->category] ?? ucfirst($_m->category)); ?>
                                         </div>
                                         <div class="mtop8 tw-flex tw-gap-1">
                                             <button class="btn btn-default btn-xs"
-                                                    onclick="ps_edit_media(<?php echo (int)$_m->id; ?>, <?php echo json_encode($_m->title); ?>, <?php echo json_encode($_m->description ?? ''); ?>, <?php echo json_encode($_m->alt_text ?? ''); ?>, <?php echo json_encode($_m->category); ?>)">
+                                                    onclick="ps_edit_media(<?php echo (int)$_m->id; ?>, <?php echo json_encode($_m->alt_text ?? ''); ?>, <?php echo json_encode($_m->category); ?>)">
                                                 <i class="fa fa-pencil"></i>
                                             </button>
                                             <form method="POST" action="<?php echo admin_url('pitchsnap/media_delete/' . (int)$_m->id); ?>" style="display:inline;">
@@ -127,16 +116,8 @@
                                 </div>
                                 <div class="modal-body">
                                     <div class="form-group">
-                                        <label>Title</label>
-                                        <input type="text" name="title" id="ps-media-edit-title" class="form-control">
-                                    </div>
-                                    <div class="form-group">
                                         <label>Alt Text</label>
                                         <input type="text" name="alt_text" id="ps-media-edit-alt" class="form-control">
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Description</label>
-                                        <textarea name="description" id="ps-media-edit-desc" class="form-control" rows="2"></textarea>
                                     </div>
                                     <div class="form-group">
                                         <label>Category</label>
@@ -157,13 +138,11 @@
                 </div>
 
                 <script>
-                function ps_edit_media(id, title, desc, alt, cat) {
+                function ps_edit_media(id, alt, cat) {
                     document.getElementById('ps-edit-media-form').action =
                         '<?php echo admin_url("pitchsnap/media_save/"); ?>' + id;
-                    document.getElementById('ps-media-edit-title').value = title || '';
-                    document.getElementById('ps-media-edit-desc').value  = desc  || '';
-                    document.getElementById('ps-media-edit-alt').value   = alt   || '';
-                    document.getElementById('ps-media-edit-cat').value   = cat   || 'general';
+                    document.getElementById('ps-media-edit-alt').value  = alt || '';
+                    document.getElementById('ps-media-edit-cat').value  = cat || 'general';
                     $('#ps-edit-media-modal').modal('show');
                 }
                 </script>
