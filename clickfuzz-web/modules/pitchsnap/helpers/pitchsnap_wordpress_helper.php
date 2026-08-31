@@ -173,7 +173,7 @@ function clickfuzz_web_export_wordpress_site($website_id)
         ]),
         'generated_page_meta_keys' => [
             '_clickfuzz_generated_page' => 'marker (set to 1 for ClickFuzz-generated pages)',
-            '_clickfuzz_generated_html' => 'body HTML (sections only, no html/head/body/header/footer)',
+            '_clickfuzz_generated_html' => 'complete page body HTML including site header and footer; chrome is stripped at render time by page.php',
             '_clickfuzz_generated_css'  => 'page-specific inline CSS (optional)',
             '_clickfuzz_generated_js'   => 'page-specific inline JS (optional)',
         ],
@@ -1396,6 +1396,10 @@ if (get_post_meta(get_the_ID(), '_clickfuzz_generated_page', true)) {
     $cfw_safe_css  = str_replace(['<?php', '<?=', '<?', '?>'], '', (string) get_post_meta($cfw_id, '_clickfuzz_generated_css',  true));
     $cfw_safe_html = str_replace(['<?php', '<?=', '<?', '?>'], '', (string) get_post_meta($cfw_id, '_clickfuzz_generated_html', true));
     $cfw_safe_js   = str_replace(['<?php', '<?=', '<?', '?>'], '', (string) get_post_meta($cfw_id, '_clickfuzz_generated_js',   true));
+    // Strip site chrome — get_header()/get_footer() already render header and footer
+    $cfw_safe_html = preg_replace('/<header\b[^>]*>[\s\S]*?<\/header>\s*/i', '', $cfw_safe_html, 1);
+    $cfw_safe_html = preg_replace('/\s*<footer\b[^>]*>[\s\S]*?<\/footer>/i', '', $cfw_safe_html);
+    $cfw_safe_html = trim($cfw_safe_html);
     if ($cfw_safe_css) {
         echo '<style id="cfw-page-css-' . (int) $cfw_id . '">' . $cfw_safe_css . '</style>' . "\n";
     }
@@ -2179,6 +2183,24 @@ function clickfuzz_web_deploy_to_wordpress($website_id)
 
         // Step 7: Refresh status and save
         _cfw_wp_save_connection_status($website_id);
+
+        // Mark site and redesign as published
+        $CI =& get_instance();
+        $site = $CI->pitchsnap_model->get_site_by_website_id((int) $website_id);
+        if ($site) {
+            $CI->pitchsnap_model->update_site($site->id, [
+                'status'       => 'published',
+                'publish_type' => 'wordpress',
+                'dateupdated'  => date('Y-m-d H:i:s'),
+            ]);
+            $CI->pitchsnap_model->update((int) $website_id, ['status' => 'published']);
+
+            // Ensure a homepage page row exists for the pages tab
+            if (!function_exists('clickfuzz_web_ensure_homepage_page')) {
+                require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_generation_helper.php';
+            }
+            clickfuzz_web_ensure_homepage_page($CI, $site->id);
+        }
 
         return ['success' => true, 'steps' => $steps, 'error' => null];
     } finally {
