@@ -2002,33 +2002,61 @@ class Pitchsnap extends AdminController
         $shared_head      = '';
 
         if ($site) {
+            $homepage_html = '';
+
+            // Primary: read from the published homepage on the sites server filesystem.
+            // Only works when dashboard and sites server share the same filesystem.
             $domain    = $site->domain ?? '';
             $site_slug = ltrim(strstr($domain, '/sites/'), '/sites/');
             if ($site_slug && preg_match('/^[a-z0-9\-]+$/', $site_slug)) {
                 $homepage_file = dirname(FCPATH) . '/sites/' . $site_slug . '/index.html';
                 if (file_exists($homepage_file)) {
-                    $homepage_html = @file_get_contents($homepage_file);
-                    $chrome        = clickfuzz_web_extract_site_chrome((string) $homepage_html);
-                    $canonical_footer = $chrome['footer'];
-                    $shared_head      = $chrome['head_inner'];
+                    $homepage_html = (string) @file_get_contents($homepage_file);
+                }
+            }
 
-                    // Build nav from current published page registry
-                    $domain_row    = $this->pitchsnap_model->get_platform_domain_for_site($site->id);
-                    $site_base_url = $domain_row ? 'https://' . $domain_row->hostname : null;
+            // Fallback: the source website's stored generation HTML (always accessible
+            // on the dashboard server — used when sites are hosted on a separate server).
+            if (empty($homepage_html) && !empty($site->source_website_id)) {
+                $source_redesign = $this->pitchsnap_model->get((int) $site->source_website_id);
+                if ($source_redesign && !empty($source_redesign->generation_result)) {
+                    $homepage_html = $source_redesign->generation_result;
+                }
+            }
 
-                    if ($site_base_url && !empty($chrome['header'])) {
-                        $all_pages     = $this->pitchsnap_model->get_pages_for_site($site->id, true);
-                        $pages_indexed = [];
-                        foreach ($all_pages as $p) { $pages_indexed[(int) $p->id] = $p; }
+            if (!empty($homepage_html)) {
+                $chrome           = clickfuzz_web_extract_site_chrome($homepage_html);
+                $canonical_footer = $chrome['footer'];
 
-                        $nav_data = clickfuzz_web_build_nav_items($pages_indexed, $site_base_url);
-                        $nav_html = clickfuzz_web_render_primary_nav_html($nav_data['primary'], $site_base_url . '/');
-
-                        // Update nav links in the extracted canonical header
-                        $canonical_header = clickfuzz_web_update_html_nav($chrome['header'], $nav_html);
-                    } else {
-                        $canonical_header = $chrome['header'];
+                // head_inner has <style> blocks stripped (publish flow uses assets/style.css).
+                // For preview we have no live URL for that file, so embed the site CSS inline.
+                $site_css_chunks = [];
+                if (preg_match_all('/<style[^>]*>([\s\S]*?)<\/style>/i', $homepage_html, $cm)) {
+                    foreach ($cm[1] as $chunk) {
+                        $t = trim($chunk);
+                        if ($t !== '') { $site_css_chunks[] = $t; }
                     }
+                }
+                $shared_head = $chrome['head_inner'];
+                if ($site_css_chunks) {
+                    $shared_head .= "\n<style>" . implode("\n", $site_css_chunks) . '</style>';
+                }
+
+                // Build nav from current published page registry
+                $domain_row    = $this->pitchsnap_model->get_platform_domain_for_site($site->id);
+                $site_base_url = $domain_row ? 'https://' . $domain_row->hostname : null;
+
+                if ($site_base_url && !empty($chrome['header'])) {
+                    $all_pages     = $this->pitchsnap_model->get_pages_for_site($site->id, true);
+                    $pages_indexed = [];
+                    foreach ($all_pages as $p) { $pages_indexed[(int) $p->id] = $p; }
+
+                    $nav_data = clickfuzz_web_build_nav_items($pages_indexed, $site_base_url);
+                    $nav_html = clickfuzz_web_render_primary_nav_html($nav_data['primary'], $site_base_url . '/');
+
+                    $canonical_header = clickfuzz_web_update_html_nav($chrome['header'], $nav_html);
+                } else {
+                    $canonical_header = $chrome['header'] ?? '';
                 }
             }
         }

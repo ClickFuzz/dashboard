@@ -118,8 +118,10 @@ function clickfuzz_web_generate_page($page)
         return;
     }
 
-    // Normalize: strip any document wrappers or site-level chrome the AI may have added
+    // Strip document wrappers, then remove the site chrome the AI was asked to include.
+    // Storing only the page-specific middle content prevents double chrome at render time.
     $normalized_body = clickfuzz_web_normalize_page_body_html($parsed['body_html']);
+    $normalized_body = clickfuzz_web_strip_page_chrome($normalized_body);
     if (empty($normalized_body)) {
         $CI->pitchsnap_model->mark_page_generation_failed($page->id, 'Body content was empty after normalization.');
         log_activity('ClickFuzz Web: Page generation normalization produced empty body [Page #' . $page->id . ']');
@@ -192,7 +194,7 @@ function clickfuzz_web_page_builder_rules($site_html)
         }
     }
     $all_css      = implode("\n\n", $css_chunks);
-    $design_rules = substr($all_css, 0, 12000);
+    $design_rules = substr($all_css, 0, 4000);
 
     $color_palette = _cfw_extract_color_palette($all_css, $header_html . $footer_html);
 
@@ -331,15 +333,15 @@ Reference images by number (e.g. "Image 1") in the content description, and use 
 ## Video
 {$video_url}
 
-## Site Chrome — Copy Verbatim Into Your Output
-The header and footer below must appear in your body_html output exactly as written. Copy them character-for-character — do not alter, simplify, or redesign them. Your unique page content goes between them.
+## Site Chrome — DO NOT RECREATE
+The following header and footer are the canonical site chrome rendered on every page. Your body_html output will be placed BETWEEN them inside <main class="cf-page-content">. Match their design, colors, fonts, and component patterns exactly. Do NOT include them in your output.
 
-### Site Header (copy verbatim at the top of body_html)
+### Site Header (rendered above your content)
 ```html
 {$header_html}
 ```
 
-### Site Footer (copy verbatim at the bottom of body_html)
+### Site Footer (rendered below your content)
 ```html
 {$footer_html}
 ```
@@ -347,9 +349,9 @@ The header and footer below must appear in your body_html output exactly as writ
 ## Brand Color Palette (extracted from the main site — use ONLY these colors)
 {$color_palette}
 
-CRITICAL: Do NOT introduce colors outside this palette for any new content you generate. Do NOT use white (#fff, #ffffff) or light gray backgrounds unless they appear in the palette above. Every new section background, text color, border, button, and accent must come from this palette.
+CRITICAL: Do NOT introduce colors outside this palette for any new content you generate. Every new section background, text color, border, button, and accent must come from this palette.
 
-## Design System (full CSS from the main site)
+## Design System (CSS from the main site — match these rules)
 ```css
 {$design_rules}
 ```
@@ -359,20 +361,15 @@ CRITICAL: Do NOT introduce colors outside this palette for any new content you g
 Respond ONLY with the following XML-like delimited sections. Do not include any other text, explanation, or markdown outside these tags.
 
 <body_html>
-Structure your output as a complete page body in this exact order:
-1. The site header HTML copied exactly as shown above
-2. Your unique page content (hero, content sections, feature lists, testimonials, FAQs, CTAs, etc.)
-3. The site footer HTML copied exactly as shown above
+The page-specific content ONLY. This content will be placed inside <main class="cf-page-content"> between the site header and footer shown above.
 
-Do NOT include <html>, <head>, or <body> tags.
+IMPORTANT — DO NOT include:
+- The site header or any <header> element
+- The primary site navigation or any site-level <nav> element
+- The site footer or any <footer> element
+- <html>, <head>, or <body> tags
 
-BRANDING REQUIREMENTS for your unique content sections:
-- Use ONLY the colors from the Brand Color Palette above. Never introduce white or light backgrounds if the site palette is dark.
-- Match the header's visual weight: if the header is dark, your sections must also use dark backgrounds with appropriately contrasting text.
-- Reuse the same button styles, font families, section padding, and component patterns visible in the site header and footer.
-- When in doubt, favor dark backgrounds with light text to match the overall site tone.
-
-Optimize for the primary keyword. Include the phone number and business name prominently in your content sections.
+Generate only the unique sections for this specific page: hero/banner, content sections, feature lists, testimonials, FAQs, CTAs, etc. Use the design system CSS above to match the visual style (colors, typography, component patterns). Optimize for the primary keyword. Include the phone number and business name prominently.
 </body_html>
 
 <page_css>
@@ -429,9 +426,14 @@ function clickfuzz_web_get_page_type_instructions($page_type)
 // ---------------------------------------------------------------------------
 
 /**
- * Strips document-level wrappers from AI-generated page content.
- * Page chrome (header/footer) is preserved — stripping happens at render time
- * in WordPress (get_header/get_footer) or at HTML export time.
+ * Strips document wrappers and site-level chrome from AI-generated page content.
+ *
+ * Conservative rules:
+ *  - Document wrappers (DOCTYPE / html / head / body) are always stripped.
+ *  - If AI correctly used <main class="cf-page-content"> wrapper, extract only its inner content.
+ *  - Leading <header> or <nav> block is stripped only when it is the very first element.
+ *  - Trailing <footer> block is stripped only when it is the very last element.
+ *  - Elements in the middle of the content are NEVER touched.
  *
  * @param  string $html  Raw AI-extracted body_html
  * @return string        Normalised page body content
@@ -440,15 +442,94 @@ function clickfuzz_web_normalize_page_body_html($html)
 {
     if (empty($html)) { return $html; }
 
-    // Strip document-level wrappers only — never valid in a stored page body
+    // 1. Strip document-level wrappers — always invalid in page body content
     $html = preg_replace('/<!DOCTYPE[^>]*>/i', '', $html);
     $html = preg_replace('/<html[^>]*>/i',      '', $html);
     $html = preg_replace('/<\/html\s*>/i',       '', $html);
     $html = preg_replace('/<head[^>]*>[\s\S]*?<\/head>/i', '', $html);
     $html = preg_replace('/<body[^>]*>/i',       '', $html);
     $html = preg_replace('/<\/body\s*>/i',        '', $html);
+    $html = trim($html);
 
-    return trim($html);
+    if (empty($html)) { return $html; }
+
+    // 2. If AI correctly wrapped content in <main class="cf-page-content">, extract inner content.
+    //    This is the clean path — the prompt specifically requests this wrapper.
+    if (preg_match('/<main[^>]+class=["\'][^"\']*cf-page-content[^"\']*["\'][^>]*>([\s\S]*?)<\/main>/i', $html, $m)) {
+        return trim($m[1]);
+    }
+
+    // 3. Strip leading <header>...</header> (site-level header at position 0 only)
+    if (preg_match('/^\s*<header[\s>]/i', $html)) {
+        $html = preg_replace('/^\s*<header[\s\S]*?<\/header>/i', '', $html, 1);
+        $html = trim($html);
+    }
+
+    // 4. Strip leading CF nav block or <nav> at position 0 (site primary nav only)
+    $cf_nav_start = '<!-- cf-nav-start -->';
+    $cf_nav_end   = '<!-- cf-nav-end -->';
+    $trimmed      = ltrim($html);
+    if (strncmp($trimmed, $cf_nav_start, strlen($cf_nav_start)) === 0) {
+        $html = preg_replace(
+            '/' . preg_quote($cf_nav_start, '/') . '[\s\S]*?' . preg_quote($cf_nav_end, '/') . '/s',
+            '', $trimmed, 1
+        );
+        $html = trim($html);
+    } elseif (preg_match('/^\s*<nav[\s>]/i', $html)) {
+        $html = preg_replace('/^\s*<nav[\s\S]*?<\/nav>/i', '', $html, 1);
+        $html = trim($html);
+    }
+
+    // 5. Strip trailing <footer>...</footer> (site footer at position-end only)
+    if (preg_match('/<\/footer>\s*$/i', $html)) {
+        $pos = 0;
+        $last_footer = false;
+        while (($found = stripos($html, '<footer', $pos)) !== false) {
+            $next = isset($html[$found + 7]) ? $html[$found + 7] : '';
+            if ($next === '>' || ctype_space($next)) {
+                $last_footer = $found;
+            }
+            $pos = $found + 1;
+        }
+        if ($last_footer !== false) {
+            $html = trim(substr($html, 0, $last_footer));
+        }
+    }
+
+    return $html;
+}
+
+/**
+ * Strips site chrome (header/footer elements) from AI-generated page body content.
+ *
+ * The page generation prompt instructs the AI to include the site header and footer
+ * verbatim so it can match the design. This function removes those elements before
+ * storage so render_full_page_html() can add the correct chrome (baked-in or SSI)
+ * at publish/preview time without duplication.
+ *
+ * Uses element boundaries rather than exact string matching, so minor AI whitespace
+ * variations do not break the strip.
+ *
+ * @param  string $body_html  Normalized body content from the AI (no doc wrappers)
+ * @return string             Page-specific content only, with site chrome removed
+ */
+function clickfuzz_web_strip_page_chrome($body_html)
+{
+    $result = trim($body_html);
+    $lower  = strtolower($result);
+
+    // Strip site header: everything up to and including the first </header>
+    if (($pos = strpos($lower, '</header>')) !== false) {
+        $result = substr($result, $pos + strlen('</header>'));
+        $lower  = strtolower($result);
+    }
+
+    // Strip site footer: everything from the last <footer to the end
+    if (($pos = strrpos($lower, '<footer')) !== false) {
+        $result = substr($result, 0, $pos);
+    }
+
+    return trim($result);
 }
 
 // ---------------------------------------------------------------------------
