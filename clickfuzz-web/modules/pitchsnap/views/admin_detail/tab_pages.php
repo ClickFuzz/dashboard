@@ -1,4 +1,9 @@
 <?php defined('BASEPATH') or exit('No direct script access allowed'); ?>
+<?php
+if (!function_exists('ps_badge')) {
+    require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_media_helper.php';
+}
+?>
             <!-- ══════════════════════════════════════════════════════════
                  TAB — PAGES
                  ══════════════════════════════════════════════════════════ -->
@@ -9,7 +14,7 @@
                 <!-- Current Website + Generation controls -->
                 <div class="panel_s">
                     <div class="panel-body">
-                        <h5 class="tw-font-semibold mbot10">Current Website</h5>
+                        <h5 class="tw-font-semibold mbot10">Current Design</h5>
 
                         <table class="table table-bordered table-condensed mbot15" style="max-width:600px;">
                             <tbody>
@@ -313,6 +318,7 @@
                                 $_trashed = $_pg->status === 'trash';
                                 $_indent  = str_repeat('&nbsp;&nbsp;&nbsp;&nbsp;', $_depth);
                                 $_type_labels = [
+                                    'homepage' => 'Homepage',
                                     'about' => 'About', 'service' => 'Service',
                                     'service_area' => 'Service Area', 'contact' => 'Contact',
                                     'gallery' => 'Gallery', 'financing' => 'Financing',
@@ -362,25 +368,45 @@
                     </div>
                 </div>
 
-                <!-- Add Page modal -->
+                <!-- Add Page modal — 3-step wizard -->
                 <div class="modal fade" id="ps-add-page-modal" tabindex="-1" role="dialog">
                     <div class="modal-dialog" role="document">
                         <div class="modal-content">
-                            <form method="POST" action="<?php echo admin_url('pitchsnap/page_add/' . (int) $site->id); ?>">
+                            <form method="POST" id="ps-add-page-form"
+                                  action="<?php echo admin_url('pitchsnap/page_add/' . (int) $site->id); ?>"
+                                  enctype="multipart/form-data">
                                 <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
+
                                 <div class="modal-header">
                                     <button type="button" class="close" data-dismiss="modal">&times;</button>
                                     <h4 class="modal-title">Add Page</h4>
                                 </div>
-                                <div class="modal-body">
+
+                                <!-- Progress bar -->
+                                <div id="ps-wz-progress" style="padding:0 15px; margin-top:12px;">
+                                    <div style="display:flex; gap:6px; align-items:center; font-size:12px; color:#888;">
+                                        <span id="ps-wz-step-lbl-1" style="font-weight:600; color:#337ab7;">1. Details</span>
+                                        <span style="flex:1; height:2px; background:#ddd; border-radius:2px; position:relative;">
+                                            <span id="ps-wz-bar-1" style="position:absolute;left:0;top:0;height:100%;width:0;background:#337ab7;transition:width .3s;border-radius:2px;"></span>
+                                        </span>
+                                        <span id="ps-wz-step-lbl-2" style="">2. Keywords</span>
+                                        <span style="flex:1; height:2px; background:#ddd; border-radius:2px; position:relative;">
+                                            <span id="ps-wz-bar-2" style="position:absolute;left:0;top:0;height:100%;width:0;background:#337ab7;transition:width .3s;border-radius:2px;"></span>
+                                        </span>
+                                        <span id="ps-wz-step-lbl-3" style="">3. Media</span>
+                                    </div>
+                                </div>
+
+                                <!-- Step 1: Page details -->
+                                <div id="ps-wz-step-1" class="modal-body">
                                     <div class="form-group">
                                         <label>Page Name <span class="text-danger">*</span></label>
                                         <input type="text" name="title" id="ps-new-page-title" class="form-control"
-                                               placeholder="e.g. AC Repair" required>
+                                               placeholder="e.g. AC Repair">
                                     </div>
                                     <div class="form-group">
                                         <label>Page Type <span class="text-danger">*</span></label>
-                                        <select name="page_type" class="form-control" required>
+                                        <select name="page_type" id="ps-new-page-type" class="form-control">
                                             <option value="">— Select type —</option>
                                             <option value="about">About</option>
                                             <option value="service">Service</option>
@@ -406,29 +432,370 @@
                                     <div class="form-group">
                                         <label>Slug <span class="text-danger">*</span></label>
                                         <input type="text" name="slug" id="ps-new-page-slug" class="form-control"
-                                               placeholder="e.g. ac-repair" required pattern="[a-z0-9\-]+"
+                                               placeholder="e.g. ac-repair" pattern="[a-z0-9\-]+"
                                                title="Lowercase letters, numbers, and hyphens only">
                                         <small class="text-muted">Lowercase, hyphens only. Auto-suggested from page name.</small>
                                     </div>
                                 </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
-                                    <button type="submit" class="btn btn-primary">Create Page</button>
+
+                                <!-- Step 2: Keywords -->
+                                <div id="ps-wz-step-2" class="modal-body" style="display:none;">
+                                    <div class="form-group">
+                                        <label>Main Keyword</label>
+                                        <input type="text" name="primary_keyword" class="form-control"
+                                               placeholder="e.g. AC repair Denver">
+                                        <small class="text-muted">Main keyword this page should rank for.</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Supporting Keywords</label>
+                                        <textarea name="supporting_keywords" class="form-control" rows="2"
+                                                  placeholder="e.g. air conditioner repair, HVAC service"></textarea>
+                                        <small class="text-muted">One per line or comma-separated.</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>What is this page about?</label>
+                                        <textarea name="instructions" class="form-control" rows="3"
+                                                  placeholder="e.g. This page targets homeowners needing emergency AC repair in Denver. Emphasize same-day service and financing options."></textarea>
+                                        <small class="text-muted">Guides the AI when generating this page.</small>
+                                    </div>
                                 </div>
+
+                                <!-- Step 3: Media + Video -->
+                                <div id="ps-wz-step-3" class="modal-body" style="display:none; padding:0;">
+
+                                    <!-- Upload sub-panel (shown when Upload Media is clicked) -->
+                                    <div id="ps-wz-upload-panel" style="display:none; padding:15px;">
+                                        <h5 style="margin-top:0; margin-bottom:14px; font-weight:600;">Upload Media</h5>
+                                        <div class="form-group">
+                                            <label>File <span class="text-danger">*</span></label>
+                                            <input type="file" id="ps-media-file-input" accept="image/*" class="form-control">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Alt Text</label>
+                                            <input type="text" id="ps-upload-alt" class="form-control"
+                                                   placeholder="e.g. AC repair technician on roof">
+                                            <small class="text-muted">Becomes the filename and image title.</small>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Category</label>
+                                            <select id="ps-upload-category" class="form-control">
+                                                <?php
+                                                $_wz_cats = ['general'=>'General','logo'=>'Logo','team'=>'Team','project'=>'Project',
+                                                             'equipment'=>'Equipment','award'=>'Award','certification'=>'Certification','before_after'=>'Before/After'];
+                                                foreach ($_wz_cats as $_ck => $_cv) { ?>
+                                                <option value="<?php echo $_ck; ?>"><?php echo $_cv; ?></option>
+                                                <?php } ?>
+                                            </select>
+                                        </div>
+                                        <small class="text-danger" id="ps-upload-status" style="min-height:18px; display:block;"></small>
+                                    </div>
+
+                                    <!-- Main panel -->
+                                    <div id="ps-wz-main-panel" style="padding:15px;">
+                                        <div class="form-group" style="margin-bottom:10px;">
+                                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                                <label style="margin-bottom:0;">Images <small class="text-muted">(click to select; numbered in order)</small></label>
+                                                <button type="button" class="btn btn-default btn-xs" onclick="psWzShowUpload()">
+                                                    <i class="fa fa-upload"></i> Upload Media
+                                                </button>
+                                            </div>
+                                            <div id="ps-media-scroll" style="height:190px; overflow-y:auto; border:1px solid #ddd; border-radius:4px; padding:8px; background:#fafafa;">
+                                                <div id="ps-media-empty" style="height:174px; display:<?php echo empty($site_media) ? 'flex' : 'none'; ?>; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#aaa;">
+                                                    <span style="font-size:13px;">No media uploaded yet.</span>
+                                                    <button type="button" class="btn btn-default btn-sm" onclick="psWzShowUpload()">
+                                                        <i class="fa fa-upload"></i> Upload Media
+                                                    </button>
+                                                </div>
+                                                <div id="ps-media-grid" style="display:<?php echo empty($site_media) ? 'none' : 'flex'; ?>; flex-wrap:wrap; gap:8px;">
+                                                    <?php foreach ($site_media as $_sm) { ?>
+                                                    <div class="ps-media-thumb"
+                                                         data-id="<?php echo (int)$_sm->id; ?>"
+                                                         data-alt="<?php echo e($_sm->alt_text ?: $_sm->original_filename); ?>"
+                                                         style="width:80px; height:80px; border-radius:4px; overflow:hidden; cursor:pointer; position:relative; border:2px solid transparent; flex-shrink:0;">
+                                                        <img src="<?php echo base_url('uploads/pitchsnap/media/' . (int)$site->id . '/' . rawurlencode($_sm->filename)); ?>"
+                                                             alt="<?php echo e($_sm->alt_text ?: ''); ?>"
+                                                             style="width:100%; height:100%; object-fit:cover;">
+                                                        <span class="ps-media-badge"
+                                                              style="display:none; position:absolute; bottom:3px; right:3px; background:#337ab7; color:#fff; border-radius:50%; width:18px; height:18px; font-size:10px; font-weight:700; line-height:18px; text-align:center;"></span>
+                                                    </div>
+                                                    <?php } ?>
+                                                </div>
+                                            </div>
+                                            <div id="ps-media-hidden-inputs"></div>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label>Video URL <small class="text-muted">(optional)</small></label>
+                                            <input type="text" name="video_url" class="form-control"
+                                                   placeholder="e.g. https://www.youtube.com/watch?v=…">
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label>Page Content <small class="text-muted">(optional)</small></label>
+                                            <textarea name="content_notes" class="form-control" rows="3"
+                                                      placeholder="e.g. Hero uses Image 1. Include a list of services and a CTA for free estimates."></textarea>
+                                            <small class="text-muted">Reference images by number (Image 1, Image 2…).</small>
+                                        </div>
+                                    </div>
+
+                                </div>
+
+                                <div class="modal-footer" style="padding:10px 15px;">
+                                    <!-- Wizard nav (default) -->
+                                    <div id="ps-wz-footer-nav" style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                                        <div>
+                                            <button type="button" class="btn btn-default" id="ps-wz-back" style="display:none;" onclick="psWzBack()">
+                                                <i class="fa fa-arrow-left"></i> Back
+                                            </button>
+                                        </div>
+                                        <div>
+                                            <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                                            <button type="button" class="btn btn-primary" id="ps-wz-next" onclick="psWzNext()">
+                                                Continue <i class="fa fa-arrow-right"></i>
+                                            </button>
+                                            <button type="submit" class="btn btn-primary" id="ps-wz-submit" style="display:none;">
+                                                <i class="fa fa-check"></i> Create Page
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <!-- Upload mode -->
+                                    <div id="ps-wz-footer-upload" style="display:none; justify-content:flex-end; align-items:center; width:100%; gap:6px;">
+                                        <button type="button" class="btn btn-default" onclick="psWzHideUpload()">Cancel</button>
+                                        <button type="button" class="btn btn-primary" id="ps-upload-submit-btn" onclick="psWzDoUpload()">
+                                            <i class="fa fa-upload"></i> Upload
+                                        </button>
+                                    </div>
+                                </div>
+
                             </form>
                         </div>
                     </div>
                 </div>
 
                 <script>
-                // Auto-suggest slug from page name
-                document.getElementById('ps-new-page-title').addEventListener('input', function() {
-                    var slug = this.value.toLowerCase()
-                        .replace(/[^a-z0-9\s\-]/g, '')
-                        .trim().replace(/\s+/g, '-')
-                        .replace(/-+/g, '-');
-                    document.getElementById('ps-new-page-slug').value = slug;
-                });
+                (function() {
+                    var _step = 1;
+                    var _selected = []; // ordered array of media IDs (strings)
+                    var _uploadSiteId = <?php echo (int)$site->id; ?>;
+                    var _uploadUrl = '<?php echo admin_url('pitchsnap/page_media_upload/' . (int)$site->id); ?>';
+                    var _csrfName = '<?php echo $this->security->get_csrf_token_name(); ?>';
+                    var _csrfHash = '<?php echo $this->security->get_csrf_hash(); ?>';
+
+                    function psWzRefreshProgress() {
+                        var labels = [
+                            document.getElementById('ps-wz-step-lbl-1'),
+                            document.getElementById('ps-wz-step-lbl-2'),
+                            document.getElementById('ps-wz-step-lbl-3'),
+                        ];
+                        var bars = [
+                            document.getElementById('ps-wz-bar-1'),
+                            document.getElementById('ps-wz-bar-2'),
+                        ];
+                        labels.forEach(function(el, i) {
+                            el.style.fontWeight = (i + 1 === _step) ? '700' : '400';
+                            el.style.color      = (i + 1 <= _step)  ? '#337ab7' : '#aaa';
+                        });
+                        bars[0].style.width = _step >= 2 ? '100%' : '0';
+                        bars[1].style.width = _step >= 3 ? '100%' : '0';
+                    }
+
+                    function psWzShowStep(n) {
+                        for (var i = 1; i <= 3; i++) {
+                            document.getElementById('ps-wz-step-' + i).style.display = (i === n) ? '' : 'none';
+                        }
+                        document.getElementById('ps-wz-back').style.display   = n > 1 ? '' : 'none';
+                        document.getElementById('ps-wz-next').style.display   = n < 3 ? '' : 'none';
+                        document.getElementById('ps-wz-submit').style.display = n === 3 ? '' : 'none';
+                        _step = n;
+                        psWzRefreshProgress();
+                    }
+
+                    window.psWzNext = function() {
+                        if (_step === 1) {
+                            var title = document.getElementById('ps-new-page-title').value.trim();
+                            var type  = document.getElementById('ps-new-page-type').value;
+                            var slug  = document.getElementById('ps-new-page-slug').value.trim();
+                            if (!title) { alert('Page name is required.'); return; }
+                            if (!type)  { alert('Page type is required.'); return; }
+                            if (!slug)  { alert('Slug is required.'); return; }
+                        }
+                        psWzShowStep(_step + 1);
+                    };
+
+                    window.psWzBack = function() {
+                        psWzShowStep(_step - 1);
+                    };
+
+                    // Auto-suggest slug from page name
+                    document.getElementById('ps-new-page-title').addEventListener('input', function() {
+                        var slug = this.value.toLowerCase()
+                            .replace(/[^a-z0-9\s\-]/g, '')
+                            .trim().replace(/\s+/g, '-')
+                            .replace(/-+/g, '-');
+                        document.getElementById('ps-new-page-slug').value = slug;
+                    });
+
+                    // Reset wizard when modal closes
+                    document.getElementById('ps-add-page-modal').addEventListener('hidden.bs.modal', psWzReset);
+                    document.getElementById('ps-add-page-modal').addEventListener('hidden', psWzReset);
+
+                    function psWzReset() {
+                        _selected = [];
+                        psWzRefreshThumbs();
+                        psWzHideUpload();
+                        psWzShowStep(1);
+                        document.getElementById('ps-add-page-form').reset();
+                        document.getElementById('ps-upload-status').textContent = '';
+                    }
+
+                    // ── Image picker ──────────────────────────────────────────────
+
+                    function psWzRefreshThumbs() {
+                        var thumbs = document.querySelectorAll('.ps-media-thumb');
+                        thumbs.forEach(function(el) {
+                            var id    = el.getAttribute('data-id');
+                            var pos   = _selected.indexOf(id);
+                            var badge = el.querySelector('.ps-media-badge');
+                            if (pos >= 0) {
+                                el.style.borderColor = '#337ab7';
+                                badge.style.display  = 'block';
+                                badge.textContent    = pos + 1;
+                            } else {
+                                el.style.borderColor = 'transparent';
+                                badge.style.display  = 'none';
+                            }
+                        });
+                        var container = document.getElementById('ps-media-hidden-inputs');
+                        container.innerHTML = '';
+                        _selected.forEach(function(id) {
+                            var inp = document.createElement('input');
+                            inp.type  = 'hidden';
+                            inp.name  = 'selected_media[]';
+                            inp.value = id;
+                            container.appendChild(inp);
+                        });
+                    }
+
+                    document.querySelectorAll('.ps-media-thumb').forEach(function(el) {
+                        el.addEventListener('click', function() {
+                            var id  = this.getAttribute('data-id');
+                            var pos = _selected.indexOf(id);
+                            if (pos >= 0) { _selected.splice(pos, 1); } else { _selected.push(id); }
+                            psWzRefreshThumbs();
+                        });
+                    });
+
+                    // ── Upload sub-panel ──────────────────────────────────────────
+
+                    window.psWzShowUpload = function() {
+                        document.getElementById('ps-wz-main-panel').style.display    = 'none';
+                        document.getElementById('ps-wz-upload-panel').style.display  = '';
+                        document.getElementById('ps-wz-progress').style.display      = 'none';
+                        document.getElementById('ps-wz-footer-nav').style.display    = 'none';
+                        document.getElementById('ps-wz-footer-upload').style.display = 'flex';
+                        document.getElementById('ps-upload-status').textContent      = '';
+                    };
+
+                    window.psWzHideUpload = function() {
+                        document.getElementById('ps-wz-upload-panel').style.display  = 'none';
+                        document.getElementById('ps-wz-main-panel').style.display    = '';
+                        document.getElementById('ps-wz-progress').style.display      = '';
+                        document.getElementById('ps-wz-footer-nav').style.display    = 'flex';
+                        document.getElementById('ps-wz-footer-upload').style.display = 'none';
+                        document.getElementById('ps-media-file-input').value         = '';
+                        document.getElementById('ps-upload-alt').value               = '';
+                        document.getElementById('ps-upload-category').value          = 'general';
+                        document.getElementById('ps-upload-status').textContent      = '';
+                        var btn = document.getElementById('ps-upload-submit-btn');
+                        if (btn) { btn.disabled = false; }
+                    };
+
+                    window.psWzDoUpload = function() {
+                        var fileInput = document.getElementById('ps-media-file-input');
+                        var file      = fileInput.files && fileInput.files[0];
+                        var status    = document.getElementById('ps-upload-status');
+                        var btn       = document.getElementById('ps-upload-submit-btn');
+
+                        if (!file) {
+                            status.textContent = 'Please select a file.';
+                            return;
+                        }
+
+                        var altText  = document.getElementById('ps-upload-alt').value.trim();
+                        var category = document.getElementById('ps-upload-category').value;
+
+                        status.textContent = 'Uploading…';
+                        btn.disabled = true;
+
+                        var fd = new FormData();
+                        fd.append('media_file', file);
+                        fd.append('alt_text',   altText);
+                        fd.append('category',   category);
+                        fd.append(_csrfName,    _csrfHash);
+
+                        var xhr = new XMLHttpRequest();
+                        xhr.open('POST', _uploadUrl, true);
+                        xhr.onload = function() {
+                            btn.disabled = false;
+                            try {
+                                var res = JSON.parse(xhr.responseText);
+                                if (res.csrf_hash) { _csrfHash = res.csrf_hash; }
+                                if (res.success) {
+                                    psWzAddUploadedThumb(res);
+                                    psWzHideUpload();
+                                } else {
+                                    status.textContent = 'Error: ' + (res.error || 'Upload failed.');
+                                }
+                            } catch(e) {
+                                status.textContent = 'Unexpected server response.';
+                            }
+                        };
+                        xhr.onerror = function() {
+                            btn.disabled = false;
+                            status.textContent = 'Upload failed — network error.';
+                        };
+                        xhr.send(fd);
+                    };
+
+                    function psWzAddUploadedThumb(res) {
+                        var empty = document.getElementById('ps-media-empty');
+                        var grid  = document.getElementById('ps-media-grid');
+
+                        if (empty) { empty.style.display = 'none'; }
+                        grid.style.display = 'flex';
+
+                        var div = document.createElement('div');
+                        div.className = 'ps-media-thumb';
+                        div.setAttribute('data-id',  String(res.media_id));
+                        div.setAttribute('data-alt', res.alt_text || res.filename);
+                        div.style.cssText = 'width:80px;height:80px;border-radius:4px;overflow:hidden;cursor:pointer;position:relative;border:2px solid transparent;flex-shrink:0;';
+
+                        var img = document.createElement('img');
+                        img.src = res.url;
+                        img.alt = res.alt_text || '';
+                        img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+
+                        var badge = document.createElement('span');
+                        badge.className = 'ps-media-badge';
+                        badge.style.cssText = 'display:none;position:absolute;bottom:3px;right:3px;background:#337ab7;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;font-weight:700;line-height:18px;text-align:center;';
+
+                        div.appendChild(img);
+                        div.appendChild(badge);
+                        grid.appendChild(div);
+
+                        div.addEventListener('click', function() {
+                            var id  = this.getAttribute('data-id');
+                            var pos = _selected.indexOf(id);
+                            if (pos >= 0) { _selected.splice(pos, 1); } else { _selected.push(id); }
+                            psWzRefreshThumbs();
+                        });
+
+                        _selected.push(String(res.media_id));
+                        psWzRefreshThumbs();
+                    }
+
+                    psWzShowStep(1);
+                })();
                 </script>
 
                 <?php } // end $is_published check ?>

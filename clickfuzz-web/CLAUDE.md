@@ -20,6 +20,16 @@ Building a custom plugin (module) for Perfex CRM: ClickFuzz Web (`modules/pitchs
 
 Always proceed with implementation directly. Do not pause to ask "should I proceed?", present a plan for approval, or ask for confirmation before building. When given a task, execute it. If something is genuinely ambiguous, make a reasonable decision and note it in the response.
 
+## Architecture Rules
+
+Before implementing any feature, read **`docs/architecture-rules.md`**. It documents mandatory patterns:
+
+1. **POST guard** — use `$this->input->method() !== 'post'`, never `!$this->input->post()`
+2. **Tab redirects** — always append `#tab-{name}` to detail page redirects so users land on the right tab
+3. **In-page actions** — prefer AJAX + JSON over form POST for actions inside tabs
+4. **Media paths** — always use `clickfuzz_web_media_dir()` / `clickfuzz_web_media_url()`, never raw paths
+5. **CSRF** — include CSRF field in every form; see stale-token warning for AJAX+form combos
+
 ## Global Development Rules
 
 - Keep code simple and robust.

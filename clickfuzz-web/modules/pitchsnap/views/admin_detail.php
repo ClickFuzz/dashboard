@@ -54,7 +54,7 @@
                 <a href="#tab-overview" role="tab" data-toggle="tab">Overview</a>
             </li>
             <li role="presentation">
-                <a href="#tab-pages" role="tab" data-toggle="tab">Pages</a>
+                <a href="#tab-pages" role="tab" data-toggle="tab">Website</a>
             </li>
             <li role="presentation">
                 <a href="#tab-media" role="tab" data-toggle="tab">Media</a>

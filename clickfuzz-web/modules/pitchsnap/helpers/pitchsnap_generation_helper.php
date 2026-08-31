@@ -467,6 +467,8 @@ function clickfuzz_web_publish_site($site_id)
         $CI->pitchsnap_model->update_site($site_id, ['source_website_id' => (int) $website->id]);
     }
 
+    clickfuzz_web_ensure_homepage_page($CI, $site_id);
+
     // Resolve platform hostname: reuse existing mapping or generate a new one.
     // Use $website->lead_id (always populated on the redesign row) as the
     // authoritative source for the business name — more reliable than
@@ -647,8 +649,43 @@ function clickfuzz_web_publish_site_wp($site_id)
         'wp_page_id'   => $wp_page_id,
         'dateupdated'  => date('Y-m-d H:i:s'),
     ]);
+    $CI->pitchsnap_model->update((int) $website->id, ['status' => 'published']);
+
+    clickfuzz_web_ensure_homepage_page($CI, $site_id);
 
     return ['success' => true, 'url' => $wp_page_url, 'error' => null];
+}
+
+// ---------------------------------------------------------------------------
+// Homepage page auto-creation
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure a homepage page row exists for a newly published site.
+ * Creates one on first publish (HTML or WordPress); idempotent on republish.
+ */
+function clickfuzz_web_ensure_homepage_page($CI, $site_id)
+{
+    $site_id = (int) $site_id;
+    $existing = $CI->db
+        ->where('site_id', $site_id)
+        ->where('page_type', 'homepage')
+        ->where('status !=', 'trash')
+        ->get(db_prefix() . 'pitchsnap_pages')
+        ->row();
+    if ($existing) { return; }
+
+    $CI->pitchsnap_model->create_page($site_id, [
+        'title'             => 'Home',
+        'slug'              => 'home',
+        'page_type'         => 'homepage',
+        'status'            => 'published',
+        'generation_status' => 'generated',
+        'menu_primary'      => 0,
+        'menu_footer'       => 0,
+        'menu_order'        => 0,
+        'index_page'        => 1,
+    ]);
 }
 
 // ---------------------------------------------------------------------------

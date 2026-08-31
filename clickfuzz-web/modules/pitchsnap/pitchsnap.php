@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 21) {
+    if ((int) get_option('pitchsnap_db_version') >= 22) {
         return;
     }
 
@@ -614,11 +614,21 @@ function clickfuzz_web_db_upgrade()
         $CI->db->query("ALTER TABLE `{$ts21}` ADD COLUMN `wp_pairing_token` VARCHAR(64) DEFAULT NULL AFTER `wp_api_key`");
     }
 
+    // v22: video_url on pages + sort_order on page_media
+    $tp22  = db_prefix() . 'pitchsnap_pages';
+    $tpm22 = db_prefix() . 'pitchsnap_page_media';
+    if ($CI->db->table_exists($tp22) && !$CI->db->field_exists('video_url', $tp22)) {
+        $CI->db->query("ALTER TABLE `{$tp22}` ADD COLUMN `video_url` VARCHAR(500) DEFAULT NULL AFTER `instructions`");
+    }
+    if ($CI->db->table_exists($tpm22) && !$CI->db->field_exists('sort_order', $tpm22)) {
+        $CI->db->query("ALTER TABLE `{$tpm22}` ADD COLUMN `sort_order` TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `media_id`");
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '21');
+        add_option('pitchsnap_db_version', '22');
     } else {
-        update_option('pitchsnap_db_version', '21');
+        update_option('pitchsnap_db_version', '22');
     }
 }
 

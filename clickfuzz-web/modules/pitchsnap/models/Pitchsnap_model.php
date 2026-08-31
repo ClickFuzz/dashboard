@@ -1137,11 +1137,11 @@ class Pitchsnap_model extends App_Model
     // -----------------------------------------------------------------------
 
     /**
-     * Attaches a media item to a page.
-     * Validates that both the page and media belong to the same site.
-     * Returns true on success, false on ownership mismatch or duplicate.
+     * Attaches a media item to a page with an explicit display order.
+     * Validates that both records belong to the same site.
+     * Returns true on success, false on ownership mismatch.
      */
-    public function attach_media_to_page($page_id, $media_id)
+    public function attach_media_to_page($page_id, $media_id, $sort_order = 0)
     {
         $page  = $this->get_page((int) $page_id);
         $media = $this->get_media((int) $media_id);
@@ -1158,12 +1158,16 @@ class Pitchsnap_model extends App_Model
             ->where('media_id', (int) $media_id)
             ->get($this->page_media_table)->row();
         if ($existing) {
-            return true; // already attached
+            $this->db->where('page_id', (int) $page_id)
+                     ->where('media_id', (int) $media_id)
+                     ->update($this->page_media_table, ['sort_order' => (int) $sort_order]);
+            return true;
         }
 
         $this->db->insert($this->page_media_table, [
-            'page_id'  => (int) $page_id,
-            'media_id' => (int) $media_id,
+            'page_id'    => (int) $page_id,
+            'media_id'   => (int) $media_id,
+            'sort_order' => (int) $sort_order,
         ]);
         return $this->db->insert_id() > 0;
     }
@@ -1180,11 +1184,12 @@ class Pitchsnap_model extends App_Model
     public function get_media_for_page($page_id)
     {
         return $this->db
-            ->select('m.*')
+            ->select('m.*, pm.sort_order')
             ->from($this->media_table . ' m')
             ->join($this->page_media_table . ' pm', 'pm.media_id = m.id')
             ->where('pm.page_id', (int) $page_id)
-            ->order_by('m.dateadded', 'DESC')
+            ->order_by('pm.sort_order', 'ASC')
+            ->order_by('m.dateadded', 'ASC')
             ->get()->result();
     }
 
