@@ -40,7 +40,7 @@
                                     <th>Name</th>
                                     <th width="80">Type</th>
                                     <th width="60">Fields</th>
-                                    <th width="100">Actions</th>
+                                    <th width="130">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -63,6 +63,9 @@
                                     </td>
                                     <td><?php echo count($f_fields); ?></td>
                                     <td>
+                                        <button class="btn btn-info btn-xs" onclick="cfPreviewForm(<?php echo (int) $f->id; ?>)" title="Preview">
+                                            <i class="fa fa-eye"></i>
+                                        </button>
                                         <button class="btn btn-default btn-xs" onclick="cfShowFormEditor(<?php echo (int) $f->id; ?>)">
                                             <i class="fa fa-pencil"></i> Edit
                                         </button>
@@ -200,6 +203,22 @@
                                         <i class="fa fa-plus"></i> Add
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Form preview modal -->
+                <div class="modal fade" id="cf-preview-modal" tabindex="-1" role="dialog">
+                    <div class="modal-dialog" role="document">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                                <h4 class="modal-title" id="cf-preview-title">Form Preview</h4>
+                            </div>
+                            <div class="modal-body" id="cf-preview-body" style="max-height:70vh;overflow-y:auto;"></div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
                             </div>
                         </div>
                     </div>
@@ -584,9 +603,11 @@
             var nameCell = $('<td>').append($('<strong>').text(fd.name)).append('<br>').append($('<small class="text-muted">').text('ID: ' + fd.id));
             var typeCell = $('<td>').append(isSystem ? $('<span class="label label-info">').text('System') : $('<span class="label label-default">').text('Custom'));
             var countCell = $('<td>').text((fd.fields || []).length);
+            var previewBtn = $('<button class="btn btn-info btn-xs" title="Preview">').html('<i class="fa fa-eye"></i>')
+                .on('click', (function (fid) { return function () { cfPreviewForm(fid); }; }(fd.id)));
             var editBtn = $('<button class="btn btn-default btn-xs">').html('<i class="fa fa-pencil"></i> Edit')
                 .on('click', function () { cfShowFormEditor(fd.id); });
-            var actCell = $('<td>').append(editBtn);
+            var actCell = $('<td>').append(previewBtn).append(' ').append(editBtn);
             if (!isSystem) {
                 var delBtn = $('<button class="btn btn-danger btn-xs">').html('<i class="fa fa-trash"></i>')
                     .on('click', function () { cfDeleteForm(fd.id, fd.name); });
@@ -596,6 +617,73 @@
             tbody.append(row);
         });
     }
+
+    // ── Form preview ──────────────────────────────────────────────────────
+
+    window.cfPreviewForm = function (formId) {
+        var fd = formsData.find(function (f) { return f.id === formId; });
+        if (!fd) { return; }
+
+        $('#cf-preview-title').text('Preview: ' + fd.name);
+        var body = $('#cf-preview-body');
+        body.empty();
+
+        var fields = fd.fields || [];
+        if (!fields.length) {
+            body.append($('<p class="text-muted">').text('No fields defined.'));
+        } else {
+            fields.forEach(function (field) {
+                var type  = field.type || 'text';
+                var label = field.label || '(no label)';
+                var group = $('<div class="form-group" style="margin-bottom:14px;">');
+
+                if (type === 'checkbox') {
+                    var cbLabel = $('<label style="font-weight:normal;">').append(
+                        $('<input type="checkbox" disabled style="margin-right:6px;">')
+                    ).append(label);
+                    if (field.required) { cbLabel.append($('<span style="color:red;margin-left:3px;">').text('*')); }
+                    group.append($('<div class="checkbox" style="margin:0;">').append(cbLabel));
+                } else {
+                    var lbl = $('<label>').text(label);
+                    if (field.required) { lbl.append($('<span style="color:red;margin-left:3px;">').text('*')); }
+                    group.append(lbl);
+
+                    if (type === 'textarea') {
+                        group.append($('<textarea class="form-control" rows="3" disabled>'));
+                    } else if (type === 'select') {
+                        var sel = $('<select class="form-control" disabled>').append($('<option>').text('— Select —'));
+                        (field.options || []).forEach(function (o) { sel.append($('<option>').text(o)); });
+                        group.append(sel);
+                    } else if (type === 'multi_select') {
+                        var opts = field.options || [];
+                        if (!opts.length) {
+                            group.append($('<p class="text-muted" style="font-size:12px;margin:0;">').text('No options defined.'));
+                        } else {
+                            opts.forEach(function (o) {
+                                group.append($('<div class="checkbox" style="margin:2px 0;">').append(
+                                    $('<label style="font-weight:normal;">').append(
+                                        $('<input type="checkbox" disabled style="margin-right:6px;">')
+                                    ).append(o)
+                                ));
+                            });
+                        }
+                    } else if (type === 'date') {
+                        group.append($('<input type="date" class="form-control" disabled>'));
+                    } else {
+                        var itype = { email: 'email', phone: 'tel', number: 'number' }[type] || 'text';
+                        group.append($('<input class="form-control" disabled>').attr('type', itype).attr('placeholder', label));
+                    }
+                }
+
+                body.append(group);
+            });
+        }
+
+        var submitLabel = (fd.settings && fd.settings.submit_label) ? fd.settings.submit_label : 'Submit';
+        body.append($('<button class="btn btn-primary" disabled style="margin-top:6px;">').text(submitLabel));
+
+        $('#cf-preview-modal').modal('show');
+    };
 
     // ── Custom GHL Fields (per-site destination registry) ─────────────────
 
