@@ -294,35 +294,7 @@
         var removeBtn = $('<button type="button" class="btn btn-danger btn-xs" style="margin-top:2px;flex-shrink:0;">').html('<i class="fa fa-times"></i>')
             .on('click', function () { wrapper.remove(); syncAllGhlDropdowns(); });
 
-        // "Create in GHL" button — creates a GHL custom field and auto-maps this row.
-        var createGhlBtn = $('<button type="button" class="btn btn-default btn-xs cf-create-ghl-btn" style="margin-top:2px;flex-shrink:0;" title="Create this field as a GHL custom field">')
-            .html('<i class="fa fa-plus-circle"></i> GHL')
-            .on('click', function () {
-                var lbl = labelInput.val().trim();
-                if (!lbl) { alert_float('danger', 'Enter a field label first.'); return; }
-                var typ = typeSelect.val();
-                var btn = $(this).prop('disabled', true).text('Creating…');
-                ajax(ADMIN_URL + '/ghl_create_custom_field/' + SITE_ID, { label: lbl, type: typ }, function (r) {
-                    btn.prop('disabled', false).html('<i class="fa fa-plus-circle"></i> GHL');
-                    if (!r.success) { alert_float('danger', r.message || 'GHL field creation failed.'); return; }
-                    alert_float('success', r.message || 'GHL field ready.');
-                    // Invalidate cache and reload so the new field appears.
-                    cachedGhlFields = null;
-                    loadGhlFields(function (fields) {
-                        // Re-sync all rows, then set this row's selection to the new field.
-                        $('#cf-fields-container .cf-field-row').each(function () {
-                            var rw  = $(this);
-                            var sel = rw.find('.cf-field-ghl');
-                            buildGhlOptions(sel, sel.val(), fields);
-                        });
-                        buildGhlOptions(ghlSelect, r.field_id, fields);
-                        ghlSelect.val(r.field_id);
-                        syncAllGhlDropdowns();
-                    });
-                });
-            });
-
-        row1.append(labelInput, typeSelect, ghlSelect, createGhlBtn, reqCheck, removeBtn);
+        row1.append(labelInput, typeSelect, ghlSelect, reqCheck, removeBtn);
 
         // Options row — shown only for select / multi_select
         var optionsRow   = $('<div class="cf-field-options-row" style="margin-top:5px;">');
