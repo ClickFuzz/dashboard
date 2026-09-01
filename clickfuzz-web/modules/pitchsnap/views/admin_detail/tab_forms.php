@@ -196,32 +196,65 @@
 
     var GHL_FIELDS = ['full_name','first_name','last_name','email','phone','message','service_type','address','city','state','zip'];
 
+    var FIELD_TYPES = [
+        {v:'text',         t:'Text'},
+        {v:'email',        t:'Email'},
+        {v:'phone',        t:'Phone'},
+        {v:'textarea',     t:'Textarea'},
+        {v:'number',       t:'Number'},
+        {v:'select',       t:'Single select'},
+        {v:'multi_select', t:'Multi select'},
+        {v:'date',         t:'Date'},
+        {v:'checkbox',     t:'Checkbox'},
+    ];
+
     function buildFieldRow(field) {
         field = field || {};
-        var row = $('<div class="cf-field-row" style="display:flex;gap:6px;align-items:flex-start;margin-bottom:6px;">');
+        var currentType = field.type || 'text';
 
-        var labelInput = $('<input type="text" class="form-control input-sm cf-field-label" placeholder="Label">').val(field.label || '');
+        var wrapper = $('<div class="cf-field-row" style="margin-bottom:8px;border:1px solid #e0e0e0;border-radius:4px;padding:6px 8px;">');
+        var row1    = $('<div style="display:flex;gap:6px;align-items:flex-start;">');
 
-        var typeSelect = $('<select class="form-control input-sm cf-field-type">');
-        ['text','tel','email','textarea'].forEach(function (t) {
-            typeSelect.append($('<option>').val(t).text(t).prop('selected', t === (field.type || 'text')));
+        var labelInput = $('<input type="text" class="form-control input-sm cf-field-label" placeholder="Label" style="flex:1;min-width:0;">').val(field.label || '');
+
+        var typeSelect = $('<select class="form-control input-sm cf-field-type" style="width:130px;flex-shrink:0;">');
+        FIELD_TYPES.forEach(function (opt) {
+            typeSelect.append($('<option>').val(opt.v).text(opt.t).prop('selected', opt.v === currentType));
         });
 
-        var ghlSelect = $('<select class="form-control input-sm cf-field-ghl">');
+        var ghlSelect = $('<select class="form-control input-sm cf-field-ghl" style="width:130px;flex-shrink:0;">');
         ghlSelect.append($('<option>').val('').text('— GHL field —'));
         GHL_FIELDS.forEach(function (g) {
             ghlSelect.append($('<option>').val(g).text(g).prop('selected', g === (field.ghl_field || '')));
         });
 
-        var reqCheck = $('<label style="white-space:nowrap;margin:0;padding-top:6px;">')
+        var reqCheck = $('<label style="white-space:nowrap;margin:0;padding-top:6px;flex-shrink:0;">')
             .append($('<input type="checkbox" class="cf-field-required">').prop('checked', !!field.required))
             .append(' Req');
 
-        var removeBtn = $('<button type="button" class="btn btn-danger btn-xs" style="margin-top:2px;">').html('<i class="fa fa-times"></i>')
-            .on('click', function () { row.remove(); });
+        var removeBtn = $('<button type="button" class="btn btn-danger btn-xs" style="margin-top:2px;flex-shrink:0;">').html('<i class="fa fa-times"></i>')
+            .on('click', function () { wrapper.remove(); });
 
-        row.append(labelInput, typeSelect, ghlSelect, reqCheck, removeBtn);
-        return row;
+        row1.append(labelInput, typeSelect, ghlSelect, reqCheck, removeBtn);
+
+        // Options row — shown only for select / multi_select
+        var optionsRow   = $('<div class="cf-field-options-row" style="margin-top:5px;">');
+        var optionsLabel = $('<small class="text-muted" style="display:block;margin-bottom:3px;">Options (comma-separated):</small>');
+        var optionsInput = $('<input type="text" class="form-control input-sm cf-field-options" placeholder="e.g. Option A, Option B, Option C">');
+        if (field.options && Array.isArray(field.options)) {
+            optionsInput.val(field.options.join(', '));
+        }
+        optionsRow.append(optionsLabel, optionsInput);
+
+        function syncOptionsRow() {
+            var t = typeSelect.val();
+            optionsRow.toggle(t === 'select' || t === 'multi_select');
+        }
+        typeSelect.on('change', syncOptionsRow);
+        syncOptionsRow();
+
+        wrapper.append(row1, optionsRow);
+        return wrapper;
     }
 
     window.cfAddField = function (field) {
@@ -274,12 +307,21 @@
 
         var fields = [];
         $('#cf-fields-container .cf-field-row').each(function () {
-            var row = $(this);
+            var row  = $(this);
+            var type = row.find('.cf-field-type').val();
+            var opts = [];
+            if (type === 'select' || type === 'multi_select') {
+                var raw = row.find('.cf-field-options').val().trim();
+                if (raw) {
+                    opts = raw.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+                }
+            }
             fields.push({
                 label:     row.find('.cf-field-label').val(),
-                type:      row.find('.cf-field-type').val(),
+                type:      type,
                 ghl_field: row.find('.cf-field-ghl').val(),
                 required:  row.find('.cf-field-required').prop('checked'),
+                options:   opts,
             });
         });
 

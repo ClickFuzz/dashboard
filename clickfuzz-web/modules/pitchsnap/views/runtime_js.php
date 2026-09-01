@@ -577,8 +577,9 @@
         '.cf-form { font-family: inherit; }',
         '.cf-field { margin-bottom: 14px; }',
         '.cf-field label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 4px; }',
-        '.cf-field input, .cf-field textarea { width: 100%; box-sizing: border-box;',
+        '.cf-field input:not([type="checkbox"]), .cf-field select, .cf-field textarea { width: 100%; box-sizing: border-box;',
         '  padding: 9px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 15px; font-family: inherit; }',
+        '.cf-field select { appearance: auto; }',
         '.cf-field textarea { resize: vertical; }',
         '.cf-required { color: #e74c3c; margin-left: 2px; }',
         '.cf-submit { display: inline-block; padding: 11px 28px; background: #2563eb; color: #fff;',
@@ -629,8 +630,24 @@
         var fields    = {};
 
         for (var i = 0; i < inputs.length; i++) {
-            var name = inputs[i].name.replace(/^cf_field\[/, '').replace(/\]$/, '');
-            fields[name] = inputs[i].value;
+            var inp  = inputs[i];
+            var name = inp.name.replace(/^cf_field\[/, '').replace(/\]$/, '');
+            if (inp.type === 'checkbox') {
+                fields[name] = inp.checked ? (inp.value || 'yes') : '';
+            } else {
+                fields[name] = inp.value;
+            }
+        }
+
+        // Collect multi-select groups (checkboxes without name, grouped by data-cf-multi)
+        var multiGroups = formEl.querySelectorAll('[data-cf-multi]');
+        for (var j = 0; j < multiGroups.length; j++) {
+            var group   = multiGroups[j];
+            var ghlKey  = group.getAttribute('data-cf-multi');
+            var checked = group.querySelectorAll('.cf-ms-opt:checked');
+            var vals    = [];
+            for (var k = 0; k < checked.length; k++) { vals.push(checked[k].value); }
+            fields[ghlKey] = vals.join(', ');
         }
 
         var submitBtn = formEl.querySelector('.cf-submit');

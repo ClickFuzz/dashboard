@@ -1079,21 +1079,52 @@ class Pitchsnap_runtime extends CI_Controller
         $html  = '<form class="cf-form" data-form-id="' . $form_id . '" novalidate>';
         $html .= '<input type="text" name="cf_trap" style="display:none!important" tabindex="-1" autocomplete="off">';
 
+        $allowed_types = ['text','email','phone','textarea','number','select','multi_select','date','checkbox'];
         foreach ($fields as $field) {
             $label    = htmlspecialchars($field['label'] ?? '', ENT_QUOTES, 'UTF-8');
-            $type     = in_array($field['type'] ?? '', ['text','tel','email','textarea','select'], true) ? $field['type'] : 'text';
+            $type     = in_array($field['type'] ?? '', $allowed_types, true) ? $field['type'] : 'text';
             $required = !empty($field['required']);
-            $ghl      = htmlspecialchars($field['ghl_field'] ?? '', ENT_QUOTES, 'UTF-8');
+            $ghl      = preg_replace('/[^a-zA-Z0-9_]/', '', (string) ($field['ghl_field'] ?? ''));
             $req_attr = $required ? ' required' : '';
             $req_mark = $required ? ' <span class="cf-required">*</span>' : '';
+            $options  = is_array($field['options'] ?? null) ? $field['options'] : [];
 
             $html .= '<div class="cf-field">';
-            $html .= '<label>' . $label . $req_mark . '</label>';
-            if ($type === 'textarea') {
+
+            if ($type === 'checkbox') {
+                $html .= '<label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;">';
+                $html .= '<input type="checkbox" name="cf_field[' . $ghl . ']" value="yes"' . $req_attr . ' style="width:auto;margin:0;">';
+                $html .= ' ' . $label . $req_mark;
+                $html .= '</label>';
+            } elseif ($type === 'textarea') {
+                $html .= '<label>' . $label . $req_mark . '</label>';
                 $html .= '<textarea name="cf_field[' . $ghl . ']" rows="4"' . $req_attr . '></textarea>';
+            } elseif ($type === 'select') {
+                $html .= '<label>' . $label . $req_mark . '</label>';
+                $html .= '<select name="cf_field[' . $ghl . ']"' . $req_attr . '>';
+                $html .= '<option value="">— Select —</option>';
+                foreach ($options as $opt) {
+                    $os = htmlspecialchars((string) $opt, ENT_QUOTES, 'UTF-8');
+                    $html .= '<option value="' . $os . '">' . $os . '</option>';
+                }
+                $html .= '</select>';
+            } elseif ($type === 'multi_select') {
+                $html .= '<label>' . $label . $req_mark . '</label>';
+                $html .= '<div class="cf-multi-select" data-cf-multi="' . $ghl . '" style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">';
+                foreach ($options as $opt) {
+                    $os = htmlspecialchars((string) $opt, ENT_QUOTES, 'UTF-8');
+                    $html .= '<label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;margin:0;">';
+                    $html .= '<input type="checkbox" class="cf-ms-opt" value="' . $os . '" style="width:auto;margin:0;">';
+                    $html .= ' ' . $os;
+                    $html .= '</label>';
+                }
+                $html .= '</div>';
             } else {
-                $html .= '<input type="' . $type . '" name="cf_field[' . $ghl . ']"' . $req_attr . '>';
+                $html_type = ($type === 'phone') ? 'tel' : $type;
+                $html .= '<label>' . $label . $req_mark . '</label>';
+                $html .= '<input type="' . $html_type . '" name="cf_field[' . $ghl . ']"' . $req_attr . '>';
             }
+
             $html .= '</div>';
         }
 
