@@ -57,6 +57,9 @@
                 <a href="#tab-pages" role="tab" data-toggle="tab">Website</a>
             </li>
             <li role="presentation">
+                <a href="#tab-forms" role="tab" data-toggle="tab">Forms</a>
+            </li>
+            <li role="presentation">
                 <a href="#tab-media" role="tab" data-toggle="tab">Media</a>
             </li>
             <li role="presentation">
@@ -72,6 +75,8 @@
             <?php include __DIR__ . '/admin_detail/tab_overview.php'; ?>
 
             <?php include __DIR__ . '/admin_detail/tab_pages.php'; ?>
+
+            <?php include __DIR__ . '/admin_detail/tab_forms.php'; ?>
 
             <?php include __DIR__ . '/admin_detail/tab_media.php'; ?>
 

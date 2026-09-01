@@ -566,3 +566,165 @@
     }
 
 }());
+
+// ── ClickFuzz Forms runtime ────────────────────────────────────────────────
+(function () {
+    'use strict';
+
+    var BASE_URL = '<?php echo addslashes(rtrim(base_url("pitchsnap"), "/")); ?>/';
+
+    var FORM_CSS = [
+        '.cf-form { font-family: inherit; }',
+        '.cf-field { margin-bottom: 14px; }',
+        '.cf-field label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 4px; }',
+        '.cf-field input, .cf-field textarea { width: 100%; box-sizing: border-box;',
+        '  padding: 9px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 15px; font-family: inherit; }',
+        '.cf-field textarea { resize: vertical; }',
+        '.cf-required { color: #e74c3c; margin-left: 2px; }',
+        '.cf-submit { display: inline-block; padding: 11px 28px; background: #2563eb; color: #fff;',
+        '  border: none; border-radius: 4px; font-size: 15px; font-weight: 600; cursor: pointer; }',
+        '.cf-submit:hover { background: #1d4ed8; }',
+        '.cf-submit:disabled { opacity: 0.6; cursor: default; }',
+        '.cf-msg { margin-top: 10px; font-size: 14px; padding: 9px 12px; border-radius: 4px; }',
+        '.cf-msg.cf-success { background: #d1fae5; color: #065f46; }',
+        '.cf-msg.cf-error   { background: #fee2e2; color: #991b1b; }',
+        '.cf-popup-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 99998;',
+        '  display: flex; align-items: center; justify-content: center; }',
+        '.cf-popup-box { background: #fff; border-radius: 8px; padding: 28px; max-width: 480px;',
+        '  width: 90%; position: relative; max-height: 90vh; overflow-y: auto; }',
+        '.cf-popup-close { position: absolute; top: 10px; right: 14px; background: none; border: none;',
+        '  font-size: 22px; cursor: pointer; color: #666; line-height: 1; }',
+    ].join('\n');
+
+    function injectStyles() {
+        if (document.getElementById('cf-forms-css')) { return; }
+        var s = document.createElement('style');
+        s.id = 'cf-forms-css';
+        s.textContent = FORM_CSS;
+        document.head.appendChild(s);
+    }
+
+    function getSiteToken() {
+        var sc = document.querySelector('script[data-redesign-token]');
+        return sc ? (sc.getAttribute('data-redesign-token') || '') : '';
+    }
+
+    function fetchForm(formId, callback) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', BASE_URL + 'form_render/' + formId, true);
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== 4) { return; }
+            try {
+                var data = JSON.parse(xhr.responseText);
+                if (data.success) { callback(data.html); }
+            } catch (e) {}
+        };
+        xhr.send();
+    }
+
+    function submitForm(formEl) {
+        var formId    = formEl.getAttribute('data-form-id');
+        var siteToken = getSiteToken();
+        var inputs    = formEl.querySelectorAll('[name^="cf_field"]');
+        var fields    = {};
+
+        for (var i = 0; i < inputs.length; i++) {
+            var name = inputs[i].name.replace(/^cf_field\[/, '').replace(/\]$/, '');
+            fields[name] = inputs[i].value;
+        }
+
+        var submitBtn = formEl.querySelector('.cf-submit');
+        var msgEl     = formEl.querySelector('.cf-msg');
+        if (submitBtn) { submitBtn.disabled = true; }
+        if (msgEl)     { msgEl.style.display = 'none'; msgEl.className = 'cf-msg'; }
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', BASE_URL + 'form_submit', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== 4) { return; }
+            if (submitBtn) { submitBtn.disabled = false; }
+            try {
+                var data = JSON.parse(xhr.responseText);
+                if (msgEl) {
+                    msgEl.style.display = 'block';
+                    if (data.success) {
+                        msgEl.className   = 'cf-msg cf-success';
+                        msgEl.textContent = data.message || 'Thank you!';
+                        formEl.reset();
+                    } else {
+                        msgEl.className   = 'cf-msg cf-error';
+                        msgEl.textContent = data.error || 'Something went wrong. Please try again.';
+                    }
+                }
+            } catch (e) {
+                if (msgEl) { msgEl.className = 'cf-msg cf-error'; msgEl.textContent = 'Something went wrong.'; msgEl.style.display = 'block'; }
+            }
+        };
+        xhr.send(JSON.stringify({ form_id: parseInt(formId, 10), site_token: siteToken, fields: fields }));
+    }
+
+    function openPopup(formId) {
+        var overlay = document.createElement('div');
+        overlay.className = 'cf-popup-overlay';
+
+        var box = document.createElement('div');
+        box.className = 'cf-popup-box';
+
+        var closeBtn = document.createElement('button');
+        closeBtn.className   = 'cf-popup-close';
+        closeBtn.textContent = '×';
+        closeBtn.setAttribute('aria-label', 'Close');
+        closeBtn.onclick = function () { document.body.removeChild(overlay); };
+        overlay.onclick  = function (e) { if (e.target === overlay) { document.body.removeChild(overlay); } };
+
+        box.appendChild(closeBtn);
+        var placeholder = document.createElement('p');
+        placeholder.textContent = 'Loading…';
+        placeholder.style.padding = '20px 0';
+        box.appendChild(placeholder);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        fetchForm(formId, function (html) {
+            box.innerHTML = '';
+            box.appendChild(closeBtn);
+            box.insertAdjacentHTML('beforeend', html);
+        });
+    }
+
+    function init() {
+        injectStyles();
+
+        // Replace inline form markers
+        var markers = document.querySelectorAll('[data-cf-form]');
+        for (var i = 0; i < markers.length; i++) {
+            (function (el) {
+                fetchForm(el.getAttribute('data-cf-form'), function (html) {
+                    el.outerHTML = html;
+                });
+            }(markers[i]));
+        }
+
+        // Popup triggers
+        document.body.addEventListener('click', function (e) {
+            var btn = e.target && e.target.closest && e.target.closest('[data-cf-popup-form]');
+            if (!btn) { return; }
+            e.preventDefault();
+            openPopup(btn.getAttribute('data-cf-popup-form'));
+        });
+
+        // Form submission (delegated)
+        document.body.addEventListener('submit', function (e) {
+            if (!e.target || !e.target.classList.contains('cf-form')) { return; }
+            e.preventDefault();
+            submitForm(e.target);
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+}());

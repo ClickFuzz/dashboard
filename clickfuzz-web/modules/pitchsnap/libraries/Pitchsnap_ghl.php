@@ -27,6 +27,23 @@ class Pitchsnap_ghl
         return $this->request('GET', '/locations/' . rawurlencode($location_id));
     }
 
+    /**
+     * Create or upsert a contact in a GHL location.
+     * $fields: associative array with standard GHL contact keys
+     *   (firstName, lastName, phone, email, name, customField, etc.)
+     * Returns ['success' => true, 'contact_id' => '...'] or ['success' => false, 'error' => '...']
+     */
+    public function create_contact($location_id, array $fields)
+    {
+        $body   = array_merge($fields, ['locationId' => $location_id]);
+        $result = $this->request('POST', '/contacts/', $body);
+        if (!$result['success']) {
+            return $result;
+        }
+        $contact_id = $result['data']['contact']['id'] ?? ($result['data']['id'] ?? null);
+        return ['success' => true, 'contact_id' => $contact_id];
+    }
+
     private function request($method, $path, $body = null)
     {
         if (!$this->is_configured()) {

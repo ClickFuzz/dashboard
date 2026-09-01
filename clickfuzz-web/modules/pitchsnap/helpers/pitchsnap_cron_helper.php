@@ -77,6 +77,17 @@ function clickfuzz_web_cron_run()
                 }
             }
 
+            $ps_site_for_forms = clickfuzz_web_ensure_site($website->id, $website->lead_id ?? null);
+            $available_forms   = '';
+            if ($ps_site_for_forms) {
+                $site_forms = $CI->pitchsnap_model->get_forms_for_site($ps_site_for_forms->id);
+                $form_lines = [];
+                foreach ($site_forms as $sf) {
+                    $form_lines[] = 'Form ID ' . $sf->id . ': ' . $sf->name;
+                }
+                $available_forms = implode("\n", $form_lines);
+            }
+
             $prompt_data = [
                 'business_name'       => $lead ? ($lead->company ?: $lead->name) : '',
                 'email'               => $lead ? $lead->email        : '',
@@ -88,6 +99,7 @@ function clickfuzz_web_cron_run()
                 'vertical'            => $vertical,
                 'preview_token'       => $website->preview_token       ?? '',
                 'source_content'      => $source_content,
+                'available_forms'     => $available_forms,
             ];
 
             $prompt_key = ($provider_name === 'manus')

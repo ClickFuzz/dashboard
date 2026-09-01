@@ -25,6 +25,9 @@ class Pitchsnap_model extends App_Model
         $this->media_table            = db_prefix() . 'pitchsnap_site_media';
         $this->page_media_table       = db_prefix() . 'pitchsnap_page_media';
         $this->page_generations_table = db_prefix() . 'pitchsnap_page_generations';
+        $this->forms_table            = db_prefix() . 'pitchsnap_forms';
+        $this->placements_table       = db_prefix() . 'pitchsnap_form_placements';
+        $this->submissions_table      = db_prefix() . 'pitchsnap_form_submissions';
     }
 
     // -----------------------------------------------------------------------
@@ -1478,5 +1481,141 @@ class Pitchsnap_model extends App_Model
             'wp_active_theme_slug' => null,
             'dateupdated'          => date('Y-m-d H:i:s'),
         ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Forms
+    // -------------------------------------------------------------------------
+
+    private $forms_table;
+    private $placements_table;
+    private $submissions_table;
+
+    public function get_forms_for_site($site_id)
+    {
+        return $this->db->where('site_id', (int) $site_id)
+            ->order_by('dateadded', 'ASC')
+            ->get($this->forms_table)->result();
+    }
+
+    public function get_form($id)
+    {
+        return $this->db->where('id', (int) $id)->get($this->forms_table)->row();
+    }
+
+    public function create_form($data)
+    {
+        $now = date('Y-m-d H:i:s');
+        $this->db->insert($this->forms_table, array_merge($data, [
+            'dateadded'   => $now,
+            'dateupdated' => $now,
+        ]));
+        return $this->db->insert_id();
+    }
+
+    public function update_form($id, $data)
+    {
+        $data['dateupdated'] = date('Y-m-d H:i:s');
+        return $this->db->where('id', (int) $id)->update($this->forms_table, $data);
+    }
+
+    public function delete_form($id)
+    {
+        $this->db->where('form_id', (int) $id)->delete($this->placements_table);
+        return $this->db->where('id', (int) $id)->delete($this->forms_table);
+    }
+
+    public function seed_default_forms($site_id)
+    {
+        $existing = $this->db->where('site_id', (int) $site_id)
+            ->where('form_type', 'system')
+            ->get($this->forms_table)->result();
+        $existing_names = array_column($existing, 'name');
+
+        $now = date('Y-m-d H:i:s');
+
+        $contact_fields = json_encode([
+            ['label' => 'Full Name',     'type' => 'text',     'required' => true,  'ghl_field' => 'full_name'],
+            ['label' => 'Phone',         'type' => 'tel',      'required' => true,  'ghl_field' => 'phone'],
+            ['label' => 'Email',         'type' => 'email',    'required' => true,  'ghl_field' => 'email'],
+            ['label' => 'Message',       'type' => 'textarea', 'required' => false, 'ghl_field' => 'message'],
+        ]);
+
+        $quote_fields = json_encode([
+            ['label' => 'Full Name',     'type' => 'text',     'required' => true,  'ghl_field' => 'full_name'],
+            ['label' => 'Phone',         'type' => 'tel',      'required' => true,  'ghl_field' => 'phone'],
+            ['label' => 'Email',         'type' => 'email',    'required' => true,  'ghl_field' => 'email'],
+            ['label' => 'Service Needed','type' => 'text',     'required' => false, 'ghl_field' => 'service_type'],
+            ['label' => 'Details',       'type' => 'textarea', 'required' => false, 'ghl_field' => 'message'],
+        ]);
+
+        $defaults = [
+            ['name' => 'Contact Form',       'fields' => $contact_fields],
+            ['name' => 'Request a Quote',    'fields' => $quote_fields],
+        ];
+
+        foreach ($defaults as $d) {
+            if (in_array($d['name'], $existing_names, true)) {
+                continue;
+            }
+            $this->db->insert($this->forms_table, [
+                'site_id'     => (int) $site_id,
+                'name'        => $d['name'],
+                'form_type'   => 'system',
+                'fields'      => $d['fields'],
+                'settings'    => json_encode(['submit_label' => 'Submit', 'success_message' => 'Thank you! We\'ll be in touch soon.']),
+                'dateadded'   => $now,
+                'dateupdated' => $now,
+            ]);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Form placements
+    // -------------------------------------------------------------------------
+
+    public function get_placements_for_form($form_id)
+    {
+        return $this->db
+            ->select('fp.*, pp.title AS page_title, pp.slug AS page_slug')
+            ->from($this->placements_table . ' fp')
+            ->join(db_prefix() . 'pitchsnap_pages pp', 'pp.id = fp.page_id', 'left')
+            ->where('fp.form_id', (int) $form_id)
+            ->get()->result();
+    }
+
+    public function get_placements_for_site($site_id)
+    {
+        return $this->db
+            ->select('fp.*, f.name AS form_name')
+            ->from($this->placements_table . ' fp')
+            ->join($this->forms_table . ' f', 'f.id = fp.form_id', 'left')
+            ->where('f.site_id', (int) $site_id)
+            ->get()->result();
+    }
+
+    public function add_placement($data)
+    {
+        $data['dateadded'] = date('Y-m-d H:i:s');
+        $this->db->insert($this->placements_table, $data);
+        return $this->db->insert_id();
+    }
+
+    public function remove_placement($id)
+    {
+        return $this->db->where('id', (int) $id)->delete($this->placements_table);
+    }
+
+    // -------------------------------------------------------------------------
+    // Form submissions
+    // -------------------------------------------------------------------------
+
+    public function log_form_submission($data)
+    {
+        if (empty($data['submitted_at'])) {
+            $data['submitted_at'] = date('Y-m-d H:i:s');
+        }
+        $this->db->insert($this->submissions_table, $data);
+        return $this->db->insert_id();
     }
 }

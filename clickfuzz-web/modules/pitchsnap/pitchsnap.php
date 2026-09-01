@@ -160,7 +160,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 24) {
+    if ((int) get_option('pitchsnap_db_version') >= 25) {
         return;
     }
 
@@ -651,11 +651,67 @@ function clickfuzz_web_db_upgrade()
         $CI->db->query("ALTER TABLE `{$tp24}` ADD COLUMN `published_generation_id` INT(11) NULL DEFAULT NULL");
     }
 
+    // v25: forms, form placements, form submissions
+    $tf  = db_prefix() . 'pitchsnap_forms';
+    $tfp = db_prefix() . 'pitchsnap_form_placements';
+    $tfs = db_prefix() . 'pitchsnap_form_submissions';
+
+    if (!$CI->db->table_exists($tf)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tf}` (
+                `id`          INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `site_id`     INT(11) NOT NULL,
+                `name`        VARCHAR(255) NOT NULL DEFAULT '',
+                `form_type`   VARCHAR(30)  NOT NULL DEFAULT 'custom',
+                `fields`      MEDIUMTEXT DEFAULT NULL,
+                `settings`    TEXT DEFAULT NULL,
+                `dateadded`   DATETIME NOT NULL,
+                `dateupdated` DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_forms_site` (`site_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    if (!$CI->db->table_exists($tfp)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tfp}` (
+                `id`          INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `form_id`     INT(11) NOT NULL,
+                `page_id`     INT(11) NOT NULL,
+                `placement`   VARCHAR(20) NOT NULL DEFAULT 'inline',
+                `dateadded`   DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_placements_form` (`form_id`),
+                KEY `idx_placements_page` (`page_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    if (!$CI->db->table_exists($tfs)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tfs}` (
+                `id`              INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `form_id`         INT(11) NOT NULL,
+                `site_id`         INT(11) NOT NULL,
+                `ghl_contact_id`  VARCHAR(100) DEFAULT NULL,
+                `submitted_at`    DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_submissions_form` (`form_id`),
+                KEY `idx_submissions_site` (`site_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    if (get_option('pitchsnap_ghl_form_webhook_url') === false) {
+        add_option('pitchsnap_ghl_form_webhook_url', '');
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '24');
+        add_option('pitchsnap_db_version', '25');
     } else {
-        update_option('pitchsnap_db_version', '24');
+        update_option('pitchsnap_db_version', '25');
     }
 }
 

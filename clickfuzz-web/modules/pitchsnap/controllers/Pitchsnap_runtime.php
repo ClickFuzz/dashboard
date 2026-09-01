@@ -1047,6 +1047,230 @@ class Pitchsnap_runtime extends CI_Controller
         exit;
     }
 
+    // ── Forms — public endpoints ──────────────────────────────────────────────
+
+    /**
+     * GET pitchsnap/form_render/{form_id}
+     * Returns rendered form HTML for the given form.
+     */
+    public function form_render($form_id = 0)
+    {
+        $this->_cors();
+        if ($this->input->server('REQUEST_METHOD') === 'OPTIONS') {
+            $this->output->set_status_header(204)->set_output('');
+            return;
+        }
+
+        $form_id = (int) $form_id;
+        if (!$form_id) {
+            return $this->_json(['success' => false, 'error' => 'Invalid form ID.'], 400);
+        }
+
+        $this->_load_model();
+        $form = $this->pitchsnap_model->get_form($form_id);
+        if (!$form) {
+            return $this->_json(['success' => false, 'error' => 'Form not found.'], 404);
+        }
+
+        $fields   = json_decode($form->fields ?? '[]', true) ?: [];
+        $settings = json_decode($form->settings ?? '{}', true) ?: [];
+        $submit_label = htmlspecialchars($settings['submit_label'] ?? 'Submit', ENT_QUOTES, 'UTF-8');
+
+        $html  = '<form class="cf-form" data-form-id="' . $form_id . '" novalidate>';
+        $html .= '<input type="text" name="cf_trap" style="display:none!important" tabindex="-1" autocomplete="off">';
+
+        foreach ($fields as $field) {
+            $label    = htmlspecialchars($field['label'] ?? '', ENT_QUOTES, 'UTF-8');
+            $type     = in_array($field['type'] ?? '', ['text','tel','email','textarea','select'], true) ? $field['type'] : 'text';
+            $required = !empty($field['required']);
+            $ghl      = htmlspecialchars($field['ghl_field'] ?? '', ENT_QUOTES, 'UTF-8');
+            $req_attr = $required ? ' required' : '';
+            $req_mark = $required ? ' <span class="cf-required">*</span>' : '';
+
+            $html .= '<div class="cf-field">';
+            $html .= '<label>' . $label . $req_mark . '</label>';
+            if ($type === 'textarea') {
+                $html .= '<textarea name="cf_field[' . $ghl . ']" rows="4"' . $req_attr . '></textarea>';
+            } else {
+                $html .= '<input type="' . $type . '" name="cf_field[' . $ghl . ']"' . $req_attr . '>';
+            }
+            $html .= '</div>';
+        }
+
+        $html .= '<div class="cf-field"><button type="submit" class="cf-submit">' . $submit_label . '</button></div>';
+        $html .= '<div class="cf-msg" style="display:none"></div>';
+        $html .= '</form>';
+
+        return $this->_json(['success' => true, 'html' => $html, 'form_id' => $form_id]);
+    }
+
+    /**
+     * POST pitchsnap/form_submit
+     * Validates and routes a form submission to GHL.
+     * Body: JSON { form_id, site_token, fields: {ghl_field: value, ...} }
+     */
+    public function form_submit()
+    {
+        $this->_cors();
+        if ($this->input->server('REQUEST_METHOD') === 'OPTIONS') {
+            $this->output->set_status_header(204)->set_output('');
+            return;
+        }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') {
+            return $this->_json(['success' => false, 'error' => 'Method not allowed.'], 405);
+        }
+
+        $body = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($body)) {
+            return $this->_json(['success' => false, 'error' => 'Invalid request body.'], 400);
+        }
+
+        $form_id    = (int)    ($body['form_id']    ?? 0);
+        $site_token = trim((string) ($body['site_token'] ?? ''));
+        $fields     = is_array($body['fields'] ?? null) ? $body['fields'] : [];
+
+        if (!$form_id) {
+            return $this->_json(['success' => false, 'error' => 'Missing form_id.'], 400);
+        }
+
+        // Honeypot check
+        if (!empty($body['cf_trap'])) {
+            return $this->_json(['success' => true]); // silent discard
+        }
+
+        $this->_load_model();
+        $form = $this->pitchsnap_model->get_form($form_id);
+        if (!$form) {
+            return $this->_json(['success' => false, 'error' => 'Form not found.'], 404);
+        }
+
+        // Validate required fields
+        $form_fields = json_decode($form->fields ?? '[]', true) ?: [];
+        foreach ($form_fields as $ff) {
+            if (!empty($ff['required'])) {
+                $ghl_key = $ff['ghl_field'] ?? '';
+                $val     = trim((string) ($fields[$ghl_key] ?? ''));
+                if ($val === '') {
+                    $label = $ff['label'] ?? $ghl_key;
+                    return $this->_json(['success' => false, 'error' => $label . ' is required.'], 422);
+                }
+            }
+        }
+
+        // Sanitize field values
+        $clean = [];
+        foreach ($fields as $k => $v) {
+            $k = preg_replace('/[^a-zA-Z0-9_]/', '', (string) $k);
+            $clean[$k] = mb_substr(strip_tags((string) $v), 0, 500);
+        }
+
+        // Resolve site for GHL lookup
+        $site = null;
+        if ($site_token !== '') {
+            $site = $this->pitchsnap_model->get_site_by_token($site_token);
+        }
+        if (!$site) {
+            // Fallback: look up via form's site_id
+            $site = $this->pitchsnap_model->get_site_by_id((int) $form->site_id);
+        }
+
+        $ghl_contact_id = null;
+        $site_id        = $site ? (int) $site->id : (int) $form->site_id;
+
+        // Route through GHL
+        if ($site) {
+            require_once FCPATH . 'modules/pitchsnap/models/Pitchsnap_ghl_model.php';
+            $ghl_model = new Pitchsnap_ghl_model();
+            $location  = $ghl_model->get_by_site($site_id);
+
+            if ($location && $location->status === 'connected') {
+                require_once FCPATH . 'modules/pitchsnap/libraries/Pitchsnap_ghl.php';
+                $ghl = new Pitchsnap_ghl();
+                if ($ghl->is_configured()) {
+                    $contact_payload = $this->_map_to_ghl_contact($clean, $location->ghl_location_id);
+                    $result          = $ghl->create_contact($location->ghl_location_id, $contact_payload);
+                    if ($result['success']) {
+                        $ghl_contact_id = $result['contact_id'] ?? null;
+                    }
+                }
+            }
+
+            // Webhook fallback (always send if configured)
+            $webhook_url = get_option('pitchsnap_ghl_form_webhook_url');
+            if ($webhook_url) {
+                $this->_post_webhook($webhook_url, [
+                    'form_id'     => $form_id,
+                    'form_name'   => $form->name,
+                    'site_id'     => $site_id,
+                    'fields'      => $clean,
+                    'submitted_at'=> date('c'),
+                ]);
+            }
+        }
+
+        $this->pitchsnap_model->log_form_submission([
+            'form_id'        => $form_id,
+            'site_id'        => $site_id,
+            'ghl_contact_id' => $ghl_contact_id,
+            'submitted_at'   => date('Y-m-d H:i:s'),
+        ]);
+
+        $settings        = json_decode($form->settings ?? '{}', true) ?: [];
+        $success_message = $settings['success_message'] ?? 'Thank you! We\'ll be in touch soon.';
+
+        return $this->_json(['success' => true, 'message' => $success_message]);
+    }
+
+    private function _map_to_ghl_contact(array $fields, $location_id)
+    {
+        $map = [
+            'full_name'    => 'name',
+            'first_name'   => 'firstName',
+            'last_name'    => 'lastName',
+            'email'        => 'email',
+            'phone'        => 'phone',
+        ];
+
+        $payload = ['locationId' => $location_id];
+        $custom  = [];
+
+        foreach ($fields as $key => $val) {
+            if (isset($map[$key])) {
+                $payload[$map[$key]] = $val;
+            } else {
+                $custom[] = ['id' => $key, 'value' => $val];
+            }
+        }
+
+        // Split name if only full_name provided
+        if (!empty($payload['name']) && empty($payload['firstName'])) {
+            $parts = explode(' ', $payload['name'], 2);
+            $payload['firstName'] = $parts[0];
+            if (!empty($parts[1])) { $payload['lastName'] = $parts[1]; }
+        }
+
+        if (!empty($custom)) {
+            $payload['customField'] = $custom;
+        }
+
+        return $payload;
+    }
+
+    private function _post_webhook($url, array $data)
+    {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($data),
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
+    }
+
     private function _json($data, $status = 200)
     {
         $this->output

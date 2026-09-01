@@ -30,3 +30,14 @@ $route['pitchsnap/page_generate/(:num)']               = 'pitchsnap/pitchsnap/pa
 $route['pitchsnap/page_preview/(:num)']                = 'pitchsnap/pitchsnap/page_preview/$1';
 $route['pitchsnap/page_generation_set_current/(:num)'] = 'pitchsnap/pitchsnap/page_generation_set_current/$1';
 $route['pitchsnap/page_publish/(:num)']                = 'pitchsnap/pitchsnap/page_publish/$1';
+
+// Forms — public runtime fallbacks
+$route['pitchsnap/form_render/(:num)'] = 'pitchsnap/pitchsnap_runtime/form_render/$1';
+$route['pitchsnap/form_submit']        = 'pitchsnap/pitchsnap_runtime/form_submit';
+
+// Forms — admin action fallbacks
+$route['pitchsnap/form_save/(:num)']              = 'pitchsnap/pitchsnap/form_save/$1';
+$route['pitchsnap/form_delete/(:num)']            = 'pitchsnap/pitchsnap/form_delete/$1';
+$route['pitchsnap/form_placements_json/(:num)']   = 'pitchsnap/pitchsnap/form_placements_json/$1';
+$route['pitchsnap/form_placement_add/(:num)']     = 'pitchsnap/pitchsnap/form_placement_add/$1';
+$route['pitchsnap/form_placement_remove/(:num)']  = 'pitchsnap/pitchsnap/form_placement_remove/$1';

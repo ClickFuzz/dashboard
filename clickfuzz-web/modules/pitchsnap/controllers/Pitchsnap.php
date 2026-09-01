@@ -78,6 +78,8 @@ class Pitchsnap extends AdminController
             $data['pages']      = [];
             $data['site_media'] = [];
         }
+        $data['forms']                  = !empty($data['site']) ? $this->pitchsnap_model->get_forms_for_site($data['site']->id) : [];
+        $data['site_pages_for_forms']   = !empty($data['site']) ? $this->pitchsnap_model->get_pages_for_site($data['site']->id) : [];
         $data['custom_domain']   = !empty($data['site']) ? $this->pitchsnap_model->get_custom_domain_for_site($data['site']->id) : null;
         $data['platform_domain'] = !empty($data['site']) ? $this->pitchsnap_model->get_platform_domain_for_site($data['site']->id) : null;
         $data['dns_status'] = null;
@@ -2248,6 +2250,99 @@ class Pitchsnap extends AdminController
             set_alert('danger', 'Could not set version — it may not belong to this page.');
         }
         redirect($edit_url);
+    }
+
+    // -----------------------------------------------------------------------
+    // Forms
+    // -----------------------------------------------------------------------
+
+    // POST pitchsnap/form_save/{site_id}  (create or update)
+    public function form_save($site_id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+        if ($this->input->method() !== 'post') { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+
+        $site_id = (int) $site_id;
+        $site    = $this->pitchsnap_model->get_site_by_id($site_id);
+        if (!$site) { return $this->_json(['success' => false, 'message' => 'Site not found.']); }
+
+        $form_id   = (int) $this->input->post('form_id');
+        $name      = trim($this->input->post('name', true));
+        $fields_raw = $this->input->post('fields');
+        $settings_raw = $this->input->post('settings');
+
+        if ($name === '') { return $this->_json(['success' => false, 'message' => 'Form name is required.']); }
+
+        $fields   = (is_array($fields_raw)) ? json_encode($fields_raw) : ($fields_raw ?: '[]');
+        $settings = (is_array($settings_raw)) ? json_encode($settings_raw) : ($settings_raw ?: '{}');
+
+        if ($form_id) {
+            $form = $this->pitchsnap_model->get_form($form_id);
+            if (!$form || (int) $form->site_id !== $site_id) {
+                return $this->_json(['success' => false, 'message' => 'Form not found.']);
+            }
+            $this->pitchsnap_model->update_form($form_id, ['name' => $name, 'fields' => $fields, 'settings' => $settings]);
+            return $this->_json(['success' => true, 'message' => 'Form saved.', 'form_id' => $form_id]);
+        }
+
+        $new_id = $this->pitchsnap_model->create_form([
+            'site_id'   => $site_id,
+            'name'      => $name,
+            'form_type' => 'custom',
+            'fields'    => $fields,
+            'settings'  => $settings,
+        ]);
+        return $this->_json(['success' => true, 'message' => 'Form created.', 'form_id' => $new_id]);
+    }
+
+    // POST pitchsnap/form_delete/{form_id}
+    public function form_delete($form_id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+        if ($this->input->method() !== 'post') { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+
+        $form_id = (int) $form_id;
+        $form    = $this->pitchsnap_model->get_form($form_id);
+        if (!$form) { return $this->_json(['success' => false, 'message' => 'Form not found.']); }
+        if ($form->form_type === 'system') { return $this->_json(['success' => false, 'message' => 'System forms cannot be deleted.']); }
+
+        $this->pitchsnap_model->delete_form($form_id);
+        return $this->_json(['success' => true, 'message' => 'Form deleted.']);
+    }
+
+    // POST pitchsnap/form_placement_add/{form_id}
+    public function form_placement_add($form_id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+        if ($this->input->method() !== 'post') { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+
+        $form_id  = (int) $form_id;
+        $page_id  = (int) $this->input->post('page_id');
+        $placement = in_array($this->input->post('placement'), ['inline','popup'], true)
+            ? $this->input->post('placement') : 'inline';
+
+        if (!$form_id || !$page_id) { return $this->_json(['success' => false, 'message' => 'form_id and page_id required.']); }
+
+        $id = $this->pitchsnap_model->add_placement(['form_id' => $form_id, 'page_id' => $page_id, 'placement' => $placement]);
+        return $this->_json(['success' => true, 'placement_id' => $id]);
+    }
+
+    // GET pitchsnap/form_placements_json/{form_id}
+    public function form_placements_json($form_id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false]); }
+        $placements = $this->pitchsnap_model->get_placements_for_form((int) $form_id);
+        return $this->_json(['success' => true, 'placements' => $placements]);
+    }
+
+    // POST pitchsnap/form_placement_remove/{placement_id}
+    public function form_placement_remove($placement_id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+        if ($this->input->method() !== 'post') { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+
+        $this->pitchsnap_model->remove_placement((int) $placement_id);
+        return $this->_json(['success' => true]);
     }
 
     private function _json($data)

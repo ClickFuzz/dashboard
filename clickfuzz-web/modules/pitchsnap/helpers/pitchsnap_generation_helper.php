@@ -15,6 +15,7 @@ function clickfuzz_web_render_prompt($template, array $data)
         '{{preview_token}}'       => $data['preview_token']       ?? '',
         '{{source_content}}'      => $data['source_content']      ?? '',
         '{{site_token}}'          => $data['site_token']          ?? '',
+        '{{available_forms}}'     => $data['available_forms']     ?? '',
     ];
 
     return str_replace(array_keys($map), array_values($map), $template);
@@ -205,7 +206,11 @@ function clickfuzz_web_ensure_site($website_id, $lead_id = null)
         'dateadded'         => date('Y-m-d H:i:s'),
     ]);
 
-    return $id ? $CI->pitchsnap_model->get_site_by_id($id) : false;
+    $site = $id ? $CI->pitchsnap_model->get_site_by_id($id) : false;
+    if ($site) {
+        $CI->pitchsnap_model->seed_default_forms($site->id);
+    }
+    return $site;
 }
 
 /**
@@ -828,6 +833,26 @@ Do not copy an outdated copyright year from the source website.
 Do not use PHP.';
 }
 
+function clickfuzz_web_forms_instruction()
+{
+    return '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CONTACT FORMS — MANDATORY RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The following ClickFuzz-managed forms are available for this site:
+
+{{available_forms}}
+
+FORM PLACEMENT RULES — DO NOT VIOLATE:
+— Place forms by inserting the exact marker element: <div data-cf-form="FORM_ID"></div>
+  Replace FORM_ID with the numeric ID shown above (e.g. data-cf-form="3").
+— The ClickFuzz runtime renders the actual form fields at display time.
+— Do NOT write any <form> HTML, <input> fields, or submit buttons. The runtime owns all form markup.
+— Do NOT invent a form that is not listed above.
+— Contact Form: place its marker in the Contact or Footer section of the page.
+— Request a Quote: place its marker in a prominent CTA section if one fits naturally.
+— If no forms are listed above, omit all form markers.';
+}
+
 function clickfuzz_web_widget_instruction($preview_token)
 {
     $src = 'https://clickfuzz.com/dashboard/pitchsnap/runtime.js';
@@ -955,13 +980,15 @@ PITCHSNAP WIDGET — MANDATORY — DO NOT OMIT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WIDGET_INSTRUCTION_PLACEHOLDER
 
+FORMS_INSTRUCTION_PLACEHOLDER
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT: The complete HTML file, starting now with <!DOCTYPE html>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PROMPT;
     return str_replace(
-        ['COPYRIGHT_YEAR_PLACEHOLDER', 'WIDGET_INSTRUCTION_PLACEHOLDER'],
-        [clickfuzz_web_copyright_year_instruction(), clickfuzz_web_widget_instruction('{{preview_token}}')],
+        ['COPYRIGHT_YEAR_PLACEHOLDER', 'WIDGET_INSTRUCTION_PLACEHOLDER', 'FORMS_INSTRUCTION_PLACEHOLDER'],
+        [clickfuzz_web_copyright_year_instruction(), clickfuzz_web_widget_instruction('{{preview_token}}'), clickfuzz_web_forms_instruction()],
         $prompt
     );
 }
@@ -1023,12 +1050,14 @@ COPYRIGHT_YEAR_PLACEHOLDER
 PITCHSNAP WIDGET — NON-NEGOTIABLE REQUIREMENT:
 WIDGET_INSTRUCTION_PLACEHOLDER
 
+FORMS_INSTRUCTION_PLACEHOLDER
+
 FINAL STEP:
 When the redesign is complete, publish it as a live public website.
 PROMPT;
     return str_replace(
-        ['COPYRIGHT_YEAR_PLACEHOLDER', 'WIDGET_INSTRUCTION_PLACEHOLDER'],
-        [clickfuzz_web_copyright_year_instruction(), clickfuzz_web_widget_instruction('{{preview_token}}')],
+        ['COPYRIGHT_YEAR_PLACEHOLDER', 'WIDGET_INSTRUCTION_PLACEHOLDER', 'FORMS_INSTRUCTION_PLACEHOLDER'],
+        [clickfuzz_web_copyright_year_instruction(), clickfuzz_web_widget_instruction('{{preview_token}}'), clickfuzz_web_forms_instruction()],
         $prompt
     );
 }

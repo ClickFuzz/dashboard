@@ -17,6 +17,17 @@ $route['pitchsnap/track_view/(:any)']                   = 'pitchsnap_runtime/tra
 
 $route['pitchsnap/redesigns']  = 'pitchsnap/websites';
 
+// Forms — public runtime endpoints
+$route['pitchsnap/form_render/(:num)'] = 'pitchsnap_runtime/form_render/$1';
+$route['pitchsnap/form_submit']        = 'pitchsnap_runtime/form_submit';
+
+// Forms — admin actions
+$route['pitchsnap/form_save/(:num)']               = 'pitchsnap/form_save/$1';
+$route['pitchsnap/form_delete/(:num)']             = 'pitchsnap/form_delete/$1';
+$route['pitchsnap/form_placements_json/(:num)']    = 'pitchsnap/form_placements_json/$1';
+$route['pitchsnap/form_placement_add/(:num)']      = 'pitchsnap/form_placement_add/$1';
+$route['pitchsnap/form_placement_remove/(:num)']   = 'pitchsnap/form_placement_remove/$1';
+
 // Phase 3 — page management
 $route['pitchsnap/page_add/(:num)']          = 'pitchsnap/page_add/$1';
 $route['pitchsnap/page_edit/(:num)']         = 'pitchsnap/page_edit/$1';
