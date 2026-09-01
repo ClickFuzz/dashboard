@@ -1192,7 +1192,12 @@ class Pitchsnap_runtime extends CI_Controller
         $clean = [];
         foreach ($fields as $k => $v) {
             $k = preg_replace('/[^a-zA-Z0-9_]/', '', (string) $k);
-            $clean[$k] = mb_substr(strip_tags((string) $v), 0, 500);
+            if ($k === '') { continue; }
+            if (is_array($v)) {
+                $clean[$k] = array_values(array_map(function ($s) { return mb_substr(strip_tags((string) $s), 0, 500); }, $v));
+            } else {
+                $clean[$k] = mb_substr(strip_tags((string) $v), 0, 500);
+            }
         }
 
         // Resolve site for GHL lookup
@@ -1219,9 +1224,37 @@ class Pitchsnap_runtime extends CI_Controller
                 $ghl = new Pitchsnap_ghl();
                 if ($ghl->is_configured()) {
                     $contact_payload = $this->_map_to_ghl_contact($clean, $location->ghl_location_id);
-                    $result          = $ghl->create_contact($location->ghl_location_id, $contact_payload);
+
+                    // Build Quote Request Content and append as a custom field.
+                    $qrc = $this->_build_quote_request_content($form_fields, $clean);
+                    if ($qrc !== '') {
+                        $qrc_field_id = $this->_get_or_create_qrc_field($ghl, $location->ghl_location_id);
+                        if ($qrc_field_id) {
+                            $contact_payload['customField'][] = ['id' => $qrc_field_id, 'value' => $qrc];
+                        }
+                    }
+
+                    $result = $ghl->create_contact($location->ghl_location_id, $contact_payload);
+
+                    // If full payload fails, retry with standard fields + QRC only (custom mapped fields stripped).
+                    if (!$result['success'] && !empty($contact_payload['customField'])) {
+                        $qrc_id   = isset($qrc_field_id) ? $qrc_field_id : null;
+                        $fallback = $contact_payload;
+                        $fallback['customField'] = array_values(array_filter(
+                            $fallback['customField'],
+                            function ($cf) use ($qrc_id) { return $qrc_id && $cf['id'] === $qrc_id; }
+                        ));
+                        if (empty($fallback['customField'])) { unset($fallback['customField']); }
+                        $result = $ghl->create_contact($location->ghl_location_id, $fallback);
+                        if ($result['success']) {
+                            log_activity('ClickFuzz Forms: custom-field mapping failed; submitted standard fields + QRC only [form_id:' . $form_id . ']');
+                        }
+                    }
+
                     if ($result['success']) {
                         $ghl_contact_id = $result['contact_id'] ?? null;
+                    } else {
+                        log_activity('ClickFuzz Forms: GHL contact create failed [form_id:' . $form_id . ', error:' . ($result['error'] ?? '') . ']');
                     }
                 }
             }
@@ -1252,28 +1285,47 @@ class Pitchsnap_runtime extends CI_Controller
         return $this->_json(['success' => true, 'message' => $success_message]);
     }
 
+    // Standard GHL contact field keys (camelCase native + legacy snake_case aliases).
+    private static $GHL_STANDARD_KEYS = [
+        'firstName'   => 'firstName',
+        'lastName'    => 'lastName',
+        'email'       => 'email',
+        'phone'       => 'phone',
+        'name'        => 'name',
+        'address1'    => 'address1',
+        'city'        => 'city',
+        'state'       => 'state',
+        'postalCode'  => 'postalCode',
+        'website'     => 'website',
+        'companyName' => 'companyName',
+        // Legacy snake_case aliases from previous hardcoded list
+        'full_name'   => 'name',
+        'first_name'  => 'firstName',
+        'last_name'   => 'lastName',
+        'address'     => 'address1',
+        'zip'         => 'postalCode',
+    ];
+
     private function _map_to_ghl_contact(array $fields, $location_id)
     {
-        $map = [
-            'full_name'    => 'name',
-            'first_name'   => 'firstName',
-            'last_name'    => 'lastName',
-            'email'        => 'email',
-            'phone'        => 'phone',
-        ];
-
         $payload = ['locationId' => $location_id];
         $custom  = [];
 
         foreach ($fields as $key => $val) {
-            if (isset($map[$key])) {
-                $payload[$map[$key]] = $val;
+            if (isset(self::$GHL_STANDARD_KEYS[$key])) {
+                $ghl_key = self::$GHL_STANDARD_KEYS[$key];
+                if (is_array($val)) {
+                    $payload[$ghl_key] = implode(', ', $val);
+                } else {
+                    $payload[$ghl_key] = $val;
+                }
             } else {
-                $custom[] = ['id' => $key, 'value' => $val];
+                $formatted_val = is_array($val) ? implode(', ', $val) : $val;
+                $custom[] = ['id' => $key, 'value' => $formatted_val];
             }
         }
 
-        // Split name if only full_name provided
+        // Split full name if only name provided and firstName is absent.
         if (!empty($payload['name']) && empty($payload['firstName'])) {
             $parts = explode(' ', $payload['name'], 2);
             $payload['firstName'] = $parts[0];
@@ -1285,6 +1337,76 @@ class Pitchsnap_runtime extends CI_Controller
         }
 
         return $payload;
+    }
+
+    // Builds the human-readable Quote Request Content string from submitted quote-specific fields.
+    // Excludes standard GHL contact fields and empty values.
+    private function _build_quote_request_content(array $form_fields, array $submitted)
+    {
+        $contact_keys = array_keys(self::$GHL_STANDARD_KEYS);
+
+        $lines = [];
+        foreach ($form_fields as $ff) {
+            $ghl_key = trim((string) ($ff['ghl_field'] ?? ''));
+            $label   = trim((string) ($ff['label']     ?? ''));
+            $type    = $ff['type'] ?? 'text';
+
+            // Skip presentation-only fields and empty submissions.
+            if ($type === 'checkbox' && empty($submitted[$ghl_key])) { continue; }
+
+            // Skip standard contact fields — already submitted to GHL contact payload.
+            if ($ghl_key !== '' && in_array($ghl_key, $contact_keys, true)) { continue; }
+
+            // Determine the value to display.
+            if ($ghl_key !== '' && isset($submitted[$ghl_key])) {
+                $raw = $submitted[$ghl_key];
+            } else {
+                continue;
+            }
+
+            if (is_array($raw)) {
+                $formatted = implode(', ', array_filter(array_map('strval', $raw)));
+            } else {
+                $formatted = trim((string) $raw);
+            }
+            if ($formatted === '') { continue; }
+
+            $display_label = $label !== '' ? $label : $ghl_key;
+            $lines[] = $display_label . ': ' . $formatted;
+        }
+
+        return implode("\n", $lines);
+    }
+
+    // Finds or creates the "Quote Request Content" GHL custom field for the location.
+    // Caches the field ID in tbloptions to avoid repeated API calls.
+    private function _get_or_create_qrc_field($ghl, $location_id)
+    {
+        $opt_key = 'pitchsnap_qrc_ghl_' . md5($location_id);
+        $cached  = get_option($opt_key);
+        if ($cached !== false && $cached !== '') { return $cached; }
+
+        $result = $ghl->get_custom_fields($location_id);
+        if ($result['success'] && !empty($result['data']['customFields'])) {
+            foreach ($result['data']['customFields'] as $cf) {
+                if (strtolower(trim($cf['name'])) === 'quote request content') {
+                    $id = $cf['id'];
+                    if ($cached === false) { add_option($opt_key, $id); } else { update_option($opt_key, $id); }
+                    return $id;
+                }
+            }
+        }
+
+        $create = $ghl->create_custom_field($location_id, 'Quote Request Content', 'TEXT');
+        if (!$create['success']) {
+            log_activity('ClickFuzz Forms: could not create "Quote Request Content" GHL field [error:' . ($create['error'] ?? '') . ']');
+            return null;
+        }
+        $id = $create['data']['customField']['id'] ?? ($create['data']['id'] ?? null);
+        if ($id) {
+            if ($cached === false) { add_option($opt_key, $id); } else { update_option($opt_key, $id); }
+        }
+        return $id;
     }
 
     private function _post_webhook($url, array $data)

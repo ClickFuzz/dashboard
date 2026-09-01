@@ -2256,6 +2256,131 @@ class Pitchsnap extends AdminController
     // Forms
     // -----------------------------------------------------------------------
 
+    // GET pitchsnap/ghl_fields_json/{site_id}
+    // Returns standard GHL contact fields + custom fields for the site's linked GHL location.
+    public function ghl_fields_json($site_id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+
+        $site_id = (int) $site_id;
+        $site    = $this->pitchsnap_model->get_site_by_id($site_id);
+        if (!$site) { return $this->_json(['success' => false, 'message' => 'Site not found.']); }
+
+        $standard = [
+            ['key' => 'firstName',   'label' => 'First Name',   'group' => 'standard'],
+            ['key' => 'lastName',    'label' => 'Last Name',    'group' => 'standard'],
+            ['key' => 'email',       'label' => 'Email',        'group' => 'standard'],
+            ['key' => 'phone',       'label' => 'Phone',        'group' => 'standard'],
+            ['key' => 'name',        'label' => 'Full Name',    'group' => 'standard'],
+            ['key' => 'address1',    'label' => 'Address',      'group' => 'standard'],
+            ['key' => 'city',        'label' => 'City',         'group' => 'standard'],
+            ['key' => 'state',       'label' => 'State',        'group' => 'standard'],
+            ['key' => 'postalCode',  'label' => 'Zip Code',     'group' => 'standard'],
+            ['key' => 'website',     'label' => 'Website',      'group' => 'standard'],
+            ['key' => 'companyName', 'label' => 'Company Name', 'group' => 'standard'],
+        ];
+
+        require_once FCPATH . 'modules/pitchsnap/models/Pitchsnap_ghl_model.php';
+        $ghl_model = new Pitchsnap_ghl_model();
+        $location  = $ghl_model->get_by_site($site_id);
+
+        if (!$location || $location->status !== 'connected') {
+            return $this->_json(['success' => true, 'fields' => $standard, 'warning' => 'GHL location not connected; showing standard fields only.']);
+        }
+
+        require_once FCPATH . 'modules/pitchsnap/libraries/Pitchsnap_ghl.php';
+        $ghl = new Pitchsnap_ghl();
+        if (!$ghl->is_configured()) {
+            return $this->_json(['success' => true, 'fields' => $standard, 'warning' => 'GHL API key not configured.']);
+        }
+
+        $result = $ghl->get_custom_fields($location->ghl_location_id);
+        $custom = [];
+        if ($result['success'] && !empty($result['data']['customFields'])) {
+            foreach ($result['data']['customFields'] as $cf) {
+                $custom[] = ['key' => $cf['id'], 'label' => $cf['name'], 'group' => 'custom'];
+            }
+        }
+
+        return $this->_json(['success' => true, 'fields' => array_merge($standard, $custom)]);
+    }
+
+    // POST pitchsnap/ghl_create_custom_field/{site_id}
+    // Creates a GHL custom field for the site's location and returns the new field ID.
+    public function ghl_create_custom_field($site_id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
+        if ($this->input->method() !== 'post') { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
+
+        $site_id = (int) $site_id;
+        $site    = $this->pitchsnap_model->get_site_by_id($site_id);
+        if (!$site) { return $this->_json(['success' => false, 'message' => 'Site not found.']); }
+
+        $label = trim($this->input->post('label', true));
+        $type  = trim($this->input->post('type'));
+
+        if ($label === '') { return $this->_json(['success' => false, 'message' => 'Field label is required.']); }
+
+        require_once FCPATH . 'modules/pitchsnap/models/Pitchsnap_ghl_model.php';
+        $ghl_model = new Pitchsnap_ghl_model();
+        $location  = $ghl_model->get_by_site($site_id);
+
+        if (!$location || $location->status !== 'connected') {
+            return $this->_json(['success' => false, 'message' => 'GHL location not connected for this site.']);
+        }
+
+        require_once FCPATH . 'modules/pitchsnap/libraries/Pitchsnap_ghl.php';
+        $ghl = new Pitchsnap_ghl();
+        if (!$ghl->is_configured()) {
+            return $this->_json(['success' => false, 'message' => 'GHL API key not configured.']);
+        }
+
+        $type_map = [
+            'text'         => 'TEXT',
+            'email'        => 'TEXT',
+            'phone'        => 'TEXT',
+            'textarea'     => 'TEXT',
+            'number'       => 'NUMERICAL',
+            'select'       => 'DROPDOWN',
+            'multi_select' => 'CHECKBOX',
+            'date'         => 'DATE',
+            'checkbox'     => 'CHECKBOX',
+        ];
+        $data_type = $type_map[$type] ?? 'TEXT';
+
+        // Check for an existing field with the same name to avoid duplicates.
+        $existing = $ghl->get_custom_fields($location->ghl_location_id);
+        if ($existing['success'] && !empty($existing['data']['customFields'])) {
+            foreach ($existing['data']['customFields'] as $cf) {
+                if (strtolower(trim($cf['name'])) === strtolower($label)) {
+                    return $this->_json([
+                        'success'    => true,
+                        'field_id'   => $cf['id'],
+                        'field_name' => $cf['name'],
+                        'existed'    => true,
+                        'message'    => 'Mapped to existing GHL field "' . $cf['name'] . '".',
+                    ]);
+                }
+            }
+        }
+
+        $result = $ghl->create_custom_field($location->ghl_location_id, $label, $data_type);
+        if (!$result['success']) {
+            return $this->_json(['success' => false, 'message' => 'GHL error: ' . ($result['error'] ?? 'Unknown error.')]);
+        }
+
+        $field_id   = $result['data']['customField']['id']   ?? ($result['data']['id']   ?? '');
+        $field_name = $result['data']['customField']['name'] ?? ($result['data']['name'] ?? $label);
+
+        return $this->_json([
+            'success'    => true,
+            'field_id'   => $field_id,
+            'field_name' => $field_name,
+            'existed'    => false,
+            'message'    => 'GHL custom field created.',
+        ]);
+    }
+
     // POST pitchsnap/form_save/{site_id}  (create or update)
     public function form_save($site_id = '')
     {
@@ -2275,6 +2400,18 @@ class Pitchsnap extends AdminController
 
         $fields   = (is_array($fields_raw)) ? json_encode($fields_raw) : ($fields_raw ?: '[]');
         $settings = (is_array($settings_raw)) ? json_encode($settings_raw) : ($settings_raw ?: '{}');
+
+        // Server-side duplicate GHL field mapping check.
+        $decoded_fields = json_decode($fields, true) ?: [];
+        $ghl_seen = [];
+        foreach ($decoded_fields as $ff) {
+            $ghl_key = trim((string) ($ff['ghl_field'] ?? ''));
+            if ($ghl_key === '') { continue; }
+            if (isset($ghl_seen[$ghl_key])) {
+                return $this->_json(['success' => false, 'message' => 'Duplicate GHL field mapping: "' . $ghl_key . '" is mapped to more than one field.']);
+            }
+            $ghl_seen[$ghl_key] = true;
+        }
 
         if ($form_id) {
             $form = $this->pitchsnap_model->get_form($form_id);

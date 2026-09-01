@@ -28,6 +28,28 @@ class Pitchsnap_ghl
     }
 
     /**
+     * Fetch all custom fields for a GHL location.
+     * Returns ['success' => true, 'data' => ['customFields' => [...]]] or error.
+     */
+    public function get_custom_fields($location_id)
+    {
+        return $this->request('GET', '/locations/' . rawurlencode($location_id) . '/customFields');
+    }
+
+    /**
+     * Create a custom field in a GHL location.
+     * $data_type: GHL dataType string (TEXT, NUMERICAL, DATE, CHECKBOX, DROPDOWN, etc.)
+     * Returns ['success' => true, 'data' => ['customField' => [...]]] or error.
+     */
+    public function create_custom_field($location_id, $name, $data_type = 'TEXT')
+    {
+        return $this->request('POST', '/locations/' . rawurlencode($location_id) . '/customFields', [
+            'name'     => $name,
+            'dataType' => $data_type,
+        ]);
+    }
+
+    /**
      * Create or upsert a contact in a GHL location.
      * $fields: associative array with standard GHL contact keys
      *   (firstName, lastName, phone, email, name, customField, etc.)

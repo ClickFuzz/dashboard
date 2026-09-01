@@ -179,7 +179,8 @@
         echo json_encode($forms_js);
     ?>;
 
-    var editingFormId = 0;
+    var editingFormId  = 0;
+    var cachedGhlFields = null; // [{key, label, group}] loaded once per page
 
     function ajax(url, data, cb) {
         var csrf = {};
@@ -192,9 +193,66 @@
         });
     }
 
-    // ── Field row builder ──────────────────────────────────────────────────
+    // ── GHL field loading ──────────────────────────────────────────────────
 
-    var GHL_FIELDS = ['full_name','first_name','last_name','email','phone','message','service_type','address','city','state','zip'];
+    function loadGhlFields(cb) {
+        if (cachedGhlFields !== null) { cb(cachedGhlFields); return; }
+        $.getJSON(ADMIN_URL + '/ghl_fields_json/' + SITE_ID, function (r) {
+            cachedGhlFields = r.success ? (r.fields || []) : [];
+            cb(cachedGhlFields);
+        }).fail(function () { cachedGhlFields = []; cb([]); });
+    }
+
+    // Rebuild GHL <select> options for a single wrapper, excluding keys already used by other rows.
+    function buildGhlOptions(ghlSelect, currentVal, allFields) {
+        var usedKeys = getUsedGhlKeys(ghlSelect.closest('.cf-field-row'));
+        ghlSelect.empty().append($('<option>').val('').text('— GHL field —'));
+
+        var groups = { standard: 'Standard GHL Fields', custom: 'Custom GHL Fields' };
+        var grouped = { standard: [], custom: [] };
+        allFields.forEach(function (f) {
+            var g = grouped[f.group] || grouped.custom;
+            g.push(f);
+        });
+
+        ['standard', 'custom'].forEach(function (grp) {
+            if (!grouped[grp].length) { return; }
+            var optgroup = $('<optgroup>').attr('label', groups[grp]);
+            grouped[grp].forEach(function (f) {
+                var alreadyUsed = usedKeys.indexOf(f.key) !== -1 && f.key !== currentVal;
+                var opt = $('<option>').val(f.key).text(f.label)
+                    .prop('selected', f.key === currentVal)
+                    .prop('disabled', alreadyUsed);
+                if (alreadyUsed) { opt.text(f.label + ' (in use)'); }
+                optgroup.append(opt);
+            });
+            ghlSelect.append(optgroup);
+        });
+    }
+
+    // Collect ghl_field values from every row EXCEPT the given row.
+    function getUsedGhlKeys(exceptRow) {
+        var used = [];
+        $('#cf-fields-container .cf-field-row').each(function () {
+            if (exceptRow && $(this).is(exceptRow)) { return; }
+            var v = $(this).find('.cf-field-ghl').val();
+            if (v) { used.push(v); }
+        });
+        return used;
+    }
+
+    // Re-sync all GHL dropdowns in the editor (after any selection changes).
+    function syncAllGhlDropdowns() {
+        if (!cachedGhlFields) { return; }
+        $('#cf-fields-container .cf-field-row').each(function () {
+            var row       = $(this);
+            var ghlSelect = row.find('.cf-field-ghl');
+            var cur       = ghlSelect.val();
+            buildGhlOptions(ghlSelect, cur, cachedGhlFields);
+        });
+    }
+
+    // ── Field row builder ──────────────────────────────────────────────────
 
     var FIELD_TYPES = [
         {v:'text',         t:'Text'},
@@ -208,34 +266,63 @@
         {v:'checkbox',     t:'Checkbox'},
     ];
 
-    function buildFieldRow(field) {
-        field = field || {};
-        var currentType = field.type || 'text';
+    function buildFieldRow(field, allFields) {
+        field     = field || {};
+        allFields = allFields || cachedGhlFields || [];
+        var currentType   = field.type      || 'text';
+        var currentGhlKey = field.ghl_field || '';
 
         var wrapper = $('<div class="cf-field-row" style="margin-bottom:8px;border:1px solid #e0e0e0;border-radius:4px;padding:6px 8px;">');
-        var row1    = $('<div style="display:flex;gap:6px;align-items:flex-start;">');
+        var row1    = $('<div style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;">');
 
-        var labelInput = $('<input type="text" class="form-control input-sm cf-field-label" placeholder="Label" style="flex:1;min-width:0;">').val(field.label || '');
+        var labelInput = $('<input type="text" class="form-control input-sm cf-field-label" placeholder="Label" style="flex:1;min-width:120px;">').val(field.label || '');
 
         var typeSelect = $('<select class="form-control input-sm cf-field-type" style="width:130px;flex-shrink:0;">');
         FIELD_TYPES.forEach(function (opt) {
             typeSelect.append($('<option>').val(opt.v).text(opt.t).prop('selected', opt.v === currentType));
         });
 
-        var ghlSelect = $('<select class="form-control input-sm cf-field-ghl" style="width:130px;flex-shrink:0;">');
-        ghlSelect.append($('<option>').val('').text('— GHL field —'));
-        GHL_FIELDS.forEach(function (g) {
-            ghlSelect.append($('<option>').val(g).text(g).prop('selected', g === (field.ghl_field || '')));
-        });
+        var ghlSelect = $('<select class="form-control input-sm cf-field-ghl" style="width:160px;flex-shrink:0;">');
+        buildGhlOptions(ghlSelect, currentGhlKey, allFields);
+
+        ghlSelect.on('change', function () { syncAllGhlDropdowns(); });
 
         var reqCheck = $('<label style="white-space:nowrap;margin:0;padding-top:6px;flex-shrink:0;">')
             .append($('<input type="checkbox" class="cf-field-required">').prop('checked', !!field.required))
             .append(' Req');
 
         var removeBtn = $('<button type="button" class="btn btn-danger btn-xs" style="margin-top:2px;flex-shrink:0;">').html('<i class="fa fa-times"></i>')
-            .on('click', function () { wrapper.remove(); });
+            .on('click', function () { wrapper.remove(); syncAllGhlDropdowns(); });
 
-        row1.append(labelInput, typeSelect, ghlSelect, reqCheck, removeBtn);
+        // "Create in GHL" button — creates a GHL custom field and auto-maps this row.
+        var createGhlBtn = $('<button type="button" class="btn btn-default btn-xs cf-create-ghl-btn" style="margin-top:2px;flex-shrink:0;" title="Create this field as a GHL custom field">')
+            .html('<i class="fa fa-plus-circle"></i> GHL')
+            .on('click', function () {
+                var lbl = labelInput.val().trim();
+                if (!lbl) { alert_float('danger', 'Enter a field label first.'); return; }
+                var typ = typeSelect.val();
+                var btn = $(this).prop('disabled', true).text('Creating…');
+                ajax(ADMIN_URL + '/ghl_create_custom_field/' + SITE_ID, { label: lbl, type: typ }, function (r) {
+                    btn.prop('disabled', false).html('<i class="fa fa-plus-circle"></i> GHL');
+                    if (!r.success) { alert_float('danger', r.message || 'GHL field creation failed.'); return; }
+                    alert_float('success', r.message || 'GHL field ready.');
+                    // Invalidate cache and reload so the new field appears.
+                    cachedGhlFields = null;
+                    loadGhlFields(function (fields) {
+                        // Re-sync all rows, then set this row's selection to the new field.
+                        $('#cf-fields-container .cf-field-row').each(function () {
+                            var rw  = $(this);
+                            var sel = rw.find('.cf-field-ghl');
+                            buildGhlOptions(sel, sel.val(), fields);
+                        });
+                        buildGhlOptions(ghlSelect, r.field_id, fields);
+                        ghlSelect.val(r.field_id);
+                        syncAllGhlDropdowns();
+                    });
+                });
+            });
+
+        row1.append(labelInput, typeSelect, ghlSelect, createGhlBtn, reqCheck, removeBtn);
 
         // Options row — shown only for select / multi_select
         var optionsRow   = $('<div class="cf-field-options-row" style="margin-top:5px;">');
@@ -258,7 +345,11 @@
     }
 
     window.cfAddField = function (field) {
-        $('#cf-fields-container').append(buildFieldRow(field));
+        loadGhlFields(function (allFields) {
+            var row = buildFieldRow(field, allFields);
+            $('#cf-fields-container').append(row);
+            syncAllGhlDropdowns();
+        });
     };
 
     // ── Editor open/close ──────────────────────────────────────────────────
@@ -270,25 +361,28 @@
         $('#cf-save-msg').text('');
         $('#cf-placements-section').hide();
 
-        if (formId === 0) {
-            $('#cf-editor-title').text('New Form');
-            $('#cf-form-name').val('');
-            $('#cf-form-submit-label').val('Submit');
-            $('#cf-form-success-msg').val("Thank you! We'll be in touch soon.");
-        } else {
-            var fd = formsData.find(function (f) { return f.id === formId; });
-            if (!fd) { return; }
-            $('#cf-editor-title').text('Edit: ' + fd.name);
-            $('#cf-form-name').val(fd.name);
-            $('#cf-form-submit-label').val(fd.settings.submit_label || 'Submit');
-            $('#cf-form-success-msg').val(fd.settings.success_message || "Thank you! We'll be in touch soon.");
-            (fd.fields || []).forEach(function (f) { cfAddField(f); });
-            $('#cf-placements-section').show();
-            cfLoadPlacements(formId);
-        }
-
-        $('#cf-forms-list-panel').hide();
-        $('#cf-form-editor').show();
+        loadGhlFields(function (allFields) {
+            if (formId === 0) {
+                $('#cf-editor-title').text('New Form');
+                $('#cf-form-name').val('');
+                $('#cf-form-submit-label').val('Submit');
+                $('#cf-form-success-msg').val("Thank you! We'll be in touch soon.");
+            } else {
+                var fd = formsData.find(function (f) { return f.id === formId; });
+                if (!fd) { return; }
+                $('#cf-editor-title').text('Edit: ' + fd.name);
+                $('#cf-form-name').val(fd.name);
+                $('#cf-form-submit-label').val(fd.settings.submit_label || 'Submit');
+                $('#cf-form-success-msg').val(fd.settings.success_message || "Thank you! We'll be in touch soon.");
+                (fd.fields || []).forEach(function (f) {
+                    $('#cf-fields-container').append(buildFieldRow(f, allFields));
+                });
+                $('#cf-placements-section').show();
+                cfLoadPlacements(formId);
+            }
+            $('#cf-forms-list-panel').hide();
+            $('#cf-form-editor').show();
+        });
     };
 
     window.cfHideFormEditor = function () {
@@ -306,9 +400,13 @@
         if (!name) { alert_float('danger', 'Form name is required.'); return; }
 
         var fields = [];
+        var usedGhl = {};
+        var dupError = null;
+
         $('#cf-fields-container .cf-field-row').each(function () {
             var row  = $(this);
             var type = row.find('.cf-field-type').val();
+            var ghl  = row.find('.cf-field-ghl').val();
             var opts = [];
             if (type === 'select' || type === 'multi_select') {
                 var raw = row.find('.cf-field-options').val().trim();
@@ -316,14 +414,23 @@
                     opts = raw.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
                 }
             }
+            if (ghl) {
+                if (usedGhl[ghl]) { dupError = ghl; return false; }
+                usedGhl[ghl] = true;
+            }
             fields.push({
                 label:     row.find('.cf-field-label').val(),
                 type:      type,
-                ghl_field: row.find('.cf-field-ghl').val(),
+                ghl_field: ghl,
                 required:  row.find('.cf-field-required').prop('checked'),
                 options:   opts,
             });
         });
+
+        if (dupError) {
+            alert_float('danger', 'Duplicate GHL field mapping: "' + dupError + '" is used by more than one field.');
+            return;
+        }
 
         var settings = { submit_label: submitLabel, success_message: successMsg };
 
@@ -424,10 +531,8 @@
     // ── Refresh form list in-place ──────────────────────────────────────────
 
     function cfRefreshFormList() {
-        // Simple approach: rebuild the table body from formsData
         var tbody = $('#cf-forms-list-panel table tbody');
         if (!tbody.length) {
-            // No table exists (was empty state) — reload page to show table
             window.location.hash = '#tab-forms';
             window.location.reload();
             return;
