@@ -210,13 +210,13 @@
 
                 <!-- Form preview modal -->
                 <div class="modal fade" id="cf-preview-modal" tabindex="-1" role="dialog">
-                    <div class="modal-dialog" role="document">
+                    <div class="modal-dialog modal-lg" role="document">
                         <div class="modal-content">
                             <div class="modal-header">
                                 <button type="button" class="close" data-dismiss="modal">&times;</button>
                                 <h4 class="modal-title" id="cf-preview-title">Form Preview</h4>
                             </div>
-                            <div class="modal-body" id="cf-preview-body" style="max-height:70vh;overflow-y:auto;"></div>
+                            <div class="modal-body" id="cf-preview-body" style="padding:0;min-height:120px;"></div>
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
                             </div>
@@ -231,6 +231,7 @@
 (function () {
     var SITE_ID     = <?php echo (int) ($site->id ?? 0); ?>;
     var ADMIN_URL   = '<?php echo addslashes(admin_url("pitchsnap")); ?>';
+    var RUNTIME_URL = '<?php echo addslashes(site_url("pitchsnap")); ?>';
     var CSRF_NAME   = '<?php echo addslashes($csrf_name ?? ""); ?>';
     var CSRF_HASH   = '<?php echo addslashes($csrf_hash ?? ""); ?>';
 
@@ -620,70 +621,93 @@
 
     // ── Form preview ──────────────────────────────────────────────────────
 
+    // Inject form CSS once so previewed forms render correctly inside the admin page.
+    (function () {
+        if (document.getElementById('cf-forms-css')) { return; }
+        var s = document.createElement('style');
+        s.id  = 'cf-forms-css';
+        s.textContent = [
+            '.cf-form{font-family:inherit}',
+            '.cf-field{margin-bottom:14px}',
+            '.cf-field label{display:block;font-size:14px;font-weight:600;margin-bottom:4px}',
+            '.cf-field input:not([type="checkbox"]),.cf-field select,.cf-field textarea{width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #ccc;border-radius:4px;font-size:15px;font-family:inherit}',
+            '.cf-field select{appearance:auto}',
+            '.cf-field textarea{resize:vertical}',
+            '.cf-required{color:#e74c3c;margin-left:2px}',
+            '.cf-submit{display:inline-block;padding:11px 28px;background:#2563eb;color:#fff;border:none;border-radius:4px;font-size:15px;font-weight:600;cursor:pointer}',
+            '.cf-submit:hover{background:#1d4ed8}',
+            '.cf-submit:disabled{opacity:.6;cursor:default}',
+            '.cf-msg{margin-top:10px;font-size:14px;padding:9px 12px;border-radius:4px}',
+            '.cf-msg.cf-success{background:#d1fae5;color:#065f46}',
+            '.cf-msg.cf-error{background:#fee2e2;color:#991b1b}',
+        ].join('\n');
+        document.head.appendChild(s);
+    }());
+
     window.cfPreviewForm = function (formId) {
         var fd = formsData.find(function (f) { return f.id === formId; });
         if (!fd) { return; }
-
         $('#cf-preview-title').text('Preview: ' + fd.name);
         var body = $('#cf-preview-body');
-        body.empty();
+        body.html('<p class="text-muted" style="padding:20px 24px;">Loading…</p>');
+        $('#cf-preview-modal').modal('show');
+        $.getJSON(RUNTIME_URL + '/form_render/' + formId, function (r) {
+            if (!r.success) { body.html('<p class="text-danger" style="padding:20px 24px;">Could not load form.</p>'); return; }
+            body.html('<div style="padding:24px;">' + r.html + '</div>');
+        }).fail(function () {
+            body.html('<p class="text-danger" style="padding:20px 24px;">Could not load form.</p>');
+        });
+    };
 
-        var fields = fd.fields || [];
-        if (!fields.length) {
-            body.append($('<p class="text-muted">').text('No fields defined.'));
-        } else {
-            fields.forEach(function (field) {
-                var type  = field.type || 'text';
-                var label = field.label || '(no label)';
-                var group = $('<div class="form-group" style="margin-bottom:14px;">');
+    $('#cf-preview-modal').on('hidden.bs.modal', function () {
+        $('#cf-preview-body').empty();
+    });
 
-                if (type === 'checkbox') {
-                    var cbLabel = $('<label style="font-weight:normal;">').append(
-                        $('<input type="checkbox" style="margin-right:6px;">')
-                    ).append(label);
-                    if (field.required) { cbLabel.append($('<span style="color:red;margin-left:3px;">').text('*')); }
-                    group.append($('<div class="checkbox" style="margin:0;">').append(cbLabel));
-                } else {
-                    var lbl = $('<label>').text(label);
-                    if (field.required) { lbl.append($('<span style="color:red;margin-left:3px;">').text('*')); }
-                    group.append(lbl);
-
-                    if (type === 'textarea') {
-                        group.append($('<textarea class="form-control" rows="3">'));
-                    } else if (type === 'select') {
-                        var sel = $('<select class="form-control">').append($('<option>').text('— Select —'));
-                        (field.options || []).forEach(function (o) { sel.append($('<option>').text(o)); });
-                        group.append(sel);
-                    } else if (type === 'multi_select') {
-                        var opts = field.options || [];
-                        if (!opts.length) {
-                            group.append($('<p class="text-muted" style="font-size:12px;margin:0;">').text('No options defined.'));
-                        } else {
-                            opts.forEach(function (o) {
-                                group.append($('<div class="checkbox" style="margin:2px 0;">').append(
-                                    $('<label style="font-weight:normal;">').append(
-                                        $('<input type="checkbox" style="margin-right:6px;">')
-                                    ).append(o)
-                                ));
-                            });
-                        }
-                    } else if (type === 'date') {
-                        group.append($('<input type="date" class="form-control">'));
+    // Submit handler for previewed forms — mirrors runtime_js.php submitForm()
+    $('#cf-preview-body').on('submit', '.cf-form', function (e) {
+        e.preventDefault();
+        var formEl    = this;
+        var formId    = formEl.getAttribute('data-form-id');
+        var inputs    = formEl.querySelectorAll('[name^="cf_field"]');
+        var fields    = {};
+        for (var i = 0; i < inputs.length; i++) {
+            var inp  = inputs[i];
+            var name = inp.name.replace(/^cf_field\[/, '').replace(/\]$/, '');
+            fields[name] = (inp.type === 'checkbox') ? (inp.checked ? (inp.value || 'yes') : '') : inp.value;
+        }
+        var groups = formEl.querySelectorAll('[data-cf-idx]');
+        for (var j = 0; j < groups.length; j++) {
+            var grp  = groups[j];
+            var idx  = grp.getAttribute('data-cf-idx');
+            var chk  = grp.querySelectorAll('.cf-ms-opt:checked');
+            var vals = [];
+            for (var k = 0; k < chk.length; k++) { vals.push(chk[k].value); }
+            fields[idx] = vals.join(', ');
+        }
+        var submitBtn = formEl.querySelector('.cf-submit');
+        var msgEl     = formEl.querySelector('.cf-msg');
+        if (submitBtn) { submitBtn.disabled = true; }
+        if (msgEl)     { msgEl.style.display = 'none'; msgEl.className = 'cf-msg'; }
+        $.ajax({
+            url: RUNTIME_URL + '/form_submit', type: 'POST', contentType: 'application/json',
+            data: JSON.stringify({ form_id: parseInt(formId, 10), site_token: '', fields: fields }),
+            success: function (data) {
+                if (submitBtn) { submitBtn.disabled = false; }
+                if (msgEl) {
+                    msgEl.style.display = 'block';
+                    if (data.success) {
+                        msgEl.className = 'cf-msg cf-success'; msgEl.textContent = data.message || 'Thank you!'; formEl.reset();
                     } else {
-                        var itype = { email: 'email', phone: 'tel', number: 'number' }[type] || 'text';
-                        group.append($('<input class="form-control">').attr('type', itype).attr('placeholder', label));
+                        msgEl.className = 'cf-msg cf-error'; msgEl.textContent = data.error || 'Something went wrong.';
                     }
                 }
-
-                body.append(group);
-            });
-        }
-
-        var submitLabel = (fd.settings && fd.settings.submit_label) ? fd.settings.submit_label : 'Submit';
-        body.append($('<button class="btn btn-primary" style="margin-top:6px;">').text(submitLabel));
-
-        $('#cf-preview-modal').modal('show');
-    };
+            },
+            error: function () {
+                if (submitBtn) { submitBtn.disabled = false; }
+                if (msgEl) { msgEl.className = 'cf-msg cf-error'; msgEl.textContent = 'Request failed.'; msgEl.style.display = 'block'; }
+            }
+        });
+    });
 
     // ── Custom GHL Fields (per-site destination registry) ─────────────────
 
