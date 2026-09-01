@@ -276,8 +276,8 @@
     }
 
     // Rebuild destination <select> for one row.
-    // Single Input destinations are disabled when already used by another row.
-    // Multiple Inputs destinations are never disabled.
+    // Single Input destinations are when already used by another row.
+    // Multiple Inputs destinations are never.
     function buildDestOptions(destSelect, currentDestId, allDests) {
         var usedSingleIds = getUsedSingleDestIds(destSelect.closest('.cf-field-row'));
         destSelect.empty().append($('<option>').val('').text('— GHL Destination —'));
@@ -639,7 +639,7 @@
 
                 if (type === 'checkbox') {
                     var cbLabel = $('<label style="font-weight:normal;">').append(
-                        $('<input type="checkbox" disabled style="margin-right:6px;">')
+                        $('<input type="checkbox" style="margin-right:6px;">')
                     ).append(label);
                     if (field.required) { cbLabel.append($('<span style="color:red;margin-left:3px;">').text('*')); }
                     group.append($('<div class="checkbox" style="margin:0;">').append(cbLabel));
@@ -649,9 +649,9 @@
                     group.append(lbl);
 
                     if (type === 'textarea') {
-                        group.append($('<textarea class="form-control" rows="3" disabled>'));
+                        group.append($('<textarea class="form-control" rows="3">'));
                     } else if (type === 'select') {
-                        var sel = $('<select class="form-control" disabled>').append($('<option>').text('— Select —'));
+                        var sel = $('<select class="form-control">').append($('<option>').text('— Select —'));
                         (field.options || []).forEach(function (o) { sel.append($('<option>').text(o)); });
                         group.append(sel);
                     } else if (type === 'multi_select') {
@@ -662,16 +662,16 @@
                             opts.forEach(function (o) {
                                 group.append($('<div class="checkbox" style="margin:2px 0;">').append(
                                     $('<label style="font-weight:normal;">').append(
-                                        $('<input type="checkbox" disabled style="margin-right:6px;">')
+                                        $('<input type="checkbox" style="margin-right:6px;">')
                                     ).append(o)
                                 ));
                             });
                         }
                     } else if (type === 'date') {
-                        group.append($('<input type="date" class="form-control" disabled>'));
+                        group.append($('<input type="date" class="form-control">'));
                     } else {
                         var itype = { email: 'email', phone: 'tel', number: 'number' }[type] || 'text';
-                        group.append($('<input class="form-control" disabled>').attr('type', itype).attr('placeholder', label));
+                        group.append($('<input class="form-control">').attr('type', itype).attr('placeholder', label));
                     }
                 }
 
@@ -680,7 +680,7 @@
         }
 
         var submitLabel = (fd.settings && fd.settings.submit_label) ? fd.settings.submit_label : 'Submit';
-        body.append($('<button class="btn btn-primary" disabled style="margin-top:6px;">').text(submitLabel));
+        body.append($('<button class="btn btn-primary" style="margin-top:6px;">').text(submitLabel));
 
         $('#cf-preview-modal').modal('show');
     };
