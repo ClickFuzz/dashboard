@@ -889,7 +889,8 @@ class Pitchsnap extends AdminController
                 $gr_values[$prov][$name] = ($saved === false || $saved === '') ? $gr_defaults[$prov][$name] : (bool)(int)$saved;
             }
         }
-        $data['guardrail_values'] = $gr_values;
+        $data['guardrail_values']   = $gr_values;
+        $data['ghl_destinations']   = $this->pitchsnap_model->get_all_global_ghl_destinations();
 
         $this->load->view('pitchsnap/admin_settings', $data);
     }
@@ -2256,53 +2257,59 @@ class Pitchsnap extends AdminController
     // Forms
     // -----------------------------------------------------------------------
 
-    // GET pitchsnap/ghl_fields_json/{site_id}
-    // Returns standard GHL contact fields + custom fields for the site's linked GHL location.
-    public function ghl_fields_json($site_id = '')
+    // GET pitchsnap/ghl_destinations_json/{site_id}
+    // Returns ClickFuzz GHL destination definitions (global + site-specific).
+    public function ghl_destinations_json($site_id = '')
     {
-        if (!is_admin()) { return $this->_json(['success' => false, 'message' => 'Access denied.']); }
-
+        if (!is_admin()) { return $this->_json(['success' => false]); }
         $site_id = (int) $site_id;
-        $site    = $this->pitchsnap_model->get_site_by_id($site_id);
-        if (!$site) { return $this->_json(['success' => false, 'message' => 'Site not found.']); }
-
-        $standard = [
-            ['key' => 'firstName',   'label' => 'First Name',   'group' => 'standard'],
-            ['key' => 'lastName',    'label' => 'Last Name',    'group' => 'standard'],
-            ['key' => 'email',       'label' => 'Email',        'group' => 'standard'],
-            ['key' => 'phone',       'label' => 'Phone',        'group' => 'standard'],
-            ['key' => 'name',        'label' => 'Full Name',    'group' => 'standard'],
-            ['key' => 'address1',    'label' => 'Address',      'group' => 'standard'],
-            ['key' => 'city',        'label' => 'City',         'group' => 'standard'],
-            ['key' => 'state',       'label' => 'State',        'group' => 'standard'],
-            ['key' => 'postalCode',  'label' => 'Zip Code',     'group' => 'standard'],
-            ['key' => 'website',     'label' => 'Website',      'group' => 'standard'],
-            ['key' => 'companyName', 'label' => 'Company Name', 'group' => 'standard'],
-        ];
-
-        require_once FCPATH . 'modules/pitchsnap/models/Pitchsnap_ghl_model.php';
-        $ghl_model = new Pitchsnap_ghl_model();
-        $location  = $ghl_model->get_by_site($site_id);
-
-        if (!$location || $location->status !== 'connected') {
-            return $this->_json(['success' => true, 'fields' => $standard, 'warning' => 'GHL location not connected; showing standard fields only.']);
+        $dests   = $this->pitchsnap_model->get_ghl_destinations($site_id ?: null);
+        $list    = [];
+        foreach ($dests as $d) {
+            $list[] = [
+                'id'      => (int) $d->id,
+                'label'   => $d->label,
+                'ghl_key' => $d->ghl_key,
+                'mode'    => $d->mode,
+                'global'  => ($d->site_id === null),
+            ];
         }
+        return $this->_json(['success' => true, 'destinations' => $list]);
+    }
 
-        require_once FCPATH . 'modules/pitchsnap/libraries/Pitchsnap_ghl.php';
-        $ghl = new Pitchsnap_ghl();
-        if (!$ghl->is_configured()) {
-            return $this->_json(['success' => true, 'fields' => $standard, 'warning' => 'GHL API key not configured.']);
-        }
-
-        $result = $ghl->get_custom_fields($location->ghl_location_id);
-        $custom = [];
-        if ($result['success'] && !empty($result['data']['customFields'])) {
-            foreach ($result['data']['customFields'] as $cf) {
-                $custom[] = ['key' => $cf['id'], 'label' => $cf['name'], 'group' => 'custom'];
+    // POST pitchsnap/ghl_dest_save — create or update a GHL destination
+    public function ghl_dest_save()
+    {
+        if (!is_admin()) { return $this->_json(['success' => false]); }
+        if ($this->input->method() !== 'post') { return $this->_json(['success' => false]); }
+        $id          = (int) $this->input->post('id');
+        $label       = trim($this->input->post('label', true));
+        $ghl_key     = trim($this->input->post('ghl_key', true));
+        $mode        = $this->input->post('mode') === 'multiple' ? 'multiple' : 'single';
+        $site_id_raw = $this->input->post('site_id');
+        if ($label === '') { return $this->_json(['success' => false, 'message' => 'Label is required.']); }
+        $data = ['label' => $label, 'ghl_key' => $ghl_key, 'mode' => $mode, 'active' => 1];
+        if ($id) {
+            $this->pitchsnap_model->update_ghl_destination($id, $data);
+        } else {
+            if ($site_id_raw !== '' && $site_id_raw !== false && $site_id_raw !== null) {
+                $data['site_id'] = (int) $site_id_raw;
             }
+            $id = $this->pitchsnap_model->create_ghl_destination($data);
         }
+        $dest = $this->pitchsnap_model->get_ghl_destination($id);
+        return $this->_json(['success' => true, 'destination' => $dest, 'csrf_hash' => $this->security->get_csrf_hash()]);
+    }
 
-        return $this->_json(['success' => true, 'fields' => array_merge($standard, $custom)]);
+    // POST pitchsnap/ghl_dest_delete/{id}
+    public function ghl_dest_delete($id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false]); }
+        if ($this->input->method() !== 'post') { return $this->_json(['success' => false]); }
+        $id = (int) $id;
+        if (!$id) { return $this->_json(['success' => false]); }
+        $this->pitchsnap_model->delete_ghl_destination($id);
+        return $this->_json(['success' => true, 'csrf_hash' => $this->security->get_csrf_hash()]);
     }
 
     // POST pitchsnap/form_save/{site_id}  (create or update)
@@ -2325,16 +2332,17 @@ class Pitchsnap extends AdminController
         $fields   = (is_array($fields_raw)) ? json_encode($fields_raw) : ($fields_raw ?: '[]');
         $settings = (is_array($settings_raw)) ? json_encode($settings_raw) : ($settings_raw ?: '{}');
 
-        // Server-side duplicate GHL field mapping check.
+        // Server-side duplicate check: Single Input destinations may only appear once per form.
         $decoded_fields = json_decode($fields, true) ?: [];
-        $ghl_seen = [];
+        $single_seen    = [];
         foreach ($decoded_fields as $ff) {
-            $ghl_key = trim((string) ($ff['ghl_field'] ?? ''));
-            if ($ghl_key === '') { continue; }
-            if (isset($ghl_seen[$ghl_key])) {
-                return $this->_json(['success' => false, 'message' => 'Duplicate GHL field mapping: "' . $ghl_key . '" is mapped to more than one field.']);
+            $ghl_key   = trim((string) ($ff['ghl_field']    ?? ''));
+            $dest_mode = $ff['ghl_dest_mode'] ?? 'single';
+            if ($ghl_key === '' || $dest_mode === 'multiple') { continue; }
+            if (isset($single_seen[$ghl_key])) {
+                return $this->_json(['success' => false, 'message' => 'Duplicate GHL destination: "' . htmlspecialchars($ghl_key) . '" is Single Input — only one field per form may use it.']);
             }
-            $ghl_seen[$ghl_key] = true;
+            $single_seen[$ghl_key] = true;
         }
 
         if ($form_id) {

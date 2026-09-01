@@ -120,6 +120,7 @@ hooks()->add_action('before_cron_run',       'clickfuzz_web_cron_run');
 hooks()->add_action('after_email_templates', 'clickfuzz_web_email_templates_section');
 hooks()->add_action('after_lead_lead_tabs',    'clickfuzz_web_lead_tab');
 hooks()->add_action('after_lead_tabs_content', 'clickfuzz_web_lead_tab_content');
+hooks()->add_action('admin_navbar_start',      'clickfuzz_web_db_version_badge');
 
 // ---------------------------------------------------------------------------
 // Menu
@@ -160,7 +161,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 25) {
+    if ((int) get_option('pitchsnap_db_version') >= 26) {
         return;
     }
 
@@ -707,11 +708,40 @@ function clickfuzz_web_db_upgrade()
         add_option('pitchsnap_ghl_form_webhook_url', '');
     }
 
+    // v26: GHL destination registry
+    $td = db_prefix() . 'pitchsnap_ghl_destinations';
+    if (!$CI->db->table_exists($td)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$td}` (
+                `id`          INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `site_id`     INT(11) DEFAULT NULL,
+                `label`       VARCHAR(100) NOT NULL DEFAULT '',
+                `ghl_key`     VARCHAR(200) NOT NULL DEFAULT '',
+                `mode`        ENUM('single','multiple') NOT NULL DEFAULT 'single',
+                `sort_order`  INT(11) NOT NULL DEFAULT 0,
+                `active`      TINYINT(1) NOT NULL DEFAULT 1,
+                `dateadded`   DATETIME NOT NULL,
+                `dateupdated` DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_ghl_dest_site` (`site_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+        $now = date('Y-m-d H:i:s');
+        $CI->db->query("
+            INSERT INTO `{$td}` (site_id, label, ghl_key, mode, sort_order, active, dateadded, dateupdated) VALUES
+            (NULL, 'First Name',  'firstName', 'single',   1, 1, '{$now}', '{$now}'),
+            (NULL, 'Last Name',   'lastName',  'single',   2, 1, '{$now}', '{$now}'),
+            (NULL, 'Email',       'email',     'single',   3, 1, '{$now}', '{$now}'),
+            (NULL, 'Phone',       'phone',     'single',   4, 1, '{$now}', '{$now}'),
+            (NULL, 'Quote Content', '',        'multiple', 5, 1, '{$now}', '{$now}')
+        ");
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '25');
+        add_option('pitchsnap_db_version', '26');
     } else {
-        update_option('pitchsnap_db_version', '25');
+        update_option('pitchsnap_db_version', '26');
     }
 }
 
@@ -800,4 +830,17 @@ function clickfuzz_web_lead_tab_content($lead)
         // $websites and $lead are in scope for the included view.
         include $view_path;
     }
+}
+
+function clickfuzz_web_db_version_badge()
+{
+    $CI = &get_instance();
+    if (strpos($CI->uri->uri_string(), 'pitchsnap') === false) {
+        return;
+    }
+    $v = get_option('pitchsnap_db_version') ?: '?';
+    echo '<li style="display:flex;align-items:center;padding:0 10px;">'
+       . '<span style="font-size:11px;font-weight:600;color:#aaa;letter-spacing:.5px;white-space:nowrap;">'
+       . 'DB v' . (int) $v
+       . '</span></li>';
 }

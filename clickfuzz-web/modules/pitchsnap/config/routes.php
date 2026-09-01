@@ -22,7 +22,9 @@ $route['pitchsnap/form_render/(:num)'] = 'pitchsnap_runtime/form_render/$1';
 $route['pitchsnap/form_submit']        = 'pitchsnap_runtime/form_submit';
 
 // Forms — admin actions
-$route['pitchsnap/ghl_fields_json/(:num)']             = 'pitchsnap/ghl_fields_json/$1';
+$route['pitchsnap/ghl_destinations_json/(:num)']   = 'pitchsnap/ghl_destinations_json/$1';
+$route['pitchsnap/ghl_dest_save']                  = 'pitchsnap/ghl_dest_save';
+$route['pitchsnap/ghl_dest_delete/(:num)']         = 'pitchsnap/ghl_dest_delete/$1';
 $route['pitchsnap/form_save/(:num)']               = 'pitchsnap/form_save/$1';
 $route['pitchsnap/form_delete/(:num)']             = 'pitchsnap/form_delete/$1';
 $route['pitchsnap/form_placements_json/(:num)']    = 'pitchsnap/form_placements_json/$1';

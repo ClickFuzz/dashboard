@@ -21,9 +21,14 @@
                     <div class="panel-body">
                         <div class="tw-flex tw-items-center tw-justify-between mbot15">
                             <h5 class="tw-font-semibold" style="margin:0;">Forms</h5>
-                            <button class="btn btn-primary btn-sm" onclick="cfShowFormEditor(0)">
-                                <i class="fa fa-plus"></i> New Form
-                            </button>
+                            <div>
+                                <button class="btn btn-default btn-sm" onclick="cfShowCustomFields()" style="margin-right:6px;">
+                                    <i class="fa fa-sliders"></i> Custom GHL Fields
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="cfShowFormEditor(0)">
+                                    <i class="fa fa-plus"></i> New Form
+                                </button>
+                            </div>
                         </div>
 
                         <?php if (empty($forms)) { ?>
@@ -72,6 +77,54 @@
                             </tbody>
                         </table>
                         <?php } ?>
+                    </div>
+                </div>
+
+                <!-- Custom GHL Fields panel — site-specific destination registry -->
+                <div class="panel_s" id="cf-custom-fields-panel" style="display:none;">
+                    <div class="panel-body">
+                        <div class="tw-flex tw-items-center tw-justify-between mbot15">
+                            <h5 class="tw-font-semibold" style="margin:0;">Custom GHL Fields</h5>
+                            <button class="btn btn-default btn-sm" onclick="cfHideCustomFields()">
+                                <i class="fa fa-arrow-left"></i> Back to Forms
+                            </button>
+                        </div>
+                        <p class="text-muted" style="font-size:13px;">
+                            Register GHL custom field identifiers you have already created in this client's GHL sub-account.
+                            Once added, they appear in this site's form builder destination dropdown.
+                            Copy the field key/ID from the GHL custom field settings.
+                        </p>
+
+                        <table class="table table-bordered table-condensed" style="margin-bottom:0;">
+                            <thead>
+                                <tr>
+                                    <th>Display Name</th>
+                                    <th>GHL Custom Field Key</th>
+                                    <th width="140">Input Mode</th>
+                                    <th width="100">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cf-custom-fields-body">
+                                <tr><td colspan="4" class="text-muted">Loading…</td></tr>
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td><input type="text" class="form-control input-sm" id="cf-new-cfd-label" placeholder="e.g. Building Size"></td>
+                                    <td><input type="text" class="form-control input-sm" id="cf-new-cfd-key" placeholder="e.g. custom.abc123_field_id"></td>
+                                    <td>
+                                        <select class="form-control input-sm" id="cf-new-cfd-mode">
+                                            <option value="single">Single Input</option>
+                                            <option value="multiple">Multiple Inputs</option>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-primary btn-xs" onclick="cfAddCustomField()">
+                                            <i class="fa fa-plus"></i> Add
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tfoot>
+                        </table>
                     </div>
                 </div>
 
@@ -180,7 +233,7 @@
     ?>;
 
     var editingFormId  = 0;
-    var cachedGhlFields = null; // [{key, label, group}] loaded once per page
+    var cachedGhlDests = null; // [{id, label, ghl_key, mode, global}] loaded once per page
 
     function ajax(url, data, cb) {
         var csrf = {};
@@ -193,62 +246,67 @@
         });
     }
 
-    // ── GHL field loading ──────────────────────────────────────────────────
+    // ── GHL destination loading ────────────────────────────────────────────
 
-    function loadGhlFields(cb) {
-        if (cachedGhlFields !== null) { cb(cachedGhlFields); return; }
-        $.getJSON(ADMIN_URL + '/ghl_fields_json/' + SITE_ID, function (r) {
-            cachedGhlFields = r.success ? (r.fields || []) : [];
-            cb(cachedGhlFields);
-        }).fail(function () { cachedGhlFields = []; cb([]); });
+    function loadGhlDestinations(cb) {
+        if (cachedGhlDests !== null) { cb(cachedGhlDests); return; }
+        $.getJSON(ADMIN_URL + '/ghl_destinations_json/' + SITE_ID, function (r) {
+            cachedGhlDests = r.success ? (r.destinations || []) : [];
+            cb(cachedGhlDests);
+        }).fail(function () { cachedGhlDests = []; cb([]); });
     }
 
-    // Rebuild GHL <select> options for a single wrapper, excluding keys already used by other rows.
-    function buildGhlOptions(ghlSelect, currentVal, allFields) {
-        var usedKeys = getUsedGhlKeys(ghlSelect.closest('.cf-field-row'));
-        ghlSelect.empty().append($('<option>').val('').text('— GHL field —'));
+    // Rebuild destination <select> for one row.
+    // Single Input destinations are disabled when already used by another row.
+    // Multiple Inputs destinations are never disabled.
+    function buildDestOptions(destSelect, currentDestId, allDests) {
+        var usedSingleIds = getUsedSingleDestIds(destSelect.closest('.cf-field-row'));
+        destSelect.empty().append($('<option>').val('').text('— GHL Destination —'));
 
-        var groups = { standard: 'Standard GHL Fields', custom: 'Custom GHL Fields' };
-        var grouped = { standard: [], custom: [] };
-        allFields.forEach(function (f) {
-            var g = grouped[f.group] || grouped.custom;
-            g.push(f);
+        var groups = { 'Single Input': [], 'Multiple Inputs': [] };
+        allDests.forEach(function (d) {
+            var g = d.mode === 'multiple' ? 'Multiple Inputs' : 'Single Input';
+            groups[g].push(d);
         });
 
-        ['standard', 'custom'].forEach(function (grp) {
-            if (!grouped[grp].length) { return; }
-            var optgroup = $('<optgroup>').attr('label', groups[grp]);
-            grouped[grp].forEach(function (f) {
-                var alreadyUsed = usedKeys.indexOf(f.key) !== -1 && f.key !== currentVal;
-                var opt = $('<option>').val(f.key).text(f.label)
-                    .prop('selected', f.key === currentVal)
+        ['Single Input', 'Multiple Inputs'].forEach(function (grpLabel) {
+            var items = groups[grpLabel];
+            if (!items.length) { return; }
+            var optgroup = $('<optgroup>').attr('label', grpLabel);
+            items.forEach(function (d) {
+                var alreadyUsed = d.mode === 'single' && usedSingleIds.indexOf(d.id) !== -1 && d.id !== currentDestId;
+                var opt = $('<option>').val(d.id).text(d.label + (d.global ? '' : ' ✦'))
+                    .prop('selected', d.id === currentDestId)
                     .prop('disabled', alreadyUsed);
-                if (alreadyUsed) { opt.text(f.label + ' (in use)'); }
+                if (alreadyUsed) { opt.text(d.label + ' (in use)'); }
                 optgroup.append(opt);
             });
-            ghlSelect.append(optgroup);
+            destSelect.append(optgroup);
         });
     }
 
-    // Collect ghl_field values from every row EXCEPT the given row.
-    function getUsedGhlKeys(exceptRow) {
-        var used = [];
+    // Return IDs of Single Input destinations already selected in other rows.
+    function getUsedSingleDestIds(exceptRow) {
+        if (!cachedGhlDests) { return []; }
+        var usedIds = [];
         $('#cf-fields-container .cf-field-row').each(function () {
             if (exceptRow && $(this).is(exceptRow)) { return; }
-            var v = $(this).find('.cf-field-ghl').val();
-            if (v) { used.push(v); }
+            var destId = parseInt($(this).find('.cf-field-ghl').val(), 10);
+            if (!destId) { return; }
+            var dest = cachedGhlDests.find(function (d) { return d.id === destId; });
+            if (dest && dest.mode === 'single') { usedIds.push(destId); }
         });
-        return used;
+        return usedIds;
     }
 
-    // Re-sync all GHL dropdowns in the editor (after any selection changes).
+    // Re-sync all destination dropdowns in the editor.
     function syncAllGhlDropdowns() {
-        if (!cachedGhlFields) { return; }
+        if (!cachedGhlDests) { return; }
         $('#cf-fields-container .cf-field-row').each(function () {
-            var row       = $(this);
-            var ghlSelect = row.find('.cf-field-ghl');
-            var cur       = ghlSelect.val();
-            buildGhlOptions(ghlSelect, cur, cachedGhlFields);
+            var row     = $(this);
+            var select  = row.find('.cf-field-ghl');
+            var curId   = parseInt(select.val(), 10) || null;
+            buildDestOptions(select, curId, cachedGhlDests);
         });
     }
 
@@ -266,11 +324,17 @@
         {v:'checkbox',     t:'Checkbox'},
     ];
 
-    function buildFieldRow(field, allFields) {
-        field     = field || {};
-        allFields = allFields || cachedGhlFields || [];
-        var currentType   = field.type      || 'text';
-        var currentGhlKey = field.ghl_field || '';
+    function buildFieldRow(field, allDests) {
+        field    = field || {};
+        allDests = allDests || cachedGhlDests || [];
+        var currentType = field.type || 'text';
+
+        // Resolve current destination ID from stored ghl_dest_id or by matching ghl_key
+        var currentDestId = field.ghl_dest_id ? parseInt(field.ghl_dest_id, 10) : null;
+        if (!currentDestId && field.ghl_field && allDests.length) {
+            var matched = allDests.find(function (d) { return d.ghl_key === field.ghl_field; });
+            if (matched) { currentDestId = matched.id; }
+        }
 
         var wrapper = $('<div class="cf-field-row" style="margin-bottom:8px;border:1px solid #e0e0e0;border-radius:4px;padding:6px 8px;">');
         var row1    = $('<div style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;">');
@@ -282,10 +346,10 @@
             typeSelect.append($('<option>').val(opt.v).text(opt.t).prop('selected', opt.v === currentType));
         });
 
-        var ghlSelect = $('<select class="form-control input-sm cf-field-ghl" style="width:160px;flex-shrink:0;">');
-        buildGhlOptions(ghlSelect, currentGhlKey, allFields);
+        var destSelect = $('<select class="form-control input-sm cf-field-ghl" style="width:180px;flex-shrink:0;">');
+        buildDestOptions(destSelect, currentDestId, allDests);
 
-        ghlSelect.on('change', function () { syncAllGhlDropdowns(); });
+        destSelect.on('change', function () { syncAllGhlDropdowns(); });
 
         var reqCheck = $('<label style="white-space:nowrap;margin:0;padding-top:6px;flex-shrink:0;">')
             .append($('<input type="checkbox" class="cf-field-required">').prop('checked', !!field.required))
@@ -294,7 +358,7 @@
         var removeBtn = $('<button type="button" class="btn btn-danger btn-xs" style="margin-top:2px;flex-shrink:0;">').html('<i class="fa fa-times"></i>')
             .on('click', function () { wrapper.remove(); syncAllGhlDropdowns(); });
 
-        row1.append(labelInput, typeSelect, ghlSelect, reqCheck, removeBtn);
+        row1.append(labelInput, typeSelect, destSelect, reqCheck, removeBtn);
 
         // Options row — shown only for select / multi_select
         var optionsRow   = $('<div class="cf-field-options-row" style="margin-top:5px;">');
@@ -317,8 +381,8 @@
     }
 
     window.cfAddField = function (field) {
-        loadGhlFields(function (allFields) {
-            var row = buildFieldRow(field, allFields);
+        loadGhlDestinations(function (allDests) {
+            var row = buildFieldRow(field, allDests);
             $('#cf-fields-container').append(row);
             syncAllGhlDropdowns();
         });
@@ -333,7 +397,7 @@
         $('#cf-save-msg').text('');
         $('#cf-placements-section').hide();
 
-        loadGhlFields(function (allFields) {
+        loadGhlDestinations(function (allDests) {
             if (formId === 0) {
                 $('#cf-editor-title').text('New Form');
                 $('#cf-form-name').val('');
@@ -347,7 +411,7 @@
                 $('#cf-form-submit-label').val(fd.settings.submit_label || 'Submit');
                 $('#cf-form-success-msg').val(fd.settings.success_message || "Thank you! We'll be in touch soon.");
                 (fd.fields || []).forEach(function (f) {
-                    $('#cf-fields-container').append(buildFieldRow(f, allFields));
+                    $('#cf-fields-container').append(buildFieldRow(f, allDests));
                 });
                 $('#cf-placements-section').show();
                 cfLoadPlacements(formId);
@@ -371,36 +435,40 @@
 
         if (!name) { alert_float('danger', 'Form name is required.'); return; }
 
-        var fields = [];
-        var usedGhl = {};
-        var dupError = null;
+        var fields       = [];
+        var singleUsed   = {};
+        var dupError     = null;
 
         $('#cf-fields-container .cf-field-row').each(function () {
-            var row  = $(this);
-            var type = row.find('.cf-field-type').val();
-            var ghl  = row.find('.cf-field-ghl').val();
-            var opts = [];
+            var row    = $(this);
+            var type   = row.find('.cf-field-type').val();
+            var destId = parseInt(row.find('.cf-field-ghl').val(), 10) || null;
+            var dest   = destId && cachedGhlDests ? cachedGhlDests.find(function (d) { return d.id === destId; }) : null;
+            var opts   = [];
             if (type === 'select' || type === 'multi_select') {
                 var raw = row.find('.cf-field-options').val().trim();
                 if (raw) {
                     opts = raw.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
                 }
             }
-            if (ghl) {
-                if (usedGhl[ghl]) { dupError = ghl; return false; }
-                usedGhl[ghl] = true;
+            // Only Single Input destinations enforce uniqueness
+            if (dest && dest.mode === 'single') {
+                if (singleUsed[dest.id]) { dupError = dest.label; return false; }
+                singleUsed[dest.id] = true;
             }
             fields.push({
-                label:     row.find('.cf-field-label').val(),
-                type:      type,
-                ghl_field: ghl,
-                required:  row.find('.cf-field-required').prop('checked'),
-                options:   opts,
+                label:         row.find('.cf-field-label').val(),
+                type:          type,
+                ghl_dest_id:   destId,
+                ghl_field:     dest ? dest.ghl_key : '',
+                ghl_dest_mode: dest ? dest.mode    : '',
+                required:      row.find('.cf-field-required').prop('checked'),
+                options:       opts,
             });
         });
 
         if (dupError) {
-            alert_float('danger', 'Duplicate GHL field mapping: "' + dupError + '" is used by more than one field.');
+            alert_float('danger', '"' + dupError + '" is a Single Input destination — only one field per form may use it.');
             return;
         }
 
@@ -526,6 +594,116 @@
             }
             row.append(nameCell, typeCell, countCell, actCell);
             tbody.append(row);
+        });
+    }
+
+    // ── Custom GHL Fields (per-site destination registry) ─────────────────
+
+    window.cfShowCustomFields = function () {
+        $('#cf-forms-list-panel').hide();
+        $('#cf-custom-fields-panel').show();
+        // Load destinations then render only site-specific rows
+        loadGhlDestinations(function () { cfRenderCustomFields(); });
+    };
+
+    window.cfHideCustomFields = function () {
+        $('#cf-custom-fields-panel').hide();
+        $('#cf-forms-list-panel').show();
+    };
+
+    function cfRenderCustomFields() {
+        var siteDests = (cachedGhlDests || []).filter(function (d) { return !d.global; });
+        var tbody = $('#cf-custom-fields-body');
+        tbody.empty();
+        if (!siteDests.length) {
+            tbody.html('<tr><td colspan="4" class="text-muted">No custom fields yet. Add one below.</td></tr>');
+            return;
+        }
+        siteDests.forEach(function (d) {
+            tbody.append(cfBuildCustomFieldRow(d));
+        });
+    }
+
+    function cfBuildCustomFieldRow(d) {
+        var row = $('<tr>').attr('data-dest-id', d.id);
+        var labelCell = $('<td class="cf-cfd-label-cell">').text(d.label);
+        var keyCell   = $('<td class="cf-cfd-key-cell">').text(d.ghl_key || '—');
+        var modeCell  = $('<td class="cf-cfd-mode-cell">').text(d.mode === 'multiple' ? 'Multiple Inputs' : 'Single Input');
+        var editBtn   = $('<button class="btn btn-default btn-xs">').html('<i class="fa fa-pencil"></i> Edit')
+            .on('click', function () { cfEditCustomFieldRow(row, d); });
+        var delBtn    = $('<button class="btn btn-danger btn-xs" style="margin-left:4px;">').html('<i class="fa fa-trash"></i>')
+            .on('click', function () { cfDeleteCustomField(d.id, row); });
+        var actCell   = $('<td>').append(editBtn).append(delBtn);
+        return row.append(labelCell, keyCell, modeCell, actCell);
+    }
+
+    function cfEditCustomFieldRow(row, d) {
+        var labelInput = $('<input type="text" class="form-control input-sm cf-cfd-edit-label">').val(d.label);
+        var keyInput   = $('<input type="text" class="form-control input-sm cf-cfd-edit-key">').val(d.ghl_key || '');
+        var modeSelect = $('<select class="form-control input-sm cf-cfd-edit-mode">')
+            .append($('<option>').val('single').text('Single Input').prop('selected', d.mode !== 'multiple'))
+            .append($('<option>').val('multiple').text('Multiple Inputs').prop('selected', d.mode === 'multiple'));
+        var saveBtn   = $('<button class="btn btn-primary btn-xs">').html('<i class="fa fa-check"></i> Save')
+            .on('click', function () { cfSaveCustomFieldRow(row, d.id); });
+        var cancelBtn = $('<button class="btn btn-default btn-xs" style="margin-left:4px;">').text('Cancel')
+            .on('click', function () { cfRenderCustomFields(); });
+        row.find('.cf-cfd-label-cell').empty().append(labelInput);
+        row.find('.cf-cfd-key-cell').empty().append(keyInput);
+        row.find('.cf-cfd-mode-cell').empty().append(modeSelect);
+        row.find('td:last').empty().append(saveBtn).append(cancelBtn);
+    }
+
+    function cfSaveCustomFieldRow(row, id) {
+        var label = row.find('.cf-cfd-edit-label').val().trim();
+        var key   = row.find('.cf-cfd-edit-key').val().trim();
+        var mode  = row.find('.cf-cfd-edit-mode').val();
+        if (!label) { alert_float('danger', 'Display name is required.'); return; }
+        ajax(ADMIN_URL + '/ghl_dest_save', { id: id, label: label, ghl_key: key, mode: mode }, function (r) {
+            if (r.success) {
+                CSRF_HASH = r.csrf_hash;
+                cachedGhlDests = null;
+                loadGhlDestinations(function () { cfRenderCustomFields(); });
+                alert_float('success', 'Destination updated.');
+            } else {
+                alert_float('danger', r.message || 'Save failed.');
+            }
+        });
+    }
+
+    window.cfAddCustomField = function () {
+        var label = $('#cf-new-cfd-label').val().trim();
+        var key   = $('#cf-new-cfd-key').val().trim();
+        var mode  = $('#cf-new-cfd-mode').val();
+        if (!label) { alert_float('danger', 'Display name is required.'); return; }
+        ajax(ADMIN_URL + '/ghl_dest_save', { id: 0, label: label, ghl_key: key, mode: mode, site_id: SITE_ID }, function (r) {
+            if (r.success) {
+                CSRF_HASH = r.csrf_hash;
+                $('#cf-new-cfd-label').val('');
+                $('#cf-new-cfd-key').val('');
+                $('#cf-new-cfd-mode').val('single');
+                cachedGhlDests = null;
+                loadGhlDestinations(function () { cfRenderCustomFields(); });
+                alert_float('success', 'Custom field added.');
+            } else {
+                alert_float('danger', r.message || 'Add failed.');
+            }
+        });
+    };
+
+    function cfDeleteCustomField(id, row) {
+        if (!confirm('Remove this custom GHL field? Form fields mapped to it will lose their destination.')) { return; }
+        ajax(ADMIN_URL + '/ghl_dest_delete/' + id, {}, function (r) {
+            if (r.success) {
+                CSRF_HASH = r.csrf_hash;
+                row.remove();
+                cachedGhlDests = null;
+                if (!$('#cf-custom-fields-body tr[data-dest-id]').length) {
+                    $('#cf-custom-fields-body').html('<tr><td colspan="4" class="text-muted">No custom fields yet. Add one below.</td></tr>');
+                }
+                alert_float('success', 'Custom field removed.');
+            } else {
+                alert_float('danger', r.message || 'Delete failed.');
+            }
         });
     }
 

@@ -13,12 +13,61 @@ Website lead forms, quote/contact submissions, ClickFuzz-owned frontend lead cap
 
 ## Architecture
 
-- **Forms storage:** `tblpitchsnap_forms` (DB v25) — `fields` column is JSON array of `{label, type, ghl_field, required, options}`. No migration needed for GHL mapping features; all mapping data lives in the JSON.
-- **Form submissions:** `tblpitchsnap_form_submissions` — audit log of submissions (form_id, site_id, ghl_contact_id, submitted_at).
-- **Runtime endpoints:** `Pitchsnap_runtime` — `form_render/{form_id}` (GET), `form_submit` (POST JSON).
-- **Admin endpoints:** `Pitchsnap` controller — form CRUD + new GHL field discovery + custom-field creation.
-- **GHL library:** `Pitchsnap_ghl` — all GHL API calls. Extended with `get_custom_fields` and `create_custom_field`.
-- **QRC field cache:** Per-location GHL "Quote Request Content" field ID cached in `tbloptions` as `pitchsnap_qrc_ghl_{md5(location_id)}`.
+### GHL Destination Registry
+
+All GHL field mappings go through the `tblpitchsnap_ghl_destinations` table (added in DB migration v26):
+
+| Column | Notes |
+|---|---|
+| `id` | PK |
+| `label` | Display name shown in admin and form builder dropdown |
+| `ghl_key` | GHL contact field key or custom field UUID |
+| `mode` | `single` (one field per form) or `multiple` (aggregated) |
+| `site_id` | NULL = global; site ID = per-site custom destination |
+| `active` | Soft disable without deleting |
+| `sort_order` | Display ordering |
+
+**Global seeds (v26):** First Name, Last Name, Email, Phone, Quote Content.
+
+**Quote Content** is the special aggregation destination: all fields mapped to it are concatenated as `Label: Value` lines and submitted to GHL as a custom field. The GHL UUID for Quote Content must be pre-configured per location in `tbloptions` as `pitchsnap_qrc_ghl_{md5(location_id)}`.
+
+### Form Fields
+
+`tblpitchsnap_forms.fields` is a JSON array. Each field object:
+
+```json
+{
+  "label": "Building Size",
+  "type": "select",
+  "ghl_dest_id": 6,
+  "ghl_field": "custom.abc123_uuid",
+  "ghl_dest_mode": "single",
+  "required": true,
+  "options": ["Small", "Medium", "Large"]
+}
+```
+
+`ghl_dest_id` is the canonical reference. `ghl_field` and `ghl_dest_mode` are denormalized at save time for runtime use.
+
+### Runtime Submission
+
+- `form_render/{form_id}` — renders HTML form; multi-select uses `data-cf-idx` attributes for index-based name binding (`cf_field[0]`, `cf_field[1]`, etc.)
+- `form_submit` — routes via `_build_ghl_payload()`:
+  - Single-mode standard destinations → standard GHL contact fields
+  - Single-mode custom destinations → `customField[{ id: uuid, value: val }]`
+  - Multiple-mode / Quote Content → aggregated into QRC custom field
+- Legacy forms (no `ghl_dest_mode`) fall through to old QRC path
+
+### Admin Endpoints
+
+- `GET  pitchsnap/ghl_destinations_json/{site_id}` — returns global + site-specific destinations; `global: true` if `site_id IS NULL`
+- `POST pitchsnap/ghl_dest_save` — create/update a destination; pass `site_id` to scope to a site
+- `POST pitchsnap/ghl_dest_delete/{id}` — hard delete
+- `GET  pitchsnap/form_placements_json/{form_id}` — placements for a form
+- `POST pitchsnap/form_save/{site_id}` — create/update form with server-side single-destination duplicate check
+- `POST pitchsnap/form_delete/{form_id}` — delete custom form
+- `POST pitchsnap/form_placement_add/{form_id}` — add page placement
+- `POST pitchsnap/form_placement_remove/{placement_id}` — remove placement
 
 ---
 
@@ -30,90 +79,80 @@ Website lead forms, quote/contact submissions, ClickFuzz-owned frontend lead cap
 
 ## Implemented / Needs Testing
 
-### GHL Field Discovery (dynamic dropdown)
+### GHL Destination Registry
 
-- **`GET pitchsnap/ghl_fields_json/{site_id}`** — returns standard GHL contact fields + custom fields fetched from the site's linked GHL location. Returns standard-only with a warning if location not connected.
-- Admin form editor now loads GHL field options dynamically when the editor opens (cached per page load). Falls back gracefully if GHL is not connected.
-- Standard fields included: `firstName`, `lastName`, `email`, `phone`, `name`, `address1`, `city`, `state`, `postalCode`, `website`, `companyName`.
-- Custom fields: fetched via `GET /locations/{id}/customFields`; stored by GHL `id` (UUID) as `ghl_field` value.
-- Field options grouped into "Standard GHL Fields" / "Custom GHL Fields" optgroups.
+- DB migration v26 creates `tblpitchsnap_ghl_destinations` and seeds 5 global rows.
+- Model CRUD: `get_ghl_destinations`, `get_ghl_destination`, `create_ghl_destination`, `update_ghl_destination`, `delete_ghl_destination`.
+- Admin Settings → GHL Destinations tab: full table + add/edit modal for global destinations.
 
-### Duplicate Mapping Protection
+### Per-Site Custom GHL Fields
 
-- **UI:** When any GHL field is selected in a form row, all other rows' dropdowns disable that option and mark it "(in use)". Runs on change and on editor open.
-- **Server-side:** `form_save` validates no two fields share the same non-empty `ghl_field` value before saving. Returns a 200 JSON error if duplicate detected.
+- Admin Settings → Site Detail → Forms tab → **Custom GHL Fields** button.
+- Opens a panel listing all site-specific destinations for the current site (rows where `site_id = <current_site_id>`).
+- Table columns: Display Name, GHL Custom Field Key, Input Mode, Edit/Delete actions.
+- Footer row: empty inputs to add a new destination inline.
+- AJAX via existing `ghl_dest_save` / `ghl_dest_delete` endpoints.
+- After add/edit/delete, `cachedGhlDests` is invalidated so the form builder dropdown refreshes automatically on next use.
+- Site-specific destinations appear in the form builder destination dropdown alongside global ones, marked with `✦`.
 
-### Create GHL Custom Field
+### Form Builder (destination-aware)
 
-- **`POST pitchsnap/ghl_create_custom_field/{site_id}`** — creates a GHL custom field for the site's location.
-- ClickFuzz type → GHL dataType: `text/email/phone/textarea → TEXT`, `number → NUMERICAL`, `select → DROPDOWN`, `multi_select → CHECKBOX`, `date → DATE`, `checkbox → CHECKBOX`.
-- Duplicate prevention: checks existing custom fields by name (case-insensitive) before creating; returns existing field ID if found.
-- After successful creation, admin UI invalidates the GHL field cache, reloads all options, and auto-selects the new field in the originating row.
-- **"Create in GHL" button** added to each field row in the form editor (only meaningful for fields that will become quote-specific custom fields).
+- GHL destination dropdown loaded once per page via `ghl_destinations_json/{site_id}` (cached as `cachedGhlDests`).
+- Options grouped into "Single Input" / "Multiple Inputs" optgroups.
+- Single Input destinations disabled in other rows when already selected (deduplication).
+- Server-side duplicate check on `form_save` for Single Input destinations.
 
-### Quote Request Content
+### Runtime Submission
 
-- On `form_submit`, builds a formatted string of `{Label}: {Value}` lines for all non-empty quote-specific fields (fields whose `ghl_field` is NOT a standard GHL contact key).
-- Multi-select values joined with `, `.
-- Empty values and standard contact fields excluded from QRC.
-- QRC GHL custom field ("Quote Request Content") found or created automatically per location on first submission, then ID cached in `tbloptions`.
-- QRC submitted as `customField[{ id: qrc_field_id, value: qrc_text }]` alongside normal payload.
-
-### Submission Fault Tolerance
-
-- Attempt 1: full payload (standard contact fields + custom mapped fields + QRC).
-- Attempt 2 (if attempt 1 fails): standard contact fields + QRC only (custom field mappings stripped). Logs a `log_activity` warning.
-- Logs GHL failure details without exposing sensitive data.
-- Submission audit record always written regardless of GHL outcome.
+- Index-based field naming (`cf_field[0]`, `cf_field[1]`) prevents name collisions.
+- `_build_ghl_payload()` routes each field to the correct GHL target by destination mode.
+- Legacy forms (no dest metadata) fall through to QRC aggregation path.
 
 ### Field Types
 
-- `select` (Single Select) and `multi_select` (Multi Select) already implemented (commit `78b28b4`).
-- Runtime `form_render` renders select as `<select>`, multi_select as checkboxes.
-- Runtime `form_submit` handles multi-select arrays: joined with `, ` for GHL standard fields, passed as array then joined for QRC formatting.
-- `_map_to_ghl_contact` updated with legacy snake_case aliases (backward compat for forms saved before GHL field discovery feature) + native camelCase GHL keys.
+All types supported: text, email, phone, textarea, number, select, multi_select, date, checkbox.
+Select/multi_select have an options input row in the form builder.
 
 ---
 
 ## In Progress
 
-*(nothing currently in progress — awaiting deploy + test)*
+*(nothing — all implemented, awaiting deploy + test)*
 
 ---
 
 ## Known Issues / Risks
 
-- **GHL dataType mapping for `multi_select`:** Mapped to GHL `CHECKBOX` type. Verify GHL accepts this for contact custom fields — may need to be `MULTIPLE_OPTIONS` depending on GHL version.
-- **QRC field dataType:** Created as `TEXT`. If GHL requires `LARGE_TEXT` for multi-line content, the field may truncate. Monitor in production.
-- **Unmapped fields:** Form fields with no `ghl_field` set are excluded from QRC (since there's no reliable key to look up their submitted value). Admin should always set GHL mappings for quote question fields.
-- **Legacy form fields:** Existing forms that use the old snake_case GHL keys (`first_name`, `last_name`, etc.) continue to work via backward-compat aliases in `_map_to_ghl_contact`.
-- **GHL custom field `id` response shape:** Assumes `data.customField.id`. If GHL returns a different shape, field ID extraction may fail. Verify with a real API call.
+- **Quote Content GHL UUID:** Must be pre-configured manually per location in `tbloptions` as `pitchsnap_qrc_ghl_{md5(location_id)}`. No auto-create; submission will fail gracefully if missing.
+- **GHL custom field key format:** GHL uses either a plain UUID or a `custom.{key}` dot-notation key. Confirm which format a given GHL sub-account uses before registering.
+- **Delete of used destinations:** Deleting a destination that form fields are mapped to leaves those fields with a dangling `ghl_dest_id`. Forms will silently skip the field at submission. No cascade warning currently shown.
 
 ---
 
 ## Explicit Non-Goals
 
-- Do NOT build GHL integration logic directly — route through `Pitchsnap_ghl`.
+- Do NOT build GHL integration logic directly — route through the GHL adapter.
 - Do NOT build publishing or domain routing.
 - Do NOT merge into `main` without explicit instruction.
 - Do NOT deploy to production without explicit instruction.
+- Do NOT query GHL for custom fields or create them — registration here is always manual.
 
 ---
 
 ## Next
 
 1. Deploy to production and test:
-   - Open a site detail page → Forms tab → New Form → Add fields → observe GHL field dropdown populates from GHL location.
-   - Map fields → verify duplicate protection prevents selecting same GHL field twice.
-   - Use "Create in GHL" button for a quote question → verify GHL custom field created, auto-selected.
-   - Submit the form from a published page → verify GHL contact created with standard fields, custom mapped fields, and "Quote Request Content" custom field.
-   - Submit with an invalid custom field ID → verify fallback attempt delivers standard fields + QRC.
-2. Verify GHL `CHECKBOX` dataType is accepted for multi_select fields; adjust to `MULTIPLE_OPTIONS` if needed.
-3. Verify QRC `TEXT` dataType handles multi-line content in GHL; upgrade to `LARGE_TEXT` if truncation observed.
-4. Verify `data.customField.id` response shape from GHL `create_custom_field` call.
+   - Site detail → Forms tab → **Custom GHL Fields** → add a site-specific destination (use a real GHL custom field key from the sub-account).
+   - Return to Forms → New Form → verify the site-specific destination appears in the dropdown under "Single Input" (marked ✦).
+   - Save a form with the custom destination mapped → submit from the published page → verify value arrives in GHL on the correct custom field.
+   - Admin Settings → GHL Destinations → add/edit/delete a global destination — verify it appears/disappears in the form builder.
+   - Test Single Input deduplication: select same destination in two rows → verify second row shows "(in use)".
+   - Submit form → verify Quote Content custom field receives aggregated values.
+2. Confirm the GHL custom field key format required by this client's sub-account (`custom.{key}` vs plain UUID).
+3. Verify QRC submission reaches GHL correctly (requires `pitchsnap_qrc_ghl_{md5(location_id)}` pre-configured).
 
 ---
 
 ## History
 
-- **2026-09-01:** GHL field discovery, duplicate mapping protection, "Create in GHL" button, Quote Request Content, submission fault tolerance — all implemented on `claude/lead-capture`. Not yet deployed.
+- **2026-09-01:** Full GHL Destination Registry — DB schema (v26), model CRUD, admin UI (settings tab + per-site custom fields panel in Forms tab), form builder rewrite (destination-aware with deduplication), runtime index-based submission routing. All on `claude/lead-capture`, not yet deployed.

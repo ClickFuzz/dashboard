@@ -639,15 +639,15 @@
             }
         }
 
-        // Collect multi-select groups (checkboxes without name, grouped by data-cf-multi)
-        var multiGroups = formEl.querySelectorAll('[data-cf-multi]');
+        // Collect multi-select groups (indexed by form field position)
+        var multiGroups = formEl.querySelectorAll('[data-cf-idx]');
         for (var j = 0; j < multiGroups.length; j++) {
             var group   = multiGroups[j];
-            var ghlKey  = group.getAttribute('data-cf-multi');
+            var fieldIdx = group.getAttribute('data-cf-idx');
             var checked = group.querySelectorAll('.cf-ms-opt:checked');
             var vals    = [];
             for (var k = 0; k < checked.length; k++) { vals.push(checked[k].value); }
-            fields[ghlKey] = vals.join(', ');
+            fields[fieldIdx] = vals.join(', ');
         }
 
         var submitBtn = formEl.querySelector('.cf-submit');

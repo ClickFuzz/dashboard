@@ -9,8 +9,11 @@
                         <h4 class="tw-font-semibold tw-mb-4">ClickFuzz Web Settings</h4>
 
                         <ul class="nav nav-tabs mbot20" id="settings-tabs">
-                            <li class="<?php echo $active_tab !== 'logs' ? 'active' : ''; ?>">
+                            <li class="<?php echo $active_tab !== 'logs' && $active_tab !== 'ghl-destinations' ? 'active' : ''; ?>">
                                 <a href="#tab-general" data-toggle="tab">General</a>
+                            </li>
+                            <li class="<?php echo $active_tab === 'ghl-destinations' ? 'active' : ''; ?>">
+                                <a href="#tab-ghl-destinations" data-toggle="tab">GHL Destinations</a>
                             </li>
                             <li class="<?php echo $active_tab === 'logs' ? 'active' : ''; ?>">
                                 <a href="#tab-logs" data-toggle="tab">Logs</a>
@@ -22,7 +25,7 @@
                         <!-- ══════════════════════════════════
                              TAB: General
                              ══════════════════════════════════ -->
-                        <div class="tab-pane <?php echo $active_tab !== 'logs' ? 'active' : ''; ?>" id="tab-general">
+                        <div class="tab-pane <?php echo ($active_tab !== 'logs' && $active_tab !== 'ghl-destinations') ? 'active' : ''; ?>" id="tab-general">
 
                         <?php echo form_open(admin_url('pitchsnap/settings')); ?>
 
@@ -487,6 +490,185 @@
                         <?php echo form_close(); ?>
 
                         </div><!-- #tab-general -->
+
+                        <!-- ══════════════════════════════════
+                             TAB: GHL Destinations
+                             ══════════════════════════════════ -->
+                        <div class="tab-pane <?php echo $active_tab === 'ghl-destinations' ? 'active' : ''; ?>" id="tab-ghl-destinations">
+
+                            <div class="row mbot15">
+                                <div class="col-xs-12">
+                                    <p class="text-muted" style="font-size:13px;">
+                                        Global GHL destination definitions. <strong>Single Input</strong> destinations accept one form field value; <strong>Multiple Inputs</strong> destinations aggregate all mapped field values into one GHL custom field.
+                                    </p>
+                                    <button class="btn btn-primary btn-sm" onclick="ghlDestOpenModal(null)">
+                                        <i class="fa fa-plus"></i> Add Destination
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-condensed table-bordered" id="ghl-dest-table" style="font-size:13px;">
+                                    <thead>
+                                        <tr>
+                                            <th>Label</th>
+                                            <th>GHL Field Key / UUID</th>
+                                            <th>Mode</th>
+                                            <th style="width:110px;">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ghl-dest-tbody">
+                                        <?php foreach ($ghl_destinations as $dest) { ?>
+                                        <tr id="ghl-dest-row-<?php echo (int) $dest->id; ?>">
+                                            <td><?php echo e($dest->label); ?></td>
+                                            <td><code><?php echo e($dest->ghl_key !== '' ? $dest->ghl_key : '—'); ?></code></td>
+                                            <td>
+                                                <?php if ($dest->mode === 'multiple') { ?>
+                                                <span class="label label-info">Multiple Inputs</span>
+                                                <?php } else { ?>
+                                                <span class="label label-default">Single Input</span>
+                                                <?php } ?>
+                                            </td>
+                                            <td>
+                                                <button class="btn btn-xs btn-default" onclick="ghlDestOpenModal(<?php echo (int) $dest->id; ?>)">Edit</button>
+                                                <button class="btn btn-xs btn-danger" onclick="ghlDestDelete(<?php echo (int) $dest->id; ?>)">Del</button>
+                                            </td>
+                                        </tr>
+                                        <?php } ?>
+                                        <?php if (empty($ghl_destinations)) { ?>
+                                        <tr id="ghl-dest-empty"><td colspan="4" class="text-muted text-center">No destinations yet.</td></tr>
+                                        <?php } ?>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                        </div><!-- #tab-ghl-destinations -->
+
+                        <!-- GHL Destination Modal -->
+                        <div class="modal fade" id="ghl-dest-modal" tabindex="-1" role="dialog">
+                            <div class="modal-dialog" role="document">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <button type="button" class="close" data-dismiss="modal">&times;</button>
+                                        <h4 class="modal-title" id="ghl-dest-modal-title">Add Destination</h4>
+                                    </div>
+                                    <div class="modal-body">
+                                        <input type="hidden" id="ghl-dest-id" value="">
+                                        <div class="form-group">
+                                            <label>Label</label>
+                                            <input type="text" id="ghl-dest-label" class="form-control" placeholder="e.g. Quote Content">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>GHL Field Key or UUID</label>
+                                            <input type="text" id="ghl-dest-key" class="form-control" placeholder="e.g. firstName  or  uuid-...">
+                                            <p class="help-block" style="font-size:11px;">Standard contact fields: firstName, lastName, email, phone. Custom fields: paste the GHL custom field UUID. Leave blank for Multiple Inputs aggregation destinations.</p>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Mode</label>
+                                            <select id="ghl-dest-mode" class="form-control">
+                                                <option value="single">Single Input — one form field maps here</option>
+                                                <option value="multiple">Multiple Inputs — aggregate all mapped fields</option>
+                                            </select>
+                                        </div>
+                                        <div id="ghl-dest-error" class="alert alert-danger" style="display:none;"></div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                                        <button type="button" class="btn btn-primary" id="ghl-dest-save-btn" onclick="ghlDestSave()">Save</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <script>
+                        var _ghlDests = <?php echo json_encode(array_values($ghl_destinations)); ?>;
+                        var _ghlDestBase = '<?php echo admin_url('pitchsnap'); ?>';
+                        var _ghlCsrfName = '<?php echo $this->security->get_csrf_token_name(); ?>';
+                        var _ghlCsrfHash = '<?php echo $this->security->get_csrf_hash(); ?>';
+
+                        function ghlDestOpenModal(id) {
+                            var modal = $('#ghl-dest-modal');
+                            $('#ghl-dest-error').hide().text('');
+                            if (id) {
+                                var dest = _ghlDests.find(function(d) { return d.id == id; });
+                                if (!dest) { return; }
+                                $('#ghl-dest-modal-title').text('Edit Destination');
+                                $('#ghl-dest-id').val(dest.id);
+                                $('#ghl-dest-label').val(dest.label);
+                                $('#ghl-dest-key').val(dest.ghl_key);
+                                $('#ghl-dest-mode').val(dest.mode);
+                            } else {
+                                $('#ghl-dest-modal-title').text('Add Destination');
+                                $('#ghl-dest-id').val('');
+                                $('#ghl-dest-label').val('');
+                                $('#ghl-dest-key').val('');
+                                $('#ghl-dest-mode').val('single');
+                            }
+                            modal.modal('show');
+                        }
+
+                        function ghlDestSave() {
+                            var id    = $('#ghl-dest-id').val();
+                            var label = $.trim($('#ghl-dest-label').val());
+                            var key   = $.trim($('#ghl-dest-key').val());
+                            var mode  = $('#ghl-dest-mode').val();
+                            if (!label) { $('#ghl-dest-error').text('Label is required.').show(); return; }
+                            var btn = $('#ghl-dest-save-btn').prop('disabled', true).text('Saving…');
+                            var payload = { label: label, ghl_key: key, mode: mode };
+                            if (id) { payload.id = id; }
+                            payload[_ghlCsrfName] = _ghlCsrfHash;
+                            $.post(_ghlDestBase + '/ghl_dest_save', payload, function(res) {
+                                if (!res.success) {
+                                    $('#ghl-dest-error').text(res.message || 'Save failed.').show();
+                                    btn.prop('disabled', false).text('Save');
+                                    return;
+                                }
+                                var d = res.destination;
+                                var modeLabel = d.mode === 'multiple'
+                                    ? '<span class="label label-info">Multiple Inputs</span>'
+                                    : '<span class="label label-default">Single Input</span>';
+                                var keyHtml = d.ghl_key !== '' ? '<code>' + d.ghl_key + '</code>' : '<code>—</code>';
+                                var row = '<tr id="ghl-dest-row-' + d.id + '">'
+                                    + '<td>' + $('<div>').text(d.label).html() + '</td>'
+                                    + '<td>' + keyHtml + '</td>'
+                                    + '<td>' + modeLabel + '</td>'
+                                    + '<td>'
+                                    +   '<button class="btn btn-xs btn-default" onclick="ghlDestOpenModal(' + d.id + ')">Edit</button> '
+                                    +   '<button class="btn btn-xs btn-danger" onclick="ghlDestDelete(' + d.id + ')">Del</button>'
+                                    + '</td>'
+                                    + '</tr>';
+                                if (id) {
+                                    $('#ghl-dest-row-' + id).replaceWith(row);
+                                    _ghlDests = _ghlDests.map(function(x) { return x.id == id ? d : x; });
+                                } else {
+                                    $('#ghl-dest-empty').remove();
+                                    $('#ghl-dest-tbody').append(row);
+                                    _ghlDests.push(d);
+                                }
+                                $('#ghl-dest-modal').modal('hide');
+                                btn.prop('disabled', false).text('Save');
+                                _ghlCsrfHash = res.csrf_hash || _ghlCsrfHash;
+                            }, 'json').fail(function() {
+                                $('#ghl-dest-error').text('Request failed.').show();
+                                btn.prop('disabled', false).text('Save');
+                            });
+                        }
+
+                        function ghlDestDelete(id) {
+                            if (!confirm('Delete this destination? Forms currently using it will lose the mapping.')) { return; }
+                            var payload = {};
+                            payload[_ghlCsrfName] = _ghlCsrfHash;
+                            $.post(_ghlDestBase + '/ghl_dest_delete/' + id, payload, function(res) {
+                                if (!res.success) { alert(res.message || 'Delete failed.'); return; }
+                                $('#ghl-dest-row-' + id).remove();
+                                _ghlDests = _ghlDests.filter(function(x) { return x.id != id; });
+                                if (_ghlDests.length === 0) {
+                                    $('#ghl-dest-tbody').append('<tr id="ghl-dest-empty"><td colspan="4" class="text-muted text-center">No destinations yet.</td></tr>');
+                                }
+                                _ghlCsrfHash = res.csrf_hash || _ghlCsrfHash;
+                            }, 'json').fail(function() { alert('Request failed.'); });
+                        }
+                        </script>
 
                         <!-- ══════════════════════════════════
                              TAB: Logs
