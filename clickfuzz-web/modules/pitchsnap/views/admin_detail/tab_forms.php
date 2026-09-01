@@ -654,6 +654,52 @@
         $.getJSON(RUNTIME_URL + '/form_render/' + formId, function (r) {
             if (!r.success) { body.html('<p class="text-danger" style="padding:20px 24px;">Could not load form.</p>'); return; }
             body.html('<div style="padding:24px;">' + r.html + '</div>');
+            // Bind directly to the injected form — do not rely on delegation.
+            body.find('.cf-form').on('submit', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var formEl    = this;
+                var fid       = formEl.getAttribute('data-form-id');
+                var inputs    = formEl.querySelectorAll('[name^="cf_field"]');
+                var fields    = {};
+                for (var i = 0; i < inputs.length; i++) {
+                    var inp  = inputs[i];
+                    var name = inp.name.replace(/^cf_field\[/, '').replace(/\]$/, '');
+                    fields[name] = (inp.type === 'checkbox') ? (inp.checked ? (inp.value || 'yes') : '') : inp.value;
+                }
+                var groups = formEl.querySelectorAll('[data-cf-idx]');
+                for (var j = 0; j < groups.length; j++) {
+                    var grp  = groups[j];
+                    var idx  = grp.getAttribute('data-cf-idx');
+                    var chk  = grp.querySelectorAll('.cf-ms-opt:checked');
+                    var vals = [];
+                    for (var k = 0; k < chk.length; k++) { vals.push(chk[k].value); }
+                    fields[idx] = vals.join(', ');
+                }
+                var submitBtn = formEl.querySelector('.cf-submit');
+                var msgEl     = formEl.querySelector('.cf-msg');
+                if (submitBtn) { submitBtn.disabled = true; }
+                if (msgEl)     { msgEl.style.display = 'none'; msgEl.className = 'cf-msg'; }
+                $.ajax({
+                    url: RUNTIME_URL + '/form_submit', type: 'POST', contentType: 'application/json',
+                    data: JSON.stringify({ form_id: parseInt(fid, 10), site_token: '', fields: fields }),
+                    success: function (data) {
+                        if (submitBtn) { submitBtn.disabled = false; }
+                        if (msgEl) {
+                            msgEl.style.display = 'block';
+                            if (data.success) {
+                                msgEl.className = 'cf-msg cf-success'; msgEl.textContent = data.message || 'Thank you!'; formEl.reset();
+                            } else {
+                                msgEl.className = 'cf-msg cf-error'; msgEl.textContent = data.error || 'Something went wrong.';
+                            }
+                        }
+                    },
+                    error: function () {
+                        if (submitBtn) { submitBtn.disabled = false; }
+                        if (msgEl) { msgEl.className = 'cf-msg cf-error'; msgEl.textContent = 'Request failed.'; msgEl.style.display = 'block'; }
+                    }
+                });
+            });
         }).fail(function () {
             body.html('<p class="text-danger" style="padding:20px 24px;">Could not load form.</p>');
         });
@@ -661,52 +707,6 @@
 
     $('#cf-preview-modal').on('hidden.bs.modal', function () {
         $('#cf-preview-body').empty();
-    });
-
-    // Submit handler for previewed forms — mirrors runtime_js.php submitForm()
-    $('#cf-preview-body').on('submit', '.cf-form', function (e) {
-        e.preventDefault();
-        var formEl    = this;
-        var formId    = formEl.getAttribute('data-form-id');
-        var inputs    = formEl.querySelectorAll('[name^="cf_field"]');
-        var fields    = {};
-        for (var i = 0; i < inputs.length; i++) {
-            var inp  = inputs[i];
-            var name = inp.name.replace(/^cf_field\[/, '').replace(/\]$/, '');
-            fields[name] = (inp.type === 'checkbox') ? (inp.checked ? (inp.value || 'yes') : '') : inp.value;
-        }
-        var groups = formEl.querySelectorAll('[data-cf-idx]');
-        for (var j = 0; j < groups.length; j++) {
-            var grp  = groups[j];
-            var idx  = grp.getAttribute('data-cf-idx');
-            var chk  = grp.querySelectorAll('.cf-ms-opt:checked');
-            var vals = [];
-            for (var k = 0; k < chk.length; k++) { vals.push(chk[k].value); }
-            fields[idx] = vals.join(', ');
-        }
-        var submitBtn = formEl.querySelector('.cf-submit');
-        var msgEl     = formEl.querySelector('.cf-msg');
-        if (submitBtn) { submitBtn.disabled = true; }
-        if (msgEl)     { msgEl.style.display = 'none'; msgEl.className = 'cf-msg'; }
-        $.ajax({
-            url: RUNTIME_URL + '/form_submit', type: 'POST', contentType: 'application/json',
-            data: JSON.stringify({ form_id: parseInt(formId, 10), site_token: '', fields: fields }),
-            success: function (data) {
-                if (submitBtn) { submitBtn.disabled = false; }
-                if (msgEl) {
-                    msgEl.style.display = 'block';
-                    if (data.success) {
-                        msgEl.className = 'cf-msg cf-success'; msgEl.textContent = data.message || 'Thank you!'; formEl.reset();
-                    } else {
-                        msgEl.className = 'cf-msg cf-error'; msgEl.textContent = data.error || 'Something went wrong.';
-                    }
-                }
-            },
-            error: function () {
-                if (submitBtn) { submitBtn.disabled = false; }
-                if (msgEl) { msgEl.className = 'cf-msg cf-error'; msgEl.textContent = 'Request failed.'; msgEl.style.display = 'block'; }
-            }
-        });
     });
 
     // ── Custom GHL Fields (per-site destination registry) ─────────────────
