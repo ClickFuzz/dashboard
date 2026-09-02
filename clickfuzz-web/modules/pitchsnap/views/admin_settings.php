@@ -477,6 +477,27 @@
                                    placeholder="txr_... (optional)">
                         </div>
 
+                        <!-- ================================================
+                             Onboarding
+                             ================================================ -->
+                        <hr>
+                        <h5 class="tw-font-semibold mtop20 mbot10">Onboarding</h5>
+
+                        <div class="form-group">
+                            <label for="pitchsnap_onboarding_flow_id">Auto-Onboarding Flow</label>
+                            <select name="pitchsnap_onboarding_flow_id" id="pitchsnap_onboarding_flow_id" class="form-control" style="max-width:320px;">
+                                <option value="0">— None (disable automatic onboarding) —</option>
+                                <?php foreach ($active_flows as $_af) { ?>
+                                <option value="<?php echo (int) $_af['id']; ?>" <?php echo (int) get_option('pitchsnap_onboarding_flow_id') === (int) $_af['id'] ? 'selected' : ''; ?>>
+                                    <?php echo e($_af['name']); ?>
+                                </option>
+                                <?php } ?>
+                            </select>
+                            <p class="text-muted" style="margin-top:4px;font-size:12px;">
+                                When a customer completes payment, an onboarding link is automatically created using this flow and the <em>Onboarding Email</em> template is sent. Set to None to disable.
+                            </p>
+                        </div>
+
                         <input type="hidden" name="active_tab" value="general">
 
                         <div class="mbot20">

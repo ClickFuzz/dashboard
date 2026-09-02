@@ -73,6 +73,29 @@ function _wiz_field($q, $existing_val = null) {
         return '<div class="wiz-qb" data-name="' . $name . '"' . $prefill_attr . '></div>'
             . '<input type="hidden" id="' . $id . '" name="' . $name . '" class="wiz-qb-value">';
     }
+    if ($ft === 'file') {
+        $qid      = (int) $q['id'];
+        $uploaded = null;
+        if ($existing_val !== null && $existing_val !== '') {
+            $ref = json_decode($existing_val, true);
+            if (is_array($ref) && ($ref['_type'] ?? '') === 'ob_file') {
+                $uploaded = $ref;
+            }
+        }
+        $accept = 'accept=".pdf,.jpg,.jpeg,.png"';
+        if ($uploaded) {
+            $disp = _wiz_e($uploaded['original_name'] ?? $uploaded['filename'] ?? '');
+            return '<div class="wiz-file-wrap" data-qid="' . $qid . '">'
+                . '<div class="wiz-file-current">Uploaded: <strong>' . $disp . '</strong></div>'
+                . '<input type="hidden" name="q_' . $qid . '" value="__ob_file__" class="wiz-file-sentinel">'
+                . '<label class="wiz-file-replace-label" style="display:block;margin-top:8px;font-size:13px;cursor:pointer;color:rgba(255,255,255,.6);">Replace: <input type="file" class="wiz-file-input" data-qid="' . $qid . '" ' . $accept . '></label>'
+                . '</div>';
+        }
+        return '<div class="wiz-file-wrap" data-qid="' . $qid . '">'
+            . '<input type="file" name="q_' . $qid . '" class="wiz-file-input wiz-input" data-qid="' . $qid . '" ' . $accept . $req . '>'
+            . '<small class="wiz-file-hint" style="display:block;margin-top:6px;color:rgba(255,255,255,.5);font-size:12px;">Accepted: PDF, JPG, PNG &mdash; max 10 MB</small>'
+            . '</div>';
+    }
     $type_map = ['text'=>'text','number'=>'number','email'=>'email','phone'=>'tel','url'=>'url'];
     $type = $type_map[$ft] ?? 'text';
     $val_attr = ($existing_val !== null && $existing_val !== '') ? ' value="' . _wiz_e($existing_val) . '"' : '';
@@ -286,8 +309,9 @@ function _wiz_field($q, $existing_val = null) {
 var _wizTotal      = <?php echo $_section_count; ?>;
 var _wizConditions = <?php echo json_encode($_all_conditions); ?>;
 var _wizToken      = '<?php echo addslashes($link['token'] ?? ''); ?>';
-var _wizSubmitUrl  = '<?php echo addslashes(base_url('pitchsnap/onboarding_submit')); ?>';
-var _wizSaveUrl    = '<?php echo addslashes(base_url('pitchsnap/onboarding_save_progress')); ?>';
+var _wizSubmitUrl      = '<?php echo addslashes(base_url('pitchsnap/onboarding_submit')); ?>';
+var _wizSaveUrl        = '<?php echo addslashes(base_url('pitchsnap/onboarding_save_progress')); ?>';
+var _wizUploadFileUrl  = '<?php echo addslashes(base_url('pitchsnap/onboarding_file_upload')); ?>';
 
 function wizGetVal(qId) {
     var inputs = document.querySelectorAll('[name="q_' + qId + '"]');
@@ -356,39 +380,83 @@ function _wizGoNow(idx) {
     _wizReportHeight();
 }
 
-function wizSaveStep(stepEl, callback) {
-    var answers = {};
-    stepEl.querySelectorAll('.wiz-question:not(.wiz-hidden)').forEach(function(wrap) {
-        var qId = parseInt(wrap.dataset.qId, 10);
-        var cbAll = wrap.querySelectorAll('[name="q_' + qId + '[]"]');
-        if (cbAll.length) {
-            answers['q_' + qId] = Array.from(wrap.querySelectorAll('[name="q_' + qId + '[]"]:checked')).map(function(i) { return i.value; });
-            return;
-        }
-        var radios = wrap.querySelectorAll('[name="q_' + qId + '"][type="radio"]');
-        if (radios.length) {
-            var chk = wrap.querySelector('[name="q_' + qId + '"]:checked');
-            answers['q_' + qId] = chk ? chk.value : '';
-            return;
-        }
-        var el = wrap.querySelector('[name="q_' + qId + '"]');
-        answers['q_' + qId] = el ? el.value : '';
+function wizUploadPendingFiles(scopeEl, callback) {
+    var scope = scopeEl || document;
+    var fileInputs = Array.from(scope.querySelectorAll('.wiz-file-input')).filter(function(el) {
+        return el.files && el.files.length > 0;
     });
+    if (!fileInputs.length) { callback(true); return; }
+    var idx = 0;
+    function uploadNext() {
+        if (idx >= fileInputs.length) { callback(true); return; }
+        var inp = fileInputs[idx++];
+        var qId = inp.dataset.qid;
+        var fd  = new FormData();
+        fd.append('token', _wizToken);
+        fd.append('question_id', qId);
+        fd.append('ob_file', inp.files[0]);
+        fetch(_wizUploadFileUrl, { method: 'POST', body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.success) {
+                    var orig = inp.files[0].name;
+                    var wrap = inp.closest('.wiz-file-wrap');
+                    if (wrap) {
+                        wrap.innerHTML = '<div class="wiz-file-current">Uploaded: <strong>' + orig + '</strong></div>'
+                            + '<input type="hidden" name="q_' + qId + '" value="__ob_file__" class="wiz-file-sentinel">'
+                            + '<label class="wiz-file-replace-label" style="display:block;margin-top:8px;font-size:13px;cursor:pointer;color:rgba(255,255,255,.6);">Replace: <input type="file" class="wiz-file-input" data-qid="' + qId + '" accept=".pdf,.jpg,.jpeg,.png"></label>';
+                    }
+                    uploadNext();
+                } else {
+                    alert(d.error || 'File upload failed. Please try again.');
+                    callback(false);
+                }
+            })
+            .catch(function() {
+                alert('File upload failed. Please check your connection and try again.');
+                callback(false);
+            });
+    }
+    uploadNext();
+}
 
-    fetch(_wizSaveUrl, {
-        method:  'POST',
-        headers: {'Content-Type': 'application/json'},
-        body:    JSON.stringify({token: _wizToken, answers: answers})
-    }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.success) {
-            callback(true);
-        } else {
-            alert(d.error || 'Failed to save progress. Please try again.');
+function wizSaveStep(stepEl, callback) {
+    wizUploadPendingFiles(stepEl, function(ok) {
+        if (!ok) { callback(false); return; }
+        var answers = {};
+        stepEl.querySelectorAll('.wiz-question:not(.wiz-hidden)').forEach(function(wrap) {
+            var qId = parseInt(wrap.dataset.qId, 10);
+            var cbAll = wrap.querySelectorAll('[name="q_' + qId + '[]"]');
+            if (cbAll.length) {
+                answers['q_' + qId] = Array.from(wrap.querySelectorAll('[name="q_' + qId + '[]"]:checked')).map(function(i) { return i.value; });
+                return;
+            }
+            var radios = wrap.querySelectorAll('[name="q_' + qId + '"][type="radio"]');
+            if (radios.length) {
+                var chk = wrap.querySelector('[name="q_' + qId + '"]:checked');
+                answers['q_' + qId] = chk ? chk.value : '';
+                return;
+            }
+            var el = wrap.querySelector('[name="q_' + qId + '"]');
+            if (el && (el.type === 'file' || el.classList.contains('wiz-file-sentinel'))) { return; }
+            answers['q_' + qId] = el ? el.value : '';
+        });
+
+        fetch(_wizSaveUrl, {
+            method:  'POST',
+            headers: {'Content-Type': 'application/json'},
+            body:    JSON.stringify({token: _wizToken, answers: answers})
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            if (d.success) {
+                callback(true);
+            } else {
+                alert(d.error || 'Failed to save progress. Please try again.');
+                callback(false);
+            }
+        }).catch(function() {
+            alert('Failed to save progress. Please check your connection and try again.');
             callback(false);
-        }
-    }).catch(function() {
-        alert('Failed to save progress. Please check your connection and try again.');
-        callback(false);
+        });
     });
 }
 
@@ -597,65 +665,77 @@ function wizSubmit() {
     var errEl = document.getElementById('wiz-submit-error');
     if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
 
-    // Collect unique question IDs from all field names
-    var qIds = {};
-    document.querySelectorAll('[name^="q_"]').forEach(function(el) {
-        var m = el.name.match(/^q_(\d+)/);
-        if (m) { qIds[m[1]] = true; }
-    });
-
-    var answers = {};
-    Object.keys(qIds).forEach(function(qId) {
-        var cbAll = document.querySelectorAll('[name="q_' + qId + '[]"]');
-        if (cbAll.length) {
-            answers['q_' + qId] = Array.from(document.querySelectorAll('[name="q_' + qId + '[]"]:checked')).map(function(i) { return i.value; });
-            return;
-        }
-        var radios = document.querySelectorAll('[name="q_' + qId + '"][type="radio"]');
-        if (radios.length) {
-            var chk = document.querySelector('[name="q_' + qId + '"]:checked');
-            answers['q_' + qId] = chk ? chk.value : '';
-            return;
-        }
-        var el = document.querySelector('[name="q_' + qId + '"]');
-        answers['q_' + qId] = el ? el.value : '';
-    });
-
     btn.disabled = true;
-    btn.innerHTML = 'Submitting&hellip;';
+    btn.innerHTML = 'Uploading&hellip;';
 
-    fetch(_wizSubmitUrl, {
-        method:  'POST',
-        headers: {'Content-Type': 'application/json'},
-        body:    JSON.stringify({token: _wizToken, answers: answers})
-    }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.success) {
-            var container = document.querySelector('.wiz-page');
-            if (container) {
-                container.innerHTML =
-                    '<div style="text-align:center;padding:48px 16px;">'
-                    + '<div style="font-size:40px;margin-bottom:16px;color:#e0392b;">&#10003;</div>'
-                    + '<p style="color:rgba(255,255,255,.75);font-size:14px;">Thank you! Your information has been submitted. We\'ll be in touch soon.</p>'
-                    + '</div>';
+    // Upload any pending file inputs across all steps before submitting
+    wizUploadPendingFiles(null, function(ok) {
+        if (!ok) {
+            btn.disabled = false;
+            btn.innerHTML = 'Submit &#10003;';
+            return;
+        }
+
+        btn.innerHTML = 'Submitting&hellip;';
+
+        // Collect unique question IDs from all field names
+        var qIds = {};
+        document.querySelectorAll('[name^="q_"]').forEach(function(el) {
+            var m = el.name.match(/^q_(\d+)/);
+            if (m) { qIds[m[1]] = true; }
+        });
+
+        var answers = {};
+        Object.keys(qIds).forEach(function(qId) {
+            var cbAll = document.querySelectorAll('[name="q_' + qId + '[]"]');
+            if (cbAll.length) {
+                answers['q_' + qId] = Array.from(document.querySelectorAll('[name="q_' + qId + '[]"]:checked')).map(function(i) { return i.value; });
+                return;
             }
-            setTimeout(_wizReportHeight, 50);
-        } else {
+            var radios = document.querySelectorAll('[name="q_' + qId + '"][type="radio"]');
+            if (radios.length) {
+                var chk = document.querySelector('[name="q_' + qId + '"]:checked');
+                answers['q_' + qId] = chk ? chk.value : '';
+                return;
+            }
+            var el = document.querySelector('[name="q_' + qId + '"]');
+            if (el && (el.type === 'file' || el.classList.contains('wiz-file-sentinel'))) { return; }
+            answers['q_' + qId] = el ? el.value : '';
+        });
+
+        fetch(_wizSubmitUrl, {
+            method:  'POST',
+            headers: {'Content-Type': 'application/json'},
+            body:    JSON.stringify({token: _wizToken, answers: answers})
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            if (d.success) {
+                var container = document.querySelector('.wiz-page');
+                if (container) {
+                    container.innerHTML =
+                        '<div style="text-align:center;padding:48px 16px;">'
+                        + '<div style="font-size:40px;margin-bottom:16px;color:#e0392b;">&#10003;</div>'
+                        + '<p style="color:rgba(255,255,255,.75);font-size:14px;">Thank you! Your information has been submitted. We\'ll be in touch soon.</p>'
+                        + '</div>';
+                }
+                setTimeout(_wizReportHeight, 50);
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = 'Submit &#10003;';
+                if (errEl) {
+                    errEl.textContent = d.error || 'Something went wrong. Please try again.';
+                    errEl.style.display = 'block';
+                }
+                setTimeout(_wizReportHeight, 50);
+            }
+        }).catch(function() {
             btn.disabled = false;
             btn.innerHTML = 'Submit &#10003;';
             if (errEl) {
-                errEl.textContent = d.error || 'Something went wrong. Please try again.';
+                errEl.textContent = 'Request failed. Please check your connection and try again.';
                 errEl.style.display = 'block';
             }
             setTimeout(_wizReportHeight, 50);
-        }
-    }).catch(function() {
-        btn.disabled = false;
-        btn.innerHTML = 'Submit &#10003;';
-        if (errEl) {
-            errEl.textContent = 'Request failed. Please check your connection and try again.';
-            errEl.style.display = 'block';
-        }
-        setTimeout(_wizReportHeight, 50);
+        });
     });
 }
 </script>

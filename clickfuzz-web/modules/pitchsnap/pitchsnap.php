@@ -176,7 +176,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 37) {
+    if ((int) get_option('pitchsnap_db_version') >= 38) {
         return;
     }
 
@@ -933,11 +933,17 @@ function clickfuzz_web_db_upgrade()
         $CI->db->query("ALTER TABLE `{$t37}` ADD COLUMN `completed_at` DATETIME DEFAULT NULL AFTER `status`");
     }
 
+    // v38: onboarding_link_id on sites — idempotency marker for auto-created onboarding links
+    $t38 = db_prefix() . 'pitchsnap_sites';
+    if ($CI->db->table_exists($t38) && !$CI->db->field_exists('onboarding_link_id', $t38)) {
+        $CI->db->query("ALTER TABLE `{$t38}` ADD COLUMN `onboarding_link_id` INT(11) DEFAULT NULL AFTER `status`");
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '37');
+        add_option('pitchsnap_db_version', '38');
     } else {
-        update_option('pitchsnap_db_version', '37');
+        update_option('pitchsnap_db_version', '38');
     }
 }
 

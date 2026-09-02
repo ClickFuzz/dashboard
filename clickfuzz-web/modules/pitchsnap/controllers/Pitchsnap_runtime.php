@@ -411,6 +411,20 @@ class Pitchsnap_runtime extends CI_Controller
         foreach ($all_questions as $qid => $q) {
             if (!($visible[$qid] ?? false)) { continue; }
             if (!$q['required']) { continue; }
+            if ($q['field_type'] === 'file') {
+                // File questions are saved via onboarding_file_upload; check site_data directly
+                $data_key = trim((string) ($q['data_key'] ?? ''));
+                if ($data_key !== '') {
+                    $row = $this->db->get_where(db_prefix() . 'pitchsnap_site_data',
+                        ['site_id' => $site_id, 'data_key' => $data_key])->row_array();
+                    $ref = ($row && $row['value']) ? @json_decode($row['value'], true) : null;
+                    if (!is_array($ref) || ($ref['_type'] ?? '') !== 'ob_file' || empty($ref['filename'])) {
+                        $label = $q['label'] ?: 'A required field';
+                        return $this->_json(['success' => false, 'error' => $label . ' is required.'], 422);
+                    }
+                }
+                continue;
+            }
             $raw = $submitted[$qid] ?? null;
             $str = is_array($raw)
                 ? implode('', array_map('strval', $raw))
@@ -427,6 +441,7 @@ class Pitchsnap_runtime extends CI_Controller
             $data_key = trim((string) ($q['data_key'] ?? ''));
             if ($data_key === '') { continue; }
             $value = $this->_ob_normalize_value($q, $submitted[$qid] ?? null);
+            if ($value === null) { continue; } // file questions saved via upload endpoint
             $this->pitchsnap_model->upsert_site_data($site_id, $data_key, $value);
         }
 
@@ -481,8 +496,78 @@ class Pitchsnap_runtime extends CI_Controller
             $data_key = trim((string) ($all_questions[$qid]['data_key'] ?? ''));
             if ($data_key === '') { continue; }
             $value = $this->_ob_normalize_value($all_questions[$qid], $raw);
+            if ($value === null) { continue; } // file questions saved via upload endpoint
             $this->pitchsnap_model->upsert_site_data($site_id, $data_key, $value);
         }
+
+        return $this->_json(['success' => true]);
+    }
+
+    public function onboarding_file_upload()
+    {
+        // No CSRF — this endpoint is added to $app_csrf_exclude_uris on production
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') {
+            return $this->_json(['success' => false, 'error' => 'Method not allowed.'], 405);
+        }
+
+        $token       = trim((string) ($this->input->post('token') ?? ''));
+        $question_id = (int) $this->input->post('question_id');
+
+        if (!$token || !preg_match('/^[a-f0-9]{64}$/', $token)) {
+            return $this->_json(['success' => false, 'error' => 'Invalid token.'], 400);
+        }
+        if (!$question_id) {
+            return $this->_json(['success' => false, 'error' => 'Invalid question.'], 400);
+        }
+
+        $this->_load_model();
+        $link = $this->pitchsnap_model->get_onboarding_link_by_token($token);
+        if (!$link || !in_array($link['status'], ['active', 'completed'], true)) {
+            return $this->_json(['success' => false, 'error' => 'This onboarding link is no longer active.'], 403);
+        }
+
+        $site_id = (int) $link['site_id'];
+        $flow_id = (int) $link['flow_id'];
+
+        // Verify the question belongs to this flow and is of type 'file'
+        $sections = $this->pitchsnap_model->get_sections_for_flow($flow_id);
+        $question  = null;
+        foreach ($sections as $sec) {
+            $qs = $this->pitchsnap_model->get_questions_for_section((int) $sec['id']);
+            foreach ($qs as $q) {
+                if ((int) $q['id'] === $question_id) {
+                    $question = $q;
+                    break 2;
+                }
+            }
+        }
+        if (!$question) {
+            return $this->_json(['success' => false, 'error' => 'Invalid question.'], 400);
+        }
+        if ($question['field_type'] !== 'file') {
+            return $this->_json(['success' => false, 'error' => 'This question does not accept file uploads.'], 400);
+        }
+
+        $data_key = trim((string) ($question['data_key'] ?? ''));
+        if ($data_key === '') {
+            return $this->_json(['success' => false, 'error' => 'Question has no data key.'], 400);
+        }
+
+        require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_media_helper.php';
+        $result = clickfuzz_web_upload_ob_doc($site_id);
+        if (!$result['success']) {
+            return $this->_json(['success' => false, 'error' => $result['error']], 422);
+        }
+
+        $ref = json_encode([
+            '_type'         => 'ob_file',
+            'filename'      => $result['filename'],
+            'original_name' => $result['original_name'],
+            'mime_type'     => $result['mime_type'],
+            'size'          => $result['size'],
+        ]);
+
+        $this->pitchsnap_model->upsert_site_data($site_id, $data_key, $ref);
 
         return $this->_json(['success' => true]);
     }
@@ -490,6 +575,9 @@ class Pitchsnap_runtime extends CI_Controller
     private function _ob_normalize_value($q, $raw)
     {
         $ft = (string) ($q['field_type'] ?? 'text');
+        if ($ft === 'file') {
+            return null; // file questions are saved via onboarding_file_upload; skip here
+        }
         if ($ft === 'checkbox') {
             if (is_array($raw)) {
                 return json_encode(array_values(array_map('strval', $raw)));
@@ -736,6 +824,7 @@ class Pitchsnap_runtime extends CI_Controller
                                 $ps_site = $this->db->where('subscription_id', (int) $db_sub->id)->get(db_prefix() . 'pitchsnap_sites')->row();
                                 if ($ps_site) {
                                     $this->db->where('id', (int) $ps_site->id)->update(db_prefix() . 'pitchsnap_sites', ['status' => 'subscriber']);
+                                    $this->_trigger_onboarding((int) $ps_site->id, (int) $db_sub->clientid);
                                 }
                                 if (!empty($stripe_sub->customer) && !empty($db_sub->clientid)) {
                                     $client = $this->db->select('stripe_id')->where('userid', (int) $db_sub->clientid)->get(db_prefix() . 'clients')->row();
@@ -821,6 +910,13 @@ class Pitchsnap_runtime extends CI_Controller
                                 'amount'         => $amount,
                             ]);
                             log_activity('PitchSnap: Invoice #' . $invoice_id . ' payment recorded [PI: ' . $pi_id . ']');
+
+                            // Trigger automatic onboarding link + email for one-time payment
+                            $ps_site_ot = $this->db->select('id')->where('invoice_id', $invoice_id)
+                                ->get(db_prefix() . 'pitchsnap_sites')->row();
+                            if ($ps_site_ot) {
+                                $this->_trigger_onboarding((int) $ps_site_ot->id, (int) $invoice->clientid);
+                            }
                         }
                     } else {
                         $this->_log('stripe_checkout', 'payment_complete: session not paid or missing payment_intent', [
@@ -1566,6 +1662,68 @@ class Pitchsnap_runtime extends CI_Controller
             . '<p class="wiz-msg">' . $msg . '</p>'
             . '</div>'
             . '</body></html>';
+    }
+
+    private function _trigger_onboarding($site_id, $client_id)
+    {
+        $site_id   = (int) $site_id;
+        $client_id = (int) $client_id;
+        if (!$site_id || !$client_id) { return; }
+
+        // Idempotency: skip if an auto-link was already created for this site
+        $site_row = $this->db->select('onboarding_link_id')->where('id', $site_id)
+            ->get(db_prefix() . 'pitchsnap_sites')->row();
+        if ($site_row && !empty($site_row->onboarding_link_id)) { return; }
+
+        // Configured flow
+        $flow_id = (int) get_option('pitchsnap_onboarding_flow_id');
+        if (!$flow_id) {
+            log_activity('ClickFuzz Web: Onboarding skipped — no flow configured [site_id: ' . $site_id . ']');
+            return;
+        }
+        $this->_load_model();
+        $flow = $this->pitchsnap_model->get_flow($flow_id);
+        if (!$flow || $flow['status'] !== 'active') {
+            log_activity('ClickFuzz Web: Onboarding skipped — flow not active [flow_id: ' . $flow_id . ', site_id: ' . $site_id . ']');
+            return;
+        }
+
+        // Create onboarding link (uses cryptographically secure token)
+        $token = $this->pitchsnap_model->create_onboarding_link($site_id, $flow_id);
+        if (!$token) {
+            log_activity('ClickFuzz Web: Onboarding link creation failed [site_id: ' . $site_id . ']');
+            return;
+        }
+
+        // Store link reference on site record (idempotency marker for subsequent calls)
+        $link_row = $this->db->select('id')->where('token', $token)
+            ->get(db_prefix() . 'pitchsnap_onboarding_links')->row();
+        if ($link_row) {
+            $this->pitchsnap_model->update_site($site_id, ['onboarding_link_id' => (int) $link_row->id]);
+        }
+
+        // Build public onboarding URL
+        $ob_page = !empty($flow['page_url']) ? $flow['page_url'] : get_option('pitchsnap_onboarding_page_url');
+        $ob_url  = $ob_page
+            ? rtrim($ob_page, '/') . '/?token=' . $token
+            : base_url('pitchsnap/onboarding_embed') . '?token=' . $token;
+
+        // Resolve primary contact email
+        $contact = $this->db->select('email, firstname')
+            ->where('userid', $client_id)
+            ->where('is_primary', 1)
+            ->get(db_prefix() . 'contacts')
+            ->row();
+        if (!$contact || empty($contact->email)) {
+            log_activity('ClickFuzz Web: Onboarding email skipped — no primary contact [client_id: ' . $client_id . ', site_id: ' . $site_id . ']');
+            return;
+        }
+
+        $this->load->helper('pitchsnap_cron');
+        clickfuzz_web_send_mail('pitchsnap-onboarding', $contact->email, [
+            '{{contact_firstname}}' => !empty($contact->firstname) ? $contact->firstname : 'there',
+            '{{onboarding-link}}'   => $ob_url,
+        ]);
     }
 
     private function _json($data, $status = 200)

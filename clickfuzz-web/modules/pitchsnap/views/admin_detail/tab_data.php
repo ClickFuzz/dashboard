@@ -45,7 +45,11 @@ var _cfSD_siteId = <?php echo $_site_id; ?>;
                 <tr>
                     <td><code><?php echo e($_d['data_key']); ?></code></td>
                     <td>
-                        <?php if ($_is_json) { ?>
+                        <?php if ($_is_json && is_array($_decoded) && ($_decoded['_type'] ?? '') === 'ob_file' && !empty($_decoded['filename'])) { ?>
+                        <a href="<?php echo admin_url('pitchsnap/onboarding_doc_download/' . $_site_id . '/' . rawurlencode($_decoded['filename'])); ?>" target="_blank">
+                            <i class="fa fa-file-o"></i> <?php echo e($_decoded['original_name'] ?? $_decoded['filename']); ?>
+                        </a>
+                        <?php } elseif ($_is_json) { ?>
                         <pre style="margin:0;font-size:11px;background:none;border:none;padding:0;white-space:pre-wrap;word-break:break-word;"><?php echo e(json_encode($_decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?></pre>
                         <?php } else { ?>
                         <?php echo nl2br(e($_d['value'])); ?>
