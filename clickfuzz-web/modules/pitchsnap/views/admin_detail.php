@@ -57,10 +57,19 @@
                 <a href="#tab-pages" role="tab" data-toggle="tab">Website</a>
             </li>
             <li role="presentation">
+                <a href="#tab-forms" role="tab" data-toggle="tab">Forms</a>
+            </li>
+            <li role="presentation">
                 <a href="#tab-media" role="tab" data-toggle="tab">Media</a>
             </li>
             <li role="presentation">
                 <a href="#tab-customer" role="tab" data-toggle="tab">Customer</a>
+            </li>
+            <li role="presentation">
+                <a href="#tab-data" role="tab" data-toggle="tab">Data</a>
+            </li>
+            <li role="presentation">
+                <a href="#tab-onboarding" role="tab" data-toggle="tab">Onboarding</a>
             </li>
             <li role="presentation">
                 <a href="#tab-settings" role="tab" data-toggle="tab">Settings</a>
@@ -73,9 +82,15 @@
 
             <?php include __DIR__ . '/admin_detail/tab_pages.php'; ?>
 
+            <?php include __DIR__ . '/admin_detail/tab_forms.php'; ?>
+
             <?php include __DIR__ . '/admin_detail/tab_media.php'; ?>
 
             <?php include __DIR__ . '/admin_detail/tab_customer.php'; ?>
+
+            <?php include __DIR__ . '/admin_detail/tab_data.php'; ?>
+
+            <?php include __DIR__ . '/admin_detail/tab_onboarding.php'; ?>
 
             <!-- Settings: Publishing / Integrations / Activity -->
             <div role="tabpanel" class="tab-pane" id="tab-settings">

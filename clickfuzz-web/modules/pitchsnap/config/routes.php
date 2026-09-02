@@ -42,6 +42,15 @@ $route['pitchsnap/page_generation_set_current/(:num)'] = 'pitchsnap/page_generat
 // Phase 5 — page publishing
 $route['pitchsnap/page_publish/(:num)'] = 'pitchsnap/page_publish/$1';
 
+// Onboarding — flow page URL (admin AJAX)
+$route['pitchsnap/flow_save_page_url/(:num)'] = 'pitchsnap/flow_save_page_url/$1';
+
+// Onboarding — public embed endpoint, loader script, and answer submission
+$route['pitchsnap/onboarding_embed']     = 'pitchsnap_runtime/onboarding_embed';
+$route['pitchsnap/onboarding_loader.js'] = 'pitchsnap_runtime/onboarding_loader_js';
+$route['pitchsnap/onboarding_submit']         = 'pitchsnap_runtime/onboarding_submit';
+$route['pitchsnap/onboarding_save_progress'] = 'pitchsnap_runtime/onboarding_save_progress';
+
 // WordPress Connector — public callback (WP plugin POSTs token + site_url here)
 $route['pitchsnap/wp_pair_callback']             = 'pitchsnap_runtime/wp_pair_callback';
 // WordPress Connector — signed one-time theme download (WP pulls ZIP from here)

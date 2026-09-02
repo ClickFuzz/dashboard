@@ -250,6 +250,275 @@ class Pitchsnap_runtime extends CI_Controller
             ->set_output($html);
     }
 
+    public function onboarding($token = '')
+    {
+        $token = trim($token);
+        if (!$token || !preg_match('/^[a-f0-9]{64}$/', $token)) {
+            show_404();
+            return;
+        }
+        $this->_load_model();
+        $link = $this->pitchsnap_model->get_onboarding_link_by_token($token);
+        if (!$link || !in_array($link['status'], ['active', 'completed'], true)) {
+            show_404();
+            return;
+        }
+        $flow = $this->pitchsnap_model->get_flow($link['flow_id']);
+        if (!$flow) {
+            show_404();
+            return;
+        }
+        $sections = $this->pitchsnap_model->get_sections_for_flow((int) $link['flow_id']);
+        foreach ($sections as &$sec) {
+            $sec['questions'] = $this->pitchsnap_model->get_questions_for_section((int) $sec['id']);
+        }
+        unset($sec);
+
+        $_existing_data = [];
+        foreach ($this->pitchsnap_model->get_site_data((int) $link['site_id']) as $_r) {
+            $_existing_data[$_r['data_key']] = $_r['value'];
+        }
+
+        ob_start();
+        include FCPATH . 'modules/pitchsnap/views/onboarding_wizard.php';
+        $html = ob_get_clean();
+        $this->output
+            ->set_content_type('text/html')
+            ->set_header('X-Robots-Tag: noindex, nofollow')
+            ->set_output($html);
+    }
+
+    public function onboarding_embed()
+    {
+        $token = trim($this->input->get('token') ?? '');
+        if (!$token || !preg_match('/^[a-f0-9]{64}$/', $token)) {
+            show_404();
+            return;
+        }
+        $this->_load_model();
+        $link = $this->pitchsnap_model->get_onboarding_link_by_token($token);
+        if (!$link) {
+            show_404();
+            return;
+        }
+        if (!in_array($link['status'], ['active', 'completed'], true)) {
+            $this->output
+                ->set_content_type('text/html')
+                ->set_header('X-Robots-Tag: noindex, nofollow')
+                ->set_header('X-Frame-Options: SAMEORIGIN')
+                ->set_output($this->_ob_status_page('This onboarding link is no longer active.'));
+            return;
+        }
+        $flow = $this->pitchsnap_model->get_flow($link['flow_id']);
+        if (!$flow) {
+            show_404();
+            return;
+        }
+        $sections = $this->pitchsnap_model->get_sections_for_flow((int) $link['flow_id']);
+        foreach ($sections as &$sec) {
+            $sec['questions'] = $this->pitchsnap_model->get_questions_for_section((int) $sec['id']);
+        }
+        unset($sec);
+
+        $_existing_data = [];
+        foreach ($this->pitchsnap_model->get_site_data((int) $link['site_id']) as $_r) {
+            $_existing_data[$_r['data_key']] = $_r['value'];
+        }
+
+        ob_start();
+        include FCPATH . 'modules/pitchsnap/views/onboarding_wizard.php';
+        $html = ob_get_clean();
+        $this->output
+            ->set_content_type('text/html')
+            ->set_header('X-Robots-Tag: noindex, nofollow')
+            ->set_header('X-Frame-Options: SAMEORIGIN')
+            ->set_output($html);
+    }
+
+    public function onboarding_loader_js()
+    {
+        $embed_url = rtrim(base_url('pitchsnap/onboarding_embed'), '/');
+        ob_start();
+        include FCPATH . 'modules/pitchsnap/views/onboarding_loader_js.php';
+        $js = ob_get_clean();
+        $this->output
+            ->set_content_type('application/javascript')
+            ->set_header('Cache-Control: public, max-age=3600')
+            ->set_header('X-Content-Type-Options: nosniff')
+            ->set_output($js);
+    }
+
+    public function onboarding_submit()
+    {
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') {
+            return $this->_json(['success' => false, 'error' => 'Method not allowed.'], 405);
+        }
+        $body = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($body)) {
+            return $this->_json(['success' => false, 'error' => 'Invalid request body.'], 400);
+        }
+        $token = trim((string) ($body['token'] ?? ''));
+        if (!$token || !preg_match('/^[a-f0-9]{64}$/', $token)) {
+            return $this->_json(['success' => false, 'error' => 'Invalid token.'], 400);
+        }
+        $this->_load_model();
+        $link = $this->pitchsnap_model->get_onboarding_link_by_token($token);
+        if (!$link || !in_array($link['status'], ['active', 'completed'], true)) {
+            return $this->_json(['success' => false, 'error' => 'This onboarding link is no longer active.'], 403);
+        }
+        $site_id = (int) $link['site_id'];
+        $flow_id = (int) $link['flow_id'];
+
+        // Load all questions server-side
+        $sections = $this->pitchsnap_model->get_sections_for_flow($flow_id);
+        $all_questions = [];
+        foreach ($sections as $sec) {
+            $qs = $this->pitchsnap_model->get_questions_for_section((int) $sec['id']);
+            foreach ($qs as $q) {
+                $all_questions[(int) $q['id']] = $q;
+            }
+        }
+
+        // Map submitted answers (keys like "q_123")
+        $submitted = [];
+        $answers = is_array($body['answers'] ?? null) ? $body['answers'] : [];
+        foreach ($answers as $key => $value) {
+            if (preg_match('/^q_(\d+)$/', (string) $key, $m)) {
+                $submitted[(int) $m[1]] = $value;
+            }
+        }
+
+        // Evaluate visibility using same logic as the wizard JS
+        $visible = [];
+        foreach ($all_questions as $qid => $q) {
+            if (empty($q['condition_question_id'])) {
+                $visible[$qid] = true;
+                continue;
+            }
+            $ctrl_id  = (int) $q['condition_question_id'];
+            $op       = (string) ($q['condition_operator'] ?? '');
+            $expected = (string) ($q['condition_value'] ?? '');
+            $raw      = $submitted[$ctrl_id] ?? null;
+            $ctrl_val = is_array($raw) ? implode(',', array_map('strval', $raw)) : (string) ($raw ?? '');
+            $show = false;
+            if ($op === 'equals')     { $show = $ctrl_val === $expected; }
+            if ($op === 'not_equals') { $show = $ctrl_val !== $expected; }
+            if ($op === 'contains')   { $show = strpos($ctrl_val, $expected) !== false; }
+            $visible[$qid] = $show;
+        }
+
+        // Required-field validation (visible questions only)
+        foreach ($all_questions as $qid => $q) {
+            if (!($visible[$qid] ?? false)) { continue; }
+            if (!$q['required']) { continue; }
+            $raw = $submitted[$qid] ?? null;
+            $str = is_array($raw)
+                ? implode('', array_map('strval', $raw))
+                : trim((string) ($raw ?? ''));
+            if ($str === '') {
+                $label = $q['label'] ?: 'A required field';
+                return $this->_json(['success' => false, 'error' => $label . ' is required.'], 422);
+            }
+        }
+
+        // Save answers for visible questions that have a data_key
+        foreach ($all_questions as $qid => $q) {
+            if (!($visible[$qid] ?? false)) { continue; }
+            $data_key = trim((string) ($q['data_key'] ?? ''));
+            if ($data_key === '') { continue; }
+            $value = $this->_ob_normalize_value($q, $submitted[$qid] ?? null);
+            $this->pitchsnap_model->upsert_site_data($site_id, $data_key, $value);
+        }
+
+        $update_link = ['status' => 'completed'];
+        if (empty($link['completed_at'])) {
+            $update_link['completed_at'] = date('Y-m-d H:i:s');
+        }
+        $this->db->where('id', (int) $link['id'])
+            ->update(db_prefix() . 'pitchsnap_onboarding_links', $update_link);
+
+        log_activity('PitchSnap: Onboarding submitted [Link ID: ' . $link['id'] . ', Site ID: ' . $site_id . ']');
+        return $this->_json(['success' => true]);
+    }
+
+    public function onboarding_save_progress()
+    {
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') {
+            return $this->_json(['success' => false, 'error' => 'Method not allowed.'], 405);
+        }
+        $body = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($body)) {
+            return $this->_json(['success' => false, 'error' => 'Invalid request body.'], 400);
+        }
+        $token = trim((string) ($body['token'] ?? ''));
+        if (!$token || !preg_match('/^[a-f0-9]{64}$/', $token)) {
+            return $this->_json(['success' => false, 'error' => 'Invalid token.'], 400);
+        }
+        $this->_load_model();
+        $link = $this->pitchsnap_model->get_onboarding_link_by_token($token);
+        if (!$link || !in_array($link['status'], ['active', 'completed'], true)) {
+            return $this->_json(['success' => false, 'error' => 'This onboarding link is no longer active.'], 403);
+        }
+        $site_id = (int) $link['site_id'];
+        $flow_id = (int) $link['flow_id'];
+
+        // Load questions server-side to validate submitted q_ids belong to this flow
+        $sections = $this->pitchsnap_model->get_sections_for_flow($flow_id);
+        $all_questions = [];
+        foreach ($sections as $sec) {
+            $qs = $this->pitchsnap_model->get_questions_for_section((int) $sec['id']);
+            foreach ($qs as $q) {
+                $all_questions[(int) $q['id']] = $q;
+            }
+        }
+
+        // Upsert only submitted visible answers; skip unknown q_ids; no required-field check
+        $answers = is_array($body['answers'] ?? null) ? $body['answers'] : [];
+        foreach ($answers as $key => $raw) {
+            if (!preg_match('/^q_(\d+)$/', (string) $key, $m)) { continue; }
+            $qid = (int) $m[1];
+            if (!isset($all_questions[$qid])) { continue; }
+            $data_key = trim((string) ($all_questions[$qid]['data_key'] ?? ''));
+            if ($data_key === '') { continue; }
+            $value = $this->_ob_normalize_value($all_questions[$qid], $raw);
+            $this->pitchsnap_model->upsert_site_data($site_id, $data_key, $value);
+        }
+
+        return $this->_json(['success' => true]);
+    }
+
+    private function _ob_normalize_value($q, $raw)
+    {
+        $ft = (string) ($q['field_type'] ?? 'text');
+        if ($ft === 'checkbox') {
+            if (is_array($raw)) {
+                return json_encode(array_values(array_map('strval', $raw)));
+            } elseif (is_string($raw) && $raw !== '') {
+                $arr = json_decode($raw, true);
+                return is_array($arr) ? json_encode(array_values(array_map('strval', $arr))) : json_encode([]);
+            }
+            return json_encode([]);
+        }
+        if ($ft === 'question_builder') {
+            $arr = is_string($raw) ? json_decode($raw, true) : null;
+            if (!is_array($arr)) { $arr = []; }
+            $allowed_types = ['text','textarea','number','email','phone','select','radio','checkbox','yes_no'];
+            $normalized = [];
+            foreach ($arr as $item) {
+                if (!is_array($item)) { continue; }
+                $normalized[] = [
+                    'label'   => mb_substr(strip_tags((string) ($item['label'] ?? '')), 0, 500),
+                    'type'    => in_array($item['type'] ?? '', $allowed_types, true) ? $item['type'] : 'text',
+                    'options' => is_array($item['options'] ?? null)
+                        ? array_values(array_map(function ($o) { return mb_substr(strip_tags((string) $o), 0, 200); }, $item['options']))
+                        : [],
+                ];
+            }
+            return json_encode($normalized);
+        }
+        return mb_substr(strip_tags((string) ($raw ?? '')), 0, 2000);
+    }
+
     public function accept_agreement()
     {
         $this->_cors();
@@ -1045,6 +1314,258 @@ class Pitchsnap_runtime extends CI_Controller
         header('Content-Length: ' . filesize($zip));
         readfile($zip);
         exit;
+    }
+
+    public function form_render($form_id = 0)
+    {
+        $this->_cors();
+        if ($this->input->server('REQUEST_METHOD') === 'OPTIONS') {
+            $this->output->set_status_header(204)->set_output('');
+            return;
+        }
+
+        $form_id = (int) $form_id;
+        if (!$form_id) {
+            return $this->_json(['success' => false, 'error' => 'Invalid form ID.'], 400);
+        }
+
+        $this->_load_model();
+        $form = $this->pitchsnap_model->get_form($form_id);
+        if (!$form) {
+            return $this->_json(['success' => false, 'error' => 'Form not found.'], 404);
+        }
+
+        $fields   = json_decode($form->fields ?? '[]', true) ?: [];
+        $settings = json_decode($form->settings ?? '{}', true) ?: [];
+        $submit_label = htmlspecialchars($settings['submit_label'] ?? 'Submit', ENT_QUOTES, 'UTF-8');
+
+        // Standard GHL contact field name map (ghl_field value → semantic HTML name)
+        $std_name_map = [
+            'first_name' => 'first_name',
+            'firstName'  => 'first_name',
+            'last_name'  => 'last_name',
+            'lastName'   => 'last_name',
+            'email'      => 'email',
+            'phone'      => 'phone',
+        ];
+
+        $html  = '<form class="cf-form" data-form-id="' . $form_id . '" novalidate>';
+        $html .= '<input type="text" name="cf_trap" style="display:none!important" tabindex="-1" autocomplete="off">';
+
+        $allowed_types = ['text','email','phone','textarea','number','select','multi_select','date','checkbox'];
+        foreach ($fields as $idx => $field) {
+            $label     = htmlspecialchars($field['label'] ?? '', ENT_QUOTES, 'UTF-8');
+            $type      = in_array($field['type'] ?? '', $allowed_types, true) ? $field['type'] : 'text';
+            $required  = !empty($field['required']);
+            $req_attr  = $required ? ' required' : '';
+            $req_mark  = $required ? ' <span class="cf-required">*</span>' : '';
+            $options   = is_array($field['options'] ?? null) ? $field['options'] : [];
+            $ghl_key   = trim((string) ($field['ghl_field']    ?? ''));
+            $dest_mode = trim((string) ($field['ghl_dest_mode'] ?? ''));
+
+            // Stable HTML name for GHL External Tracking
+            if ($dest_mode === 'single' && isset($std_name_map[$ghl_key])) {
+                $field_name = $std_name_map[$ghl_key];
+            } elseif ($dest_mode === 'single' && $ghl_key !== '') {
+                $field_name = $ghl_key;
+            } else {
+                $field_name = 'cf_field[' . $idx . ']';
+            }
+
+            $data_idx   = ' data-cf-idx="' . $idx . '"';
+            $data_dest  = ($dest_mode === 'multiple') ? ' data-cf-dest="multiple"' : '';
+            $data_label = ($dest_mode === 'multiple') ? ' data-cf-label="' . $label . '"' : '';
+
+            $html .= '<div class="cf-field">';
+
+            if ($type === 'checkbox') {
+                $html .= '<label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;">';
+                $html .= '<input type="checkbox" name="' . $field_name . '" value="yes"' . $req_attr . $data_idx . $data_dest . $data_label . ' style="width:auto;margin:0;">';
+                $html .= ' ' . $label . $req_mark;
+                $html .= '</label>';
+            } elseif ($type === 'textarea') {
+                $html .= '<label>' . $label . $req_mark . '</label>';
+                $html .= '<textarea name="' . $field_name . '" rows="4"' . $req_attr . $data_idx . $data_dest . $data_label . '></textarea>';
+            } elseif ($type === 'select') {
+                $html .= '<label>' . $label . $req_mark . '</label>';
+                $html .= '<select name="' . $field_name . '"' . $req_attr . $data_idx . $data_dest . $data_label . '>';
+                $html .= '<option value="">— Select —</option>';
+                foreach ($options as $opt) {
+                    $os = htmlspecialchars((string) $opt, ENT_QUOTES, 'UTF-8');
+                    $html .= '<option value="' . $os . '">' . $os . '</option>';
+                }
+                $html .= '</select>';
+            } elseif ($type === 'multi_select') {
+                $html .= '<label>' . $label . $req_mark . '</label>';
+                $html .= '<div class="cf-multi-select" data-cf-idx="' . $idx . '"' . $data_dest . $data_label . ' style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">';
+                foreach ($options as $opt) {
+                    $os = htmlspecialchars((string) $opt, ENT_QUOTES, 'UTF-8');
+                    $html .= '<label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;margin:0;">';
+                    $html .= '<input type="checkbox" class="cf-ms-opt" value="' . $os . '" style="width:auto;margin:0;">';
+                    $html .= ' ' . $os;
+                    $html .= '</label>';
+                }
+                $html .= '</div>';
+            } else {
+                $html_type = ($type === 'phone') ? 'tel' : $type;
+                $html .= '<label>' . $label . $req_mark . '</label>';
+                $html .= '<input type="' . $html_type . '" name="' . $field_name . '"' . $req_attr . $data_idx . $data_dest . $data_label . '>';
+            }
+
+            $html .= '</div>';
+        }
+
+        // Hidden textarea populated by the document capture listener before GHL reads the form
+        $html .= '<textarea name="quote_content" style="display:none!important" aria-hidden="true" tabindex="-1"></textarea>';
+        $html .= '<div class="cf-field"><button type="submit" class="cf-submit">' . $submit_label . '</button></div>';
+        $html .= '<div class="cf-msg" style="display:none"></div>';
+        $html .= '</form>';
+
+        $ghl_tracking_id = (string) (get_option('pitchsnap_ghl_tracking_id_' . (int) $form->site_id) ?: '');
+
+        return $this->_json(['success' => true, 'html' => $html, 'form_id' => $form_id, 'ghl_tracking_id' => $ghl_tracking_id]);
+    }
+
+    /**
+     * POST pitchsnap/form_submit
+     * Validates and routes a form submission to GHL.
+     * Body: JSON { form_id, site_token, fields: {ghl_field: value, ...} }
+     */
+    public function form_submit()
+    {
+        $this->_cors();
+        if ($this->input->server('REQUEST_METHOD') === 'OPTIONS') {
+            $this->output->set_status_header(204)->set_output('');
+            return;
+        }
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') {
+            return $this->_json(['success' => false, 'error' => 'Method not allowed.'], 405);
+        }
+
+        $body = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($body)) {
+            return $this->_json(['success' => false, 'error' => 'Invalid request body.'], 400);
+        }
+
+        $form_id    = (int)    ($body['form_id']    ?? 0);
+        $site_token = trim((string) ($body['site_token'] ?? ''));
+        $fields     = is_array($body['fields'] ?? null) ? $body['fields'] : [];
+
+        if (!$form_id) {
+            return $this->_json(['success' => false, 'error' => 'Missing form_id.'], 400);
+        }
+
+        // Honeypot check
+        if (!empty($body['cf_trap'])) {
+            return $this->_json(['success' => true]); // silent discard
+        }
+
+        $this->_load_model();
+        $form = $this->pitchsnap_model->get_form($form_id);
+        if (!$form) {
+            return $this->_json(['success' => false, 'error' => 'Form not found.'], 404);
+        }
+
+        // Validate required fields (indexed by form field position)
+        $form_fields = json_decode($form->fields ?? '[]', true) ?: [];
+        foreach ($form_fields as $idx => $ff) {
+            if (!empty($ff['required'])) {
+                $raw = $fields[$idx] ?? ($fields[(string)$idx] ?? null);
+                $str = is_array($raw) ? implode('', array_map('strval', $raw)) : trim((string)($raw ?? ''));
+                if ($str === '') {
+                    $label = $ff['label'] ?? 'Field';
+                    return $this->_json(['success' => false, 'error' => $label . ' is required.'], 422);
+                }
+            }
+        }
+
+        // Sanitize field values (keys are field indexes — numeric strings)
+        $clean = [];
+        foreach ($fields as $k => $v) {
+            $idx = (int) $k;
+            if (is_array($v)) {
+                $clean[$idx] = array_values(array_map(function ($s) { return mb_substr(strip_tags((string) $s), 0, 500); }, $v));
+            } else {
+                $clean[$idx] = mb_substr(strip_tags((string) $v), 0, 500);
+            }
+        }
+
+        // Resolve site for GHL lookup
+        $site = null;
+        if ($site_token !== '') {
+            $site = $this->pitchsnap_model->get_site_by_token($site_token);
+        }
+        if (!$site) {
+            $site = $this->pitchsnap_model->get_site_by_id((int) $form->site_id);
+        }
+
+        $ghl_contact_id = null;
+        $site_id        = $site ? (int) $site->id : (int) $form->site_id;
+
+        // Lead delivery is via GHL External Tracking (client-side). Webhook remains available.
+        if ($site) {
+            $webhook_url = get_option('pitchsnap_ghl_form_webhook_url');
+            if ($webhook_url) {
+                $this->_post_webhook($webhook_url, [
+                    'form_id'      => $form_id,
+                    'form_name'    => $form->name,
+                    'site_id'      => $site_id,
+                    'fields'       => $clean,
+                    'submitted_at' => date('c'),
+                ]);
+            }
+        }
+
+        $this->pitchsnap_model->log_form_submission([
+            'form_id'        => $form_id,
+            'site_id'        => $site_id,
+            'ghl_contact_id' => $ghl_contact_id,
+            'submitted_at'   => date('Y-m-d H:i:s'),
+        ]);
+
+        $settings        = json_decode($form->settings ?? '{}', true) ?: [];
+        $success_message = $settings['success_message'] ?? 'Thank you! We\'ll be in touch soon.';
+
+        return $this->_json(['success' => true, 'message' => $success_message]);
+    }
+
+    private function _post_webhook($url, array $data)
+    {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($data),
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
+    }
+
+    private function _ob_status_page($message)
+    {
+        $msg = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
+        return '<!DOCTYPE html><html lang="en"><head>'
+            . '<meta charset="UTF-8">'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+            . '<meta name="robots" content="noindex, nofollow">'
+            . '<style>'
+            . '*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }'
+            . 'html, body { background: transparent; }'
+            . 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;'
+            . '       font-size: 15px; line-height: 1.6; color: #fff; padding: 10px 16px 56px; }'
+            . '.wiz-page { max-width: 620px; margin: 0 auto; text-align: center; padding: 48px 16px; }'
+            . '.wiz-icon { font-size: 40px; margin-bottom: 16px; color: #e0392b; }'
+            . '.wiz-msg  { color: rgba(255,255,255,.75); font-size: 14px; }'
+            . '</style>'
+            . '</head><body>'
+            . '<div class="wiz-page">'
+            . '<div class="wiz-icon">&#10003;</div>'
+            . '<p class="wiz-msg">' . $msg . '</p>'
+            . '</div>'
+            . '</body></html>';
     }
 
     private function _json($data, $status = 200)

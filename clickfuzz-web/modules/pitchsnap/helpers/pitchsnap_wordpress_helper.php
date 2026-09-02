@@ -276,6 +276,17 @@ function _cfw_wp_parse_html($html)
         $html = str_ireplace($m[0], '', $html);
     }
 
+    // ── CLICKFUZZ_ONBOARDING marker → iframe embed code ─────────────────────
+    if (strpos($html, '<!-- CLICKFUZZ_ONBOARDING -->') !== false) {
+        $ob_loader_src = base_url('pitchsnap/onboarding_loader.js');
+        $html = str_replace(
+            '<!-- CLICKFUZZ_ONBOARDING -->',
+            '<div id="clickfuzz-onboarding"></div>'
+            . '<script src="' . htmlspecialchars($ob_loader_src, ENT_QUOTES, 'UTF-8') . '" defer></script>',
+            $html
+        );
+    }
+
     // ── Convert dynamic year spans ───────────────────────────────────────────
     $html = _cfw_wp_convert_dynamic_year($html);
 
