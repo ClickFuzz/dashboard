@@ -162,17 +162,14 @@ The Phase 5B DNS helper (`pitchsnap_dns_helper.php`) and verification UI are dep
 
 ## Current Production / Main Baseline
 
-As of 2026-08-28, `main` is at `4326091` (publishing-state foundation merged). `origin/main` is in sync. Main is canonical through DB v17.
+As of 2026-08-30, `main` is at `7d3618f` (WP Connector v2 merged). `origin/main` is NOT in sync — local main is 2 commits ahead (wp-connector v2 key pairing + full Perfex integration). Push required before other worktrees can pull.
 
-Production is running the publishing-domains branch output (Website Details Phase 1 + Phase 2 UI deployed). FTPS publishing and hosted-site serving (`www.eddmautofill.com`) remain live. Production matches `claude/publishing-domains` HEAD (`bb6fbff`).
-
-`claude/generation` is merged into `main`. Generation workstream is parked. Future generation/UI work (including Website Details Phase 3 Overview cleanup and global Settings redesign) resumes from the generation worktree.
-
-`claude/publishing-domains` Website Details UI complete (Phase 1: tab_pages/tab_media extraction; Phase 2: Settings tab with Publishing/Integrations/Activity). Deployed and browser-verified. Pending merge to main.
+Production is running the publishing-domains branch output. FTPS publishing and hosted-site serving (`www.eddmautofill.com`) remain live.
 
 **Items pending production deployment (from main):**
 - Lead-profile tab hooks (restored 2026-08-23) — still not deployed to `clickfuzz.com/dashboard`
 - Conversation empty state fix in `admin_lead.php` (2026-08-23) — still not deployed
+- WordPress Connector v2 — Perfex module side (controller, model, routes, views, helper) not yet deployed to `clickfuzz.com/dashboard`
 
 ---
 
@@ -196,18 +193,19 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 | Branch | Worktree | Status |
 |---|---|---|
-| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `b811080` (origin/main in sync) |
-| `claude/generation` | `worktrees/dashboard/generation` | **Merged** — fast-forward merged into `main` (2026-08-28). Foundation complete and parked. |
+| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `8aa7c78` (local only; not pushed) |
+| `claude/generation` | `worktrees/dashboard/generation` | **Merged** — fast-forward merged into `main` (2026-08-28). Parked. |
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test. |
-| `claude/lead-capture` | `worktrees/dashboard/lead-capture` | **Active** — GHL Destination Registry + External Tracking wiring deployed to production (6 files, uncommitted). Awaiting user confirmation of end-to-end GHL contact creation before commit + merge. |
+| `claude/lead-capture` | `worktrees/dashboard/lead-capture` | **Merged** — GHL forms + External Tracking confirmed working (2026-09-02). Fast-forward merged to main. |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
-| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Merged to main (2026-08-28)** — publishing-state foundation + Website Details Phase 1 (tab_pages/tab_media, canonical $is_published) + Phase 2 (Settings tab: Publishing/Integrations/Activity). Phase 5C (Cloudflare Custom Hostname automation) still paused. |
+| `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Merged to main (2026-08-28)** — Phase 5C (Cloudflare Custom Hostname automation) still paused. |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |
-| `claude/settings` | `worktrees/dashboard/settings` | **Fresh** — from `7e0871e` (main post-publishing-domains merge). Global Settings page redesign. No feature changes yet. |
+| `claude/settings` | `worktrees/dashboard/settings` | **Fresh** — Global Settings page redesign. No feature changes yet. |
 | `claude/sales-flow` | `worktrees/dashboard/sales-flow` | Ready — from `032b466`, no feature changes yet |
-| `claude/site-management` | `worktrees/dashboard/site-management` | **Active** — 6-tab detail page + delete bug fix + tab extraction. Uncommitted changes: `admin_detail.php` (shell only), `Pitchsnap.php`, `Pitchsnap_model.php`, new `views/admin_detail/tab_*.php` (6 files). New partials not yet deployed to production. Needs deploy + verify + commit + merge to main. |
-| `claude/convert-to-wp` | `worktrees/dashboard/convert-to-wp` | **Active** — Phases 1-4+C complete (nav, footer, custom logo, WP connector v1.3.0). Committed. `admin_detail.php` has uncommitted UI changes. |
-| `claude/wp-connector` | `worktrees/dashboard/wp-connector` | **Active** — WP connector v2 (ClickFuzz-generated key pairing). Significant uncommitted changes (routes, controller, model, helpers, plugin files, assets copy). Needs commit + merge to main. |
+| `claude/site-management` | `worktrees/dashboard/site-management` | **Clean** — 6-tab detail page work merged into main. No uncommitted changes. |
+| `claude/convert-to-wp` | `worktrees/dashboard/convert-to-wp` | **Parked** — Reset to main (2026-08-30). Old auth-model code wiped. Clean baseline. |
+| `claude/wp-connector` | `worktrees/dashboard/wp-connector` | **Merged** — v2 fast-forward merged to main (2026-08-30). WP connector confirmed working end-to-end. |
+| `claude/pages-publish` | `worktrees/dashboard/pages-publish` | **Fresh** — from `7d3618f` (2026-08-30). Pages publishing workflow — HTML and WordPress. |
 
 ---
 
