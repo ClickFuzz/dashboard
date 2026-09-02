@@ -32,6 +32,17 @@ Post-purchase customer setup: collecting everything needed to finalize and maint
 
 **Phase 1H implemented and deployed.** Completion timestamp, admin visibility, and Revoke-on-completed added. Phase 1G-E deployed and manually verified prior to this session.
 
+**Phase 1I implemented and deployed.** Automatic onboarding link creation + onboarding email on successful payment (both one-time and subscription). Idempotent via `onboarding_link_id` on `tblpitchsnap_sites` (DB v38).
+
+**Phase 1I changes:**
+
+- **DB v38:** `onboarding_link_id INT DEFAULT NULL` added to `tblpitchsnap_sites` (idempotency marker).
+- **`Pitchsnap_runtime::_trigger_onboarding($site_id, $client_id)`**: checks `onboarding_link_id` (skip if set), reads `pitchsnap_onboarding_flow_id` setting, creates onboarding link, stores link id on site, resolves primary contact email, sends `pitchsnap-onboarding` email.
+- **`subscription_complete()`**: calls `_trigger_onboarding` after marking site `subscriber`.
+- **`payment_complete()`**: looks up `tblpitchsnap_sites` via `invoice_id`, calls `_trigger_onboarding` after payment is recorded.
+- **`clickfuzz_web_register_email_templates()`**: registers `pitchsnap-onboarding` template with `{{contact_firstname}}` and `{{onboarding-link}}` variables.
+- **Settings** (`_save_settings`, `settings()`, `admin_settings.php`): `pitchsnap_onboarding_flow_id` option added; Onboarding section on settings page with active-flow dropdown.
+
 **Phase 1H changes:**
 
 - **DB v37:** `completed_at DATETIME DEFAULT NULL` added to `tblpitchsnap_onboarding_links` (idempotent ALTER TABLE migration).
@@ -76,7 +87,7 @@ Post-purchase customer setup: collecting everything needed to finalize and maint
 
 ## In Progress
 
-- Phase 1H deployed; pending production test (verify migration ran, completed_at is set, admin tab shows Completed column).
+- Phase 1I deployed; pending production test (configure a flow in Settings → Onboarding, run a test purchase, verify link created + email sent + idempotency on re-fire).
 
 ---
 
@@ -122,15 +133,15 @@ Post-purchase customer setup: collecting everything needed to finalize and maint
 
 ## Production Status
 
-Phase 1G-D, 1G-E, and 1H all deployed. Migration v37 runs automatically on next admin page load. Pending production test of 1H (completed_at, admin tab, revoke-on-completed).
+Phases 1G-D, 1G-E, 1H, and 1I all deployed. Migration v38 runs automatically on next admin page load (`onboarding_link_id` on `tblpitchsnap_sites`). `pitchsnap-onboarding` email template seeded on next page load. Pending production test of 1I (set flow in settings, trigger a payment, verify link + email + idempotency).
 
 ---
 
 ## Next
 
-1. **Production test Phase 1H:** Load admin Onboarding tab → verify Completed column appears and migration ran (completed_at column exists). Submit an active link → verify completed_at is set. Re-submit → verify completed_at unchanged. Revoke a completed link → verify it blocks.
-2. After production test passes: commit all, merge to `main`.
-3. **Phase 1I (future):** Trigger automatic onboarding link creation when a customer completes payment (`subscription_complete` / `payment_complete`) — requires a default `flow_id` setting or per-customer flow assignment.
+1. **Production test Phase 1I:** Set an active flow in Settings → Onboarding. Run a test purchase (or trigger `subscription_complete` / `payment_complete` directly). Verify: onboarding link created, `Onboarding Email` received, `{{onboarding-link}}` resolves, link appears in site's Onboarding admin tab. Re-fire the payment handler → verify no duplicate link or email.
+2. Commit Phase 1I work on `claude/onboarding`, merge to `main`.
+3. **Phase 1J (future):** Trigger GHL contact creation / A2P registration after onboarding completion (out of scope for this phase).
 
 ---
 
@@ -147,5 +158,6 @@ Phase 1G-D, 1G-E, and 1H all deployed. Migration v37 runs automatically on next 
 - **2026-09-02** — Phase 1G-C implemented: `tblpitchsnap_onboarding_links` (DB v35, UNIQUE token), model: `create_onboarding_link`, `get_onboarding_links_for_site`, `get_onboarding_link_by_token`, `revoke_onboarding_link`; admin Onboarding tab on website detail page (link list + create modal + revoke); public `Pitchsnap_runtime::onboarding($token)` renders self-contained wizard with all 10 field types, multi-step navigation, client-side conditional show/hide; Submit button disabled (no answer saving yet)
 - **2026-09-02** — WordPress embed delivery: new `onboarding_embed` endpoint (GET `?token=`) renders wizard HTML page; new `onboarding_loader_js` endpoint serves dedicated `onboarding_loader_js.php` JS that mounts an iframe into `#clickfuzz-onboarding`; WP page publish pipeline replaces `<!-- CLICKFUZZ_ONBOARDING -->` marker with embed div + script tag; admin link URLs now driven by `pitchsnap_onboarding_page_url` setting (fallback: direct embed URL); old `/onboarding/{token}` path-based route left as-is (returns 404 since no WP page matches that path)
 - **2026-09-02** — Phase 1H implemented and deployed: DB v37 adds `completed_at` to `tblpitchsnap_onboarding_links`; `onboarding_submit()` sets `completed_at` on first completion only; `get_onboarding_links_for_site()` includes `completed_at` in SELECT; admin Onboarding tab gains Completed column, Revoke button for completed links, and badge tooltip clarifying link remains editable until revoked
+- **2026-09-02** — Phase 1I implemented and deployed: `onboarding_link_id` on `tblpitchsnap_sites` (DB v38); `_trigger_onboarding()` private method in `Pitchsnap_runtime`; called from `subscription_complete` (subscription payments) and `payment_complete` (one-time payments); `pitchsnap-onboarding` email template registered with `{{contact_firstname}}` and `{{onboarding-link}}`; `pitchsnap_onboarding_flow_id` setting with flow dropdown on admin settings page
 - **2026-09-02** — Phase 1G-E implemented: completed links reopen (only revoked blocked); `onboarding_save_progress` endpoint (validates token, loads flow questions, upserts visible submitted answers, no required-field check, no status change); wizard prefills all field types from `tblpitchsnap_site_data` (`_wiz_field` takes `$existing_val`; `question_builder` uses `data-prefill` attr + JS `_qbInit` restores rows); `wizGo()` saves current step via `wizSaveStep()` before advancing; `_ob_normalize_value()` extracted as shared helper; route added for save_progress
 - **2026-09-02** — Phase 1G-D implemented: `Pitchsnap_runtime::onboarding_submit()` (JSON body POST, CSRF-free); token validation → link lookup → server-side question load → visibility evaluation (equals/not_equals/contains) → required-field check → normalize (checkbox→JSON array, question_builder→normalized JSON) → `upsert_site_data()` per visible question with data_key → mark link `completed`; wizard view wired up: Submit button enabled with `wizSubmit()`, JS collects all q_ answers as JSON (checkbox as array), POSTs to `/pitchsnap/onboarding_submit`, shows thank-you on success, inline error on failure; `_wizReportHeight()` called after both outcomes

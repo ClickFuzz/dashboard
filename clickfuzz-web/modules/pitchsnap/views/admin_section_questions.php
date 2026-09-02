@@ -46,6 +46,7 @@ $type_labels = [
     'checkbox' => 'Checkbox',
     'yes_no'           => 'Yes / No',
     'question_builder' => 'Question Builder',
+    'file'             => 'File Upload',
 ];
 ?>
 <?php init_head(); ?>
@@ -173,6 +174,7 @@ td.cf-handle { cursor: grab; color: #aaa; width: 24px; text-align: center; }
                         <option value="checkbox">Checkbox</option>
                         <option value="yes_no">Yes / No</option>
                         <option value="question_builder">Question Builder</option>
+                        <option value="file">File Upload</option>
                     </select>
                 </div>
                 <div class="form-group">

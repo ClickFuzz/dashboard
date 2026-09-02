@@ -405,6 +405,11 @@ function clickfuzz_web_register_email_templates()
             'ClickFuzz Web — Your Website Is Now Live',
             'Hi {company},<br><br>Your website is now live at: <a href="{production_website_url}">{production_website_url}</a>',
         ],
+        [
+            'pitchsnap-onboarding',
+            'Let\'s get your website started',
+            'Hi {{contact_firstname}},<br><br>Your payment was successful and we\'re ready to get started on your website.<br><br>The next step is to complete your onboarding. This gives us the business information we need to build your website and configure your account.<br><br>Complete your onboarding here:<br><br><a href="{{onboarding-link}}">{{onboarding-link}}</a><br><br>You can return to this link later if you need to update your information.<br><br>Thanks,<br>ClickFuzz',
+        ],
     ];
 
     $CI =& get_instance();

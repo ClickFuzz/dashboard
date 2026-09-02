@@ -877,6 +877,12 @@ class Pitchsnap extends AdminController
         $data['active_tab'] = $this->input->get('tab') ?: 'general';
         $data['staff_list'] = $this->db->where('active', 1)->order_by('firstname', 'ASC')->get(db_prefix() . 'staff')->result();
 
+        // Active onboarding flows for flow selector
+        $data['active_flows'] = array_values(array_filter(
+            $this->pitchsnap_model->get_all_flows(),
+            function ($f) { return $f['status'] === 'active'; }
+        ));
+
         // Build guardrail display values (saved DB value, falling back to hardcoded provider default)
         $gr_names        = ['logo_usage','image_selection','team_placement','team_association','anonymous_team','gallery_usage','credential_usage','owner_story','visual_readability','brand_color_preservation'];
         $manus_defaults  = array_fill_keys($gr_names, false);
@@ -976,6 +982,10 @@ class Pitchsnap extends AdminController
             if ($v !== '') { update_option('pitchsnap_agreement_version', $v); }
             update_option('pitchsnap_agreement_text', $this->input->post('pitchsnap_agreement_text'));
         }
+        if (array_key_exists('pitchsnap_onboarding_flow_id', $_POST)) {
+            update_option('pitchsnap_onboarding_flow_id', (string)(int) $this->input->post('pitchsnap_onboarding_flow_id', true));
+        }
+
         if (array_key_exists('pitchsnap_payment_type', $_POST)) {
             $payment_type = $this->input->post('pitchsnap_payment_type', true);
             update_option('pitchsnap_payment_type', in_array($payment_type, ['onetime', 'subscription']) ? $payment_type : 'onetime');
@@ -2425,7 +2435,7 @@ class Pitchsnap extends AdminController
         $label      = trim($this->input->post('label'));
         $field_type = $this->input->post('field_type');
 
-        $valid_types = ['text','textarea','number','email','phone','url','select','radio','checkbox','yes_no','question_builder'];
+        $valid_types = ['text','textarea','number','email','phone','url','select','radio','checkbox','yes_no','question_builder','file'];
         if (!$section_id) { $this->_json(['success' => false, 'message' => 'Invalid section']); return; }
         if ($label === '') { $this->_json(['success' => false, 'message' => 'Label is required']); return; }
         if (!in_array($field_type, $valid_types, true)) { $this->_json(['success' => false, 'message' => 'Invalid field type']); return; }
@@ -2898,6 +2908,19 @@ class Pitchsnap extends AdminController
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($data));
+    }
+
+    public function onboarding_doc_download($site_id, $filename)
+    {
+        if (!is_admin()) { show_404(); return; }
+        $site_id  = (int) $site_id;
+        $filename = basename((string) $filename);
+        if (!$site_id || !$filename) { show_404(); return; }
+        if (!preg_match('/^[a-f0-9]{32}\.(pdf|jpg|png)$/', $filename)) { show_404(); return; }
+        require_once FCPATH . 'modules/pitchsnap/helpers/pitchsnap_media_helper.php';
+        if (!clickfuzz_web_stream_ob_doc($site_id, $filename)) {
+            show_404();
+        }
     }
 
     /**
