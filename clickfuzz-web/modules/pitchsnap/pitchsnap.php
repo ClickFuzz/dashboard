@@ -146,11 +146,27 @@ function clickfuzz_web_add_menu_items()
     ]);
 
     $CI->app_menu->add_sidebar_children_item('pitchsnap', [
+        'slug'     => 'pitchsnap_onboarding_flows',
+        'name'     => 'Onboarding Flows',
+        'href'     => admin_url('pitchsnap/flows'),
+        'icon'     => 'fa fa-list-ol',
+        'position' => 2,
+    ]);
+
+    $CI->app_menu->add_sidebar_children_item('pitchsnap', [
+        'slug'     => 'pitchsnap_usage_tags',
+        'name'     => 'Usage Tags',
+        'href'     => admin_url('pitchsnap/usage_tags'),
+        'icon'     => 'fa fa-tags',
+        'position' => 3,
+    ]);
+
+    $CI->app_menu->add_sidebar_children_item('pitchsnap', [
         'slug'     => 'pitchsnap_settings',
         'name'     => 'Settings',
         'href'     => admin_url('pitchsnap/settings'),
         'icon'     => 'fa fa-cog',
-        'position' => 2,
+        'position' => 4,
     ]);
 }
 
@@ -161,7 +177,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 26) {
+    if ((int) get_option('pitchsnap_db_version') >= 37) {
         return;
     }
 
@@ -737,11 +753,192 @@ function clickfuzz_web_db_upgrade()
         ");
     }
 
+    // v27: onboarding flows table
+    $tf = db_prefix() . 'pitchsnap_onboarding_flows';
+    if (!$CI->db->table_exists($tf)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tf}` (
+                `id`          INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `name`        VARCHAR(255) NOT NULL,
+                `description` TEXT DEFAULT NULL,
+                `status`      VARCHAR(20) NOT NULL DEFAULT 'active',
+                `created_at`  DATETIME NOT NULL,
+                `updated_at`  DATETIME DEFAULT NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    // v28: onboarding sections table
+    $ts = db_prefix() . 'pitchsnap_onboarding_sections';
+    if (!$CI->db->table_exists($ts)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$ts}` (
+                `id`          INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `flow_id`     INT(11) NOT NULL,
+                `name`        VARCHAR(255) NOT NULL,
+                `description` TEXT DEFAULT NULL,
+                `sort_order`  INT(11) NOT NULL DEFAULT 0,
+                `created_at`  DATETIME NOT NULL,
+                `updated_at`  DATETIME DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_sections_flow` (`flow_id`),
+                KEY `idx_sections_order` (`flow_id`, `sort_order`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    // v29: onboarding questions table
+    $tq = db_prefix() . 'pitchsnap_onboarding_questions';
+    if (!$CI->db->table_exists($tq)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tq}` (
+                `id`           INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `section_id`   INT(11) NOT NULL,
+                `label`        VARCHAR(255) NOT NULL,
+                `help_text`    TEXT DEFAULT NULL,
+                `field_type`   VARCHAR(30) NOT NULL DEFAULT 'text',
+                `required`     TINYINT(1) NOT NULL DEFAULT 0,
+                `options_json` TEXT DEFAULT NULL,
+                `sort_order`   INT(11) NOT NULL DEFAULT 0,
+                `created_at`   DATETIME NOT NULL,
+                `updated_at`   DATETIME DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_questions_section` (`section_id`),
+                KEY `idx_questions_order` (`section_id`, `sort_order`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    // v30: data_key + purpose columns on onboarding questions
+    $tq30 = db_prefix() . 'pitchsnap_onboarding_questions';
+    if ($CI->db->table_exists($tq30)) {
+        if (!$CI->db->field_exists('data_key', $tq30)) {
+            $CI->db->query("ALTER TABLE `{$tq30}` ADD COLUMN `data_key` VARCHAR(100) NOT NULL DEFAULT '' AFTER `label`");
+        }
+        if (!$CI->db->field_exists('purpose', $tq30)) {
+            $CI->db->query("ALTER TABLE `{$tq30}` ADD COLUMN `purpose` VARCHAR(30) NOT NULL DEFAULT 'data' AFTER `data_key`");
+        }
+    }
+
+    // v31: condition columns on onboarding questions
+    $tq31 = db_prefix() . 'pitchsnap_onboarding_questions';
+    if ($CI->db->table_exists($tq31)) {
+        if (!$CI->db->field_exists('condition_question_id', $tq31)) {
+            $CI->db->query("ALTER TABLE `{$tq31}` ADD COLUMN `condition_question_id` INT(11) DEFAULT NULL AFTER `options_json`");
+        }
+        if (!$CI->db->field_exists('condition_operator', $tq31)) {
+            $CI->db->query("ALTER TABLE `{$tq31}` ADD COLUMN `condition_operator` VARCHAR(20) DEFAULT NULL AFTER `condition_question_id`");
+        }
+        if (!$CI->db->field_exists('condition_value', $tq31)) {
+            $CI->db->query("ALTER TABLE `{$tq31}` ADD COLUMN `condition_value` VARCHAR(500) DEFAULT NULL AFTER `condition_operator`");
+        }
+    }
+
+    // v33: usage tags table + question-tag join table + seed default tags
+    $ttags = db_prefix() . 'pitchsnap_onboarding_usage_tags';
+    $tqt   = db_prefix() . 'pitchsnap_onboarding_question_tags';
+
+    if (!$CI->db->table_exists($ttags)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$ttags}` (
+                `id`          INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `name`        VARCHAR(100) NOT NULL,
+                `slug`        VARCHAR(100) NOT NULL,
+                `description` TEXT DEFAULT NULL,
+                `created_at`  DATETIME NOT NULL,
+                `updated_at`  DATETIME DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_tag_slug` (`slug`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    if (!$CI->db->table_exists($tqt)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tqt}` (
+                `question_id` INT(11) UNSIGNED NOT NULL,
+                `tag_id`      INT(11) UNSIGNED NOT NULL,
+                PRIMARY KEY (`question_id`, `tag_id`),
+                KEY `idx_qtags_tag` (`tag_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    if ($CI->db->table_exists($ttags)) {
+        $default_tags = [
+            ['name' => 'Customer Profile', 'slug' => 'customer_profile'],
+            ['name' => 'Perfex',           'slug' => 'perfex'],
+            ['name' => 'Website',          'slug' => 'website'],
+            ['name' => 'GHL',              'slug' => 'ghl'],
+            ['name' => 'A2P',              'slug' => 'a2p'],
+            ['name' => 'Schema',           'slug' => 'schema'],
+            ['name' => 'Quote Form',       'slug' => 'quote_form'],
+            ['name' => 'Runtime',          'slug' => 'runtime'],
+        ];
+        $now = date('Y-m-d H:i:s');
+        foreach ($default_tags as $tag) {
+            if (!$CI->db->where('slug', $tag['slug'])->count_all_results($ttags)) {
+                $CI->db->insert($ttags, ['name' => $tag['name'], 'slug' => $tag['slug'], 'description' => null, 'created_at' => $now]);
+            }
+        }
+    }
+
+    // v34: canonical site data table
+    $tsd = db_prefix() . 'pitchsnap_site_data';
+    if (!$CI->db->table_exists($tsd)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tsd}` (
+                `id`         INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `site_id`    INT(11) NOT NULL,
+                `data_key`   VARCHAR(100) NOT NULL,
+                `value`      MEDIUMTEXT DEFAULT NULL,
+                `created_at` DATETIME NOT NULL,
+                `updated_at` DATETIME DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_site_data` (`site_id`, `data_key`),
+                KEY `idx_site_data_site` (`site_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    // v35: onboarding link records
+    $tol = db_prefix() . 'pitchsnap_onboarding_links';
+    if (!$CI->db->table_exists($tol)) {
+        $CI->db->query("
+            CREATE TABLE IF NOT EXISTS `{$tol}` (
+                `id`         INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `site_id`    INT(11) NOT NULL,
+                `flow_id`    INT(11) NOT NULL,
+                `token`      VARCHAR(64) NOT NULL,
+                `status`     VARCHAR(20) NOT NULL DEFAULT 'active',
+                `created_at` DATETIME NOT NULL,
+                `updated_at` DATETIME DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_ob_token` (`token`),
+                KEY `idx_ob_site` (`site_id`),
+                KEY `idx_ob_flow` (`flow_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+
+    // v36: page_url column on onboarding flows
+    $tf36 = db_prefix() . 'pitchsnap_onboarding_flows';
+    if ($CI->db->table_exists($tf36) && !$CI->db->field_exists('page_url', $tf36)) {
+        $CI->db->query("ALTER TABLE `{$tf36}` ADD COLUMN `page_url` VARCHAR(500) DEFAULT NULL AFTER `description`");
+    }
+
+    // v37: completed_at timestamp on onboarding links
+    $t37 = db_prefix() . 'pitchsnap_onboarding_links';
+    if ($CI->db->table_exists($t37) && !$CI->db->field_exists('completed_at', $t37)) {
+        $CI->db->query("ALTER TABLE `{$t37}` ADD COLUMN `completed_at` DATETIME DEFAULT NULL AFTER `status`");
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '26');
+        add_option('pitchsnap_db_version', '37');
     } else {
-        update_option('pitchsnap_db_version', '26');
+        update_option('pitchsnap_db_version', '37');
     }
 }
 

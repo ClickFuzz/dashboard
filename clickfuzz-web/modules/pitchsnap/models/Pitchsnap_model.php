@@ -12,6 +12,17 @@ class Pitchsnap_model extends App_Model
     private $media_table;
     private $page_media_table;
     private $page_generations_table;
+    private $flow_table;
+    private $section_table;
+    private $question_table;
+    private $forms_table;
+    private $placements_table;
+    private $submissions_table;
+    private $destinations_table;
+    private $usage_tags_table;
+    private $question_tags_table;
+    private $site_data_table;
+    private $onboarding_links_table;
 
     public function __construct()
     {
@@ -25,10 +36,17 @@ class Pitchsnap_model extends App_Model
         $this->media_table            = db_prefix() . 'pitchsnap_site_media';
         $this->page_media_table       = db_prefix() . 'pitchsnap_page_media';
         $this->page_generations_table = db_prefix() . 'pitchsnap_page_generations';
+        $this->flow_table             = db_prefix() . 'pitchsnap_onboarding_flows';
+        $this->section_table          = db_prefix() . 'pitchsnap_onboarding_sections';
+        $this->question_table         = db_prefix() . 'pitchsnap_onboarding_questions';
         $this->forms_table            = db_prefix() . 'pitchsnap_forms';
         $this->placements_table       = db_prefix() . 'pitchsnap_form_placements';
         $this->submissions_table      = db_prefix() . 'pitchsnap_form_submissions';
         $this->destinations_table     = db_prefix() . 'pitchsnap_ghl_destinations';
+        $this->usage_tags_table       = db_prefix() . 'pitchsnap_onboarding_usage_tags';
+        $this->question_tags_table    = db_prefix() . 'pitchsnap_onboarding_question_tags';
+        $this->site_data_table        = db_prefix() . 'pitchsnap_site_data';
+        $this->onboarding_links_table = db_prefix() . 'pitchsnap_onboarding_links';
     }
 
     // -----------------------------------------------------------------------
@@ -1484,14 +1502,222 @@ class Pitchsnap_model extends App_Model
         ]);
     }
 
+    // ── Onboarding Flows ──────────────────────────────────────────────────────
+
+    public function get_flow($id)
+    {
+        return $this->db->get_where($this->flow_table, ['id' => (int) $id])->row_array();
+    }
+
+    public function get_all_flows()
+    {
+        return $this->db->order_by('name', 'ASC')->get($this->flow_table)->result_array();
+    }
+
+    public function create_flow($data)
+    {
+        if (empty($data['created_at'])) {
+            $data['created_at'] = date('Y-m-d H:i:s');
+        }
+        if (empty($data['status'])) {
+            $data['status'] = 'active';
+        }
+        $this->db->insert($this->flow_table, $data);
+        $id = $this->db->insert_id();
+        return $id ? (int) $id : false;
+    }
+
+    public function update_flow($id, $data)
+    {
+        $data['updated_at'] = date('Y-m-d H:i:s');
+        $this->db->where('id', (int) $id)->update($this->flow_table, $data);
+        return $this->db->affected_rows() >= 0;
+    }
+
+    public function delete_flow($id)
+    {
+        $this->db->delete($this->flow_table, ['id' => (int) $id]);
+        return $this->db->affected_rows() > 0;
+    }
+
+    // ── Onboarding Sections ───────────────────────────────────────────────────
+
+    public function get_section($id)
+    {
+        return $this->db->get_where($this->section_table, ['id' => (int) $id])->row_array();
+    }
+
+    public function get_sections_for_flow($flow_id)
+    {
+        return $this->db->where('flow_id', (int) $flow_id)
+                        ->order_by('sort_order', 'ASC')
+                        ->order_by('id', 'ASC')
+                        ->get($this->section_table)
+                        ->result_array();
+    }
+
+    public function flow_has_sections($flow_id)
+    {
+        return $this->db->where('flow_id', (int) $flow_id)
+                        ->count_all_results($this->section_table) > 0;
+    }
+
+    public function create_section($data)
+    {
+        if (empty($data['created_at'])) {
+            $data['created_at'] = date('Y-m-d H:i:s');
+        }
+        if (!isset($data['sort_order'])) {
+            $max = $this->db->select_max('sort_order')
+                            ->where('flow_id', (int) $data['flow_id'])
+                            ->get($this->section_table)
+                            ->row_array();
+            $data['sort_order'] = ($max && $max['sort_order'] !== null) ? (int) $max['sort_order'] + 1 : 0;
+        }
+        $this->db->insert($this->section_table, $data);
+        $id = $this->db->insert_id();
+        return $id ? (int) $id : false;
+    }
+
+    public function update_section($id, $data)
+    {
+        $data['updated_at'] = date('Y-m-d H:i:s');
+        $this->db->where('id', (int) $id)->update($this->section_table, $data);
+        return $this->db->affected_rows() >= 0;
+    }
+
+    public function delete_section($id)
+    {
+        $this->db->delete($this->section_table, ['id' => (int) $id]);
+        return $this->db->affected_rows() > 0;
+    }
+
+    public function move_section($id, $direction)
+    {
+        $section = $this->get_section($id);
+        if (!$section) { return false; }
+
+        $flow_id      = (int) $section['flow_id'];
+        $current_sort = (int) $section['sort_order'];
+
+        if ($direction === 'up') {
+            $adjacent = $this->db->where('flow_id', $flow_id)
+                                 ->where('sort_order <', $current_sort)
+                                 ->order_by('sort_order', 'DESC')
+                                 ->limit(1)
+                                 ->get($this->section_table)
+                                 ->row_array();
+        } else {
+            $adjacent = $this->db->where('flow_id', $flow_id)
+                                 ->where('sort_order >', $current_sort)
+                                 ->order_by('sort_order', 'ASC')
+                                 ->limit(1)
+                                 ->get($this->section_table)
+                                 ->row_array();
+        }
+
+        if (!$adjacent) { return false; }
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->where('id', (int) $id)->update($this->section_table, [
+            'sort_order' => (int) $adjacent['sort_order'], 'updated_at' => $now,
+        ]);
+        $this->db->where('id', (int) $adjacent['id'])->update($this->section_table, [
+            'sort_order' => $current_sort, 'updated_at' => $now,
+        ]);
+        return true;
+    }
+
+    // ── Onboarding Questions ──────────────────────────────────────────────────
+
+    public function get_question($id)
+    {
+        return $this->db->get_where($this->question_table, ['id' => (int) $id])->row_array();
+    }
+
+    public function get_questions_for_section($section_id)
+    {
+        return $this->db->where('section_id', (int) $section_id)
+                        ->order_by('sort_order', 'ASC')
+                        ->order_by('id', 'ASC')
+                        ->get($this->question_table)
+                        ->result_array();
+    }
+
+    public function section_has_questions($section_id)
+    {
+        return $this->db->where('section_id', (int) $section_id)
+                        ->count_all_results($this->question_table) > 0;
+    }
+
+    public function create_question($data)
+    {
+        if (empty($data['created_at'])) {
+            $data['created_at'] = date('Y-m-d H:i:s');
+        }
+        if (!isset($data['sort_order'])) {
+            $max = $this->db->select_max('sort_order')
+                            ->where('section_id', (int) $data['section_id'])
+                            ->get($this->question_table)
+                            ->row_array();
+            $data['sort_order'] = ($max && $max['sort_order'] !== null) ? (int) $max['sort_order'] + 1 : 0;
+        }
+        $this->db->insert($this->question_table, $data);
+        $id = $this->db->insert_id();
+        return $id ? (int) $id : false;
+    }
+
+    public function update_question($id, $data)
+    {
+        $data['updated_at'] = date('Y-m-d H:i:s');
+        $this->db->where('id', (int) $id)->update($this->question_table, $data);
+        return $this->db->affected_rows() >= 0;
+    }
+
+    public function delete_question($id)
+    {
+        $this->db->delete($this->question_table, ['id' => (int) $id]);
+        return $this->db->affected_rows() > 0;
+    }
+
+    public function reorder_questions($section_id, $ordered_ids)
+    {
+        $now = date('Y-m-d H:i:s');
+        foreach ($ordered_ids as $sort => $id) {
+            $this->db->where('id', (int) $id)
+                     ->where('section_id', (int) $section_id)
+                     ->update($this->question_table, ['sort_order' => (int) $sort, 'updated_at' => $now]);
+        }
+        return true;
+    }
+
+    public function get_questions_in_flow_sequence($flow_id)
+    {
+        $ts = $this->section_table;
+        $tq = $this->question_table;
+        return $this->db->query("
+            SELECT q.*, s.sort_order AS section_sort_order, s.flow_id
+            FROM `{$tq}` q
+            JOIN `{$ts}` s ON s.id = q.section_id
+            WHERE s.flow_id = ?
+            ORDER BY s.sort_order ASC, q.sort_order ASC, q.id ASC
+        ", [(int) $flow_id])->result_array();
+    }
+
+    public function question_data_key_exists_in_flow($data_key, $flow_id, $exclude_id = null)
+    {
+        $sections = $this->db->select('id')->where('flow_id', (int) $flow_id)
+                             ->get($this->section_table)->result_array();
+        if (empty($sections)) { return false; }
+        $section_ids = array_column($sections, 'id');
+        $this->db->where('data_key', $data_key)->where_in('section_id', $section_ids);
+        if ($exclude_id) { $this->db->where('id !=', (int) $exclude_id); }
+        return $this->db->count_all_results($this->question_table) > 0;
+    }
+
     // -------------------------------------------------------------------------
     // Forms
     // -------------------------------------------------------------------------
-
-    private $forms_table;
-    private $placements_table;
-    private $submissions_table;
-    private $destinations_table;
 
     public function get_forms_for_site($site_id)
     {
@@ -1666,5 +1892,167 @@ class Pitchsnap_model extends App_Model
     public function delete_ghl_destination($id)
     {
         $this->db->where('id', (int) $id)->delete($this->destinations_table);
+    }
+
+    // -----------------------------------------------------------------------
+    // Onboarding — Usage Tags
+
+    public function get_all_usage_tags()
+    {
+        return $this->db->order_by('name', 'ASC')->get($this->usage_tags_table)->result_array();
+    }
+
+    public function get_usage_tag($id)
+    {
+        return $this->db->where('id', (int) $id)->get($this->usage_tags_table)->row_array();
+    }
+
+    public function get_usage_tag_by_slug($slug)
+    {
+        return $this->db->where('slug', $slug)->get($this->usage_tags_table)->row_array();
+    }
+
+    public function create_usage_tag($data)
+    {
+        $data['created_at'] = date('Y-m-d H:i:s');
+        $this->db->insert($this->usage_tags_table, $data);
+        $id = $this->db->insert_id();
+        return $id ? (int) $id : false;
+    }
+
+    public function update_usage_tag($id, $data)
+    {
+        $data['updated_at'] = date('Y-m-d H:i:s');
+        $this->db->where('id', (int) $id)->update($this->usage_tags_table, $data);
+        return $this->db->affected_rows() >= 0;
+    }
+
+    public function delete_usage_tag($id)
+    {
+        $this->db->where('id', (int) $id)->delete($this->usage_tags_table);
+    }
+
+    public function tag_in_use($tag_id)
+    {
+        return $this->db->where('tag_id', (int) $tag_id)->count_all_results($this->question_tags_table) > 0;
+    }
+
+    public function get_tags_for_questions(array $question_ids)
+    {
+        if (empty($question_ids)) { return []; }
+        $rows = $this->db
+            ->select('qt.question_id, t.id, t.name, t.slug')
+            ->from($this->question_tags_table . ' qt')
+            ->join($this->usage_tags_table . ' t', 't.id = qt.tag_id')
+            ->where_in('qt.question_id', $question_ids)
+            ->order_by('t.name', 'ASC')
+            ->get()->result_array();
+        $map = [];
+        foreach ($rows as $row) {
+            $qid = (int) $row['question_id'];
+            $map[$qid][] = $row;
+        }
+        return $map;
+    }
+
+    public function sync_question_tags($question_id, array $tag_ids)
+    {
+        $this->db->where('question_id', (int) $question_id)->delete($this->question_tags_table);
+        foreach (array_unique($tag_ids) as $tid) {
+            $tid = (int) $tid;
+            if ($tid > 0) {
+                $this->db->insert($this->question_tags_table, [
+                    'question_id' => (int) $question_id,
+                    'tag_id'      => $tid,
+                ]);
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Site Data — canonical key/value store for a ClickFuzz Website record
+
+    public function get_site_data($site_id)
+    {
+        return $this->db
+            ->where('site_id', (int) $site_id)
+            ->order_by('data_key', 'ASC')
+            ->get($this->site_data_table)
+            ->result_array();
+    }
+
+    public function get_site_data_value($site_id, $data_key)
+    {
+        return $this->db
+            ->where('site_id', (int) $site_id)
+            ->where('data_key', $data_key)
+            ->get($this->site_data_table)
+            ->row_array();
+    }
+
+    public function upsert_site_data($site_id, $data_key, $value)
+    {
+        $now = date('Y-m-d H:i:s');
+        $t   = $this->site_data_table;
+        $this->db->query(
+            "INSERT INTO `{$t}` (`site_id`, `data_key`, `value`, `created_at`, `updated_at`)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE `value` = VALUES(`value`), `updated_at` = VALUES(`updated_at`)",
+            [(int) $site_id, $data_key, $value, $now, $now]
+        );
+        return true;
+    }
+
+    public function delete_site_data_by_id($id)
+    {
+        $this->db->where('id', (int) $id)->delete($this->site_data_table);
+        return $this->db->affected_rows() > 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // Onboarding Links
+
+    public function create_onboarding_link($site_id, $flow_id)
+    {
+        $token = bin2hex(random_bytes(32));
+        $now   = date('Y-m-d H:i:s');
+        $this->db->insert($this->onboarding_links_table, [
+            'site_id'    => (int) $site_id,
+            'flow_id'    => (int) $flow_id,
+            'token'      => $token,
+            'status'     => 'active',
+            'created_at' => $now,
+        ]);
+        return $this->db->insert_id() ? $token : false;
+    }
+
+    public function get_onboarding_links_for_site($site_id)
+    {
+        $tl = $this->onboarding_links_table;
+        $tf = $this->flow_table;
+        return $this->db
+            ->select("{$tl}.id, {$tl}.site_id, {$tl}.flow_id, {$tl}.token, {$tl}.status, {$tl}.completed_at, {$tl}.created_at, {$tf}.name AS flow_name, {$tf}.page_url AS flow_page_url")
+            ->from($tl)
+            ->join($tf, "{$tf}.id = {$tl}.flow_id", 'left')
+            ->where("{$tl}.site_id", (int) $site_id)
+            ->order_by("{$tl}.created_at", 'DESC')
+            ->get()->result_array();
+    }
+
+    public function get_onboarding_link_by_token($token)
+    {
+        return $this->db
+            ->where('token', $token)
+            ->get($this->onboarding_links_table)
+            ->row_array();
+    }
+
+    public function revoke_onboarding_link($id)
+    {
+        $this->db->where('id', (int) $id)->update($this->onboarding_links_table, [
+            'status'     => 'revoked',
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        return $this->db->affected_rows() > 0;
     }
 }

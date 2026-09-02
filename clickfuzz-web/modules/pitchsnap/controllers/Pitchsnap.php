@@ -71,6 +71,9 @@ class Pitchsnap extends AdminController
             $data['ghl_link'] = null;
         }
         $data['is_published'] = $this->pitchsnap_model->is_site_published($data['site']);
+        $data['site_data']         = !empty($data['site']) ? $this->pitchsnap_model->get_site_data($data['site']->id) : [];
+        $data['onboarding_links']  = !empty($data['site']) ? $this->pitchsnap_model->get_onboarding_links_for_site($data['site']->id) : [];
+        $data['all_flows']         = $this->pitchsnap_model->get_all_flows();
         if ($data['is_published']) {
             $data['pages']      = $this->pitchsnap_model->get_pages_for_site($data['site']->id, true);
             $data['site_media'] = $this->pitchsnap_model->get_media_for_site($data['site']->id);
@@ -2255,6 +2258,463 @@ class Pitchsnap extends AdminController
             set_alert('danger', 'Could not set version — it may not belong to this page.');
         }
         redirect($edit_url);
+    }
+
+    // ── Onboarding Flows ──────────────────────────────────────────────────────
+
+    public function flows()
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        $data['title'] = 'Onboarding Flows';
+        $data['flows'] = $this->pitchsnap_model->get_all_flows();
+        $this->load->view('pitchsnap/admin_flows', $data);
+    }
+
+    public function flow_save()
+    {
+        if (!is_admin()) { $this->_json(['success' => false, 'message' => 'Access denied']); return; }
+        $id   = (int) $this->input->post('id');
+        $name = trim($this->input->post('name'));
+        if ($name === '') { $this->_json(['success' => false, 'message' => 'Name is required']); return; }
+
+        $payload = [
+            'name'        => $name,
+            'description' => trim($this->input->post('description')),
+            'status'      => in_array($this->input->post('status'), ['active', 'inactive'])
+                                ? $this->input->post('status') : 'active',
+        ];
+
+        if ($id) {
+            $this->pitchsnap_model->update_flow($id, $payload);
+            $this->_json(['success' => true, 'message' => 'Flow updated']);
+        } else {
+            $new_id = $this->pitchsnap_model->create_flow($payload);
+            $this->_json(['success' => true, 'id' => $new_id]);
+        }
+    }
+
+    public function flow_toggle($id)
+    {
+        if (!is_admin()) { $this->_json(['success' => false]); return; }
+        $flow = $this->pitchsnap_model->get_flow((int) $id);
+        if (!$flow) { $this->_json(['success' => false, 'message' => 'Not found']); return; }
+        $new_status = $flow['status'] === 'active' ? 'inactive' : 'active';
+        $this->pitchsnap_model->update_flow((int) $id, ['status' => $new_status]);
+        $this->_json(['success' => true, 'status' => $new_status]);
+    }
+
+    public function flow_duplicate($id)
+    {
+        if (!is_admin()) { $this->_json(['success' => false]); return; }
+        $flow = $this->pitchsnap_model->get_flow((int) $id);
+        if (!$flow) { $this->_json(['success' => false, 'message' => 'Not found']); return; }
+        unset($flow['id'], $flow['created_at'], $flow['updated_at']);
+        $flow['name']   = $flow['name'] . ' (Copy)';
+        $flow['status'] = 'inactive';
+        $new_id = $this->pitchsnap_model->create_flow($flow);
+        $this->_json(['success' => true, 'id' => $new_id]);
+    }
+
+    public function flow_delete($id)
+    {
+        if (!is_admin()) { $this->_json(['success' => false]); return; }
+        if ($this->pitchsnap_model->flow_has_sections((int) $id)) {
+            $this->_json(['success' => false, 'message' => 'This flow has sections and cannot be deleted. Remove all sections first.']);
+            return;
+        }
+        $ok = $this->pitchsnap_model->delete_flow((int) $id);
+        $this->_json(['success' => $ok]);
+    }
+
+    public function flow_sections($flow_id = null)
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        $flow = $this->pitchsnap_model->get_flow((int) $flow_id);
+        if (!$flow) { show_404(); return; }
+        $data['title']    = 'Sections — ' . $flow['name'];
+        $data['flow']     = $flow;
+        $data['sections'] = $this->pitchsnap_model->get_sections_for_flow((int) $flow_id);
+        $this->load->view('pitchsnap/admin_flow_sections', $data);
+    }
+
+    public function flow_save_page_url($flow_id = null)
+    {
+        if (!is_admin()) { $this->_json(['success' => false, 'message' => 'Access denied']); return; }
+        if ($this->input->method() !== 'post') { $this->_json(['success' => false]); return; }
+        $flow_id = (int) $flow_id;
+        if (!$flow_id) { $this->_json(['success' => false, 'message' => 'Invalid flow']); return; }
+        $flow = $this->pitchsnap_model->get_flow($flow_id);
+        if (!$flow) { $this->_json(['success' => false, 'message' => 'Flow not found']); return; }
+        $page_url = trim($this->input->post('page_url') ?? '');
+        if ($page_url !== '' && !filter_var($page_url, FILTER_VALIDATE_URL)) {
+            $this->_json(['success' => false, 'message' => 'Enter a valid URL (include https://)']); return;
+        }
+        $this->pitchsnap_model->update_flow($flow_id, ['page_url' => $page_url ?: null]);
+        $this->_json(['success' => true, 'page_url' => $page_url]);
+    }
+
+    public function section_save()
+    {
+        if (!is_admin()) { $this->_json(['success' => false, 'message' => 'Access denied']); return; }
+        if ($this->input->method() !== 'post') { $this->_json(['success' => false]); return; }
+
+        $id      = (int) $this->input->post('id');
+        $flow_id = (int) $this->input->post('flow_id');
+        $name    = trim($this->input->post('name'));
+
+        if (!$flow_id) { $this->_json(['success' => false, 'message' => 'Invalid flow']); return; }
+        if ($name === '') { $this->_json(['success' => false, 'message' => 'Name is required']); return; }
+
+        $payload = [
+            'name'        => $name,
+            'description' => trim($this->input->post('description')),
+        ];
+
+        if ($id) {
+            $this->pitchsnap_model->update_section($id, $payload);
+            $this->_json(['success' => true, 'message' => 'Section updated']);
+        } else {
+            $payload['flow_id'] = $flow_id;
+            $new_id = $this->pitchsnap_model->create_section($payload);
+            $this->_json(['success' => true, 'id' => $new_id]);
+        }
+    }
+
+    public function section_delete($id)
+    {
+        if (!is_admin()) { $this->_json(['success' => false]); return; }
+        if ($this->pitchsnap_model->section_has_questions((int) $id)) {
+            $this->_json(['success' => false, 'message' => 'This section has questions and cannot be deleted. Remove all questions first.']);
+            return;
+        }
+        $ok = $this->pitchsnap_model->delete_section((int) $id);
+        $this->_json(['success' => $ok]);
+    }
+
+    public function section_questions($section_id = null)
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        $section = $this->pitchsnap_model->get_section((int) $section_id);
+        if (!$section) { show_404(); return; }
+        $flow      = $this->pitchsnap_model->get_flow((int) $section['flow_id']);
+        $questions = $this->pitchsnap_model->get_questions_for_section((int) $section_id);
+
+        $q_ids   = array_column($questions, 'id');
+        $tag_map = $this->pitchsnap_model->get_tags_for_questions($q_ids);
+        foreach ($questions as &$q) {
+            $q['usage_tags'] = $tag_map[(int) $q['id']] ?? [];
+        }
+        unset($q);
+
+        $data['title']          = 'Questions — ' . $section['name'];
+        $data['section']        = $section;
+        $data['flow']           = $flow;
+        $data['questions']      = $questions;
+        $data['flow_questions'] = $this->pitchsnap_model->get_questions_in_flow_sequence((int) $section['flow_id']);
+        $data['usage_tags']     = $this->pitchsnap_model->get_all_usage_tags();
+        $this->load->view('pitchsnap/admin_section_questions', $data);
+    }
+
+    public function question_save()
+    {
+        if (!is_admin()) { $this->_json(['success' => false, 'message' => 'Access denied']); return; }
+        if ($this->input->method() !== 'post') { $this->_json(['success' => false]); return; }
+
+        $id         = (int) $this->input->post('id');
+        $section_id = (int) $this->input->post('section_id');
+        $label      = trim($this->input->post('label'));
+        $field_type = $this->input->post('field_type');
+
+        $valid_types = ['text','textarea','number','email','phone','url','select','radio','checkbox','yes_no','question_builder'];
+        if (!$section_id) { $this->_json(['success' => false, 'message' => 'Invalid section']); return; }
+        if ($label === '') { $this->_json(['success' => false, 'message' => 'Label is required']); return; }
+        if (!in_array($field_type, $valid_types, true)) { $this->_json(['success' => false, 'message' => 'Invalid field type']); return; }
+
+        $data_key = strtolower(trim($this->input->post('data_key')));
+        $purpose  = $this->input->post('purpose');
+
+        if ($data_key === '') { $this->_json(['success' => false, 'message' => 'Data Key is required']); return; }
+        if (!preg_match('/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/', $data_key)) {
+            $this->_json(['success' => false, 'message' => 'Data Key must be dot-separated lowercase segments (e.g. business.name)']);
+            return;
+        }
+        if (!in_array($purpose, ['data', 'quote_form_definition'], true)) {
+            $this->_json(['success' => false, 'message' => 'Invalid purpose']);
+            return;
+        }
+
+        $section = $this->pitchsnap_model->get_section($section_id);
+        if (!$section) { $this->_json(['success' => false, 'message' => 'Invalid section']); return; }
+        if ($this->pitchsnap_model->question_data_key_exists_in_flow($data_key, (int) $section['flow_id'], $id ?: null)) {
+            $this->_json(['success' => false, 'message' => 'Data Key "' . $data_key . '" is already used in this flow']);
+            return;
+        }
+
+        // Condition validation
+        $condition_question_id = (int) $this->input->post('condition_question_id');
+        $condition_operator    = $this->input->post('condition_operator');
+        $condition_value       = trim($this->input->post('condition_value'));
+
+        if ($condition_question_id) {
+            if (!in_array($condition_operator, ['equals', 'not_equals', 'contains'], true)) {
+                $this->_json(['success' => false, 'message' => 'Invalid condition operator']); return;
+            }
+            if ($condition_value === '') {
+                $this->_json(['success' => false, 'message' => 'Condition value is required']); return;
+            }
+            if ($id && $condition_question_id === $id) {
+                $this->_json(['success' => false, 'message' => 'A question cannot depend on itself']); return;
+            }
+            $ctrl_q = $this->pitchsnap_model->get_question($condition_question_id);
+            if (!$ctrl_q) {
+                $this->_json(['success' => false, 'message' => 'Controlling question not found']); return;
+            }
+            $ctrl_sec = $this->pitchsnap_model->get_section((int) $ctrl_q['section_id']);
+            if (!$ctrl_sec || (int) $ctrl_sec['flow_id'] !== (int) $section['flow_id']) {
+                $this->_json(['success' => false, 'message' => 'Controlling question must belong to the same flow']); return;
+            }
+            // Sequence check: controlling must appear before the dependent question
+            $seq      = $this->pitchsnap_model->get_questions_in_flow_sequence((int) $section['flow_id']);
+            $ctrl_pos = -1;
+            $dep_pos  = -1;
+            foreach ($seq as $i => $sq) {
+                if ((int) $sq['id'] === $condition_question_id) { $ctrl_pos = $i; }
+                if ($id && (int) $sq['id'] === $id)             { $dep_pos  = $i; }
+            }
+            if ($ctrl_pos === -1) {
+                $this->_json(['success' => false, 'message' => 'Controlling question not found in flow']); return;
+            }
+            if ($id && $dep_pos !== -1 && $ctrl_pos >= $dep_pos) {
+                $this->_json(['success' => false, 'message' => 'Controlling question must appear earlier in the flow']); return;
+            }
+        }
+
+        $options_json = null;
+        if (in_array($field_type, ['select','radio','checkbox'], true)) {
+            $raw     = $this->input->post('options_json');
+            $decoded = json_decode($raw, true);
+            $options_json = (is_array($decoded) && !empty($decoded)) ? json_encode(array_values($decoded)) : null;
+        }
+
+        $payload = [
+            'label'                => $label,
+            'data_key'             => $data_key,
+            'purpose'              => $purpose,
+            'help_text'            => trim($this->input->post('help_text')),
+            'field_type'           => $field_type,
+            'required'             => $this->input->post('required') === '1' ? 1 : 0,
+            'options_json'         => $options_json,
+            'condition_question_id'=> $condition_question_id ?: null,
+            'condition_operator'   => $condition_question_id ? $condition_operator : null,
+            'condition_value'      => $condition_question_id ? $condition_value    : null,
+        ];
+
+        $raw_tag_ids = $this->input->post('tag_ids');
+        $tag_ids = [];
+        if (is_array($raw_tag_ids)) {
+            foreach ($raw_tag_ids as $tid) {
+                $tid = (int) $tid;
+                if ($tid > 0) { $tag_ids[] = $tid; }
+            }
+        }
+
+        if ($id) {
+            $this->pitchsnap_model->update_question($id, $payload);
+            $this->pitchsnap_model->sync_question_tags($id, $tag_ids);
+            $this->_json(['success' => true, 'message' => 'Question updated']);
+        } else {
+            $payload['section_id'] = $section_id;
+            $new_id = $this->pitchsnap_model->create_question($payload);
+            if ($new_id) {
+                $this->pitchsnap_model->sync_question_tags($new_id, $tag_ids);
+            }
+            $this->_json(['success' => true, 'id' => $new_id]);
+        }
+    }
+
+    public function question_delete($id)
+    {
+        if (!is_admin()) { $this->_json(['success' => false]); return; }
+        $ok = $this->pitchsnap_model->delete_question((int) $id);
+        $this->_json(['success' => $ok]);
+    }
+
+    public function question_reorder()
+    {
+        if (!is_admin()) { $this->_json(['success' => false]); return; }
+        if ($this->input->method() !== 'post') { $this->_json(['success' => false]); return; }
+        $section_id  = (int) $this->input->post('section_id');
+        $ordered_ids = $this->input->post('ids');
+        if (!$section_id || !is_array($ordered_ids)) { $this->_json(['success' => false]); return; }
+
+        // Guard: reject if the new order would place any conditional question before its controller
+        $section = $this->pitchsnap_model->get_section($section_id);
+        if ($section) {
+            $seq         = $this->pitchsnap_model->get_questions_in_flow_sequence((int) $section['flow_id']);
+            $new_sec_ids = array_map('intval', $ordered_ids);
+
+            // Build simulated full sequence: replace this section's block with the new order
+            $simulated    = [];
+            $sec_inserted = false;
+            foreach ($seq as $q) {
+                if ((int) $q['section_id'] === $section_id) {
+                    if (!$sec_inserted) {
+                        foreach ($new_sec_ids as $nid) { $simulated[] = $nid; }
+                        $sec_inserted = true;
+                    }
+                } else {
+                    $simulated[] = (int) $q['id'];
+                }
+            }
+            if (!$sec_inserted) {
+                foreach ($new_sec_ids as $nid) { $simulated[] = $nid; }
+            }
+
+            $pos_map = array_flip($simulated);
+            foreach ($seq as $q) {
+                if (empty($q['condition_question_id'])) { continue; }
+                $dep_id  = (int) $q['id'];
+                $ctrl_id = (int) $q['condition_question_id'];
+                if (!isset($pos_map[$dep_id], $pos_map[$ctrl_id])) { continue; }
+                if ($pos_map[$ctrl_id] >= $pos_map[$dep_id]) {
+                    $this->_json(['success' => false, 'message' => 'Reorder rejected: a conditional question would appear before its controlling question.']);
+                    return;
+                }
+            }
+        }
+
+        $this->pitchsnap_model->reorder_questions($section_id, $ordered_ids);
+        $this->_json(['success' => true]);
+    }
+
+    public function section_move($id, $direction = 'up')
+    {
+        if (!is_admin()) { $this->_json(['success' => false]); return; }
+        $ok = $this->pitchsnap_model->move_section((int) $id, $direction === 'down' ? 'down' : 'up');
+        $this->_json(['success' => $ok]);
+    }
+
+    public function usage_tags()
+    {
+        if (!is_admin()) { access_denied('ClickFuzz Web'); }
+        $data['title']      = 'Onboarding — Usage Tags';
+        $data['usage_tags'] = $this->pitchsnap_model->get_all_usage_tags();
+        $this->load->view('pitchsnap/admin_usage_tags', $data);
+    }
+
+    public function usage_tag_save()
+    {
+        if (!is_admin()) { $this->_json(['success' => false, 'message' => 'Access denied']); return; }
+        if ($this->input->method() !== 'post') { $this->_json(['success' => false]); return; }
+
+        $id   = (int) $this->input->post('id');
+        $name = trim($this->input->post('name'));
+        $slug = trim(strtolower($this->input->post('slug')));
+        $desc = trim($this->input->post('description'));
+
+        if ($name === '') { $this->_json(['success' => false, 'message' => 'Name is required']); return; }
+        if ($slug === '' || !preg_match('/^[a-z][a-z0-9_]*$/', $slug)) {
+            $this->_json(['success' => false, 'message' => 'Slug must be lowercase letters, numbers, underscores (start with a letter)']);
+            return;
+        }
+
+        $existing = $this->pitchsnap_model->get_usage_tag_by_slug($slug);
+        if ($existing && (int) $existing['id'] !== $id) {
+            $this->_json(['success' => false, 'message' => 'Slug "' . $slug . '" is already in use']);
+            return;
+        }
+
+        $payload = ['name' => $name, 'slug' => $slug, 'description' => $desc ?: null];
+        if ($id) {
+            $this->pitchsnap_model->update_usage_tag($id, $payload);
+            $this->_json(['success' => true, 'message' => 'Tag updated']);
+        } else {
+            $new_id = $this->pitchsnap_model->create_usage_tag($payload);
+            $this->_json(['success' => true, 'id' => $new_id]);
+        }
+    }
+
+    public function usage_tag_delete($tag_id = null)
+    {
+        if (!is_admin()) { $this->_json(['success' => false, 'message' => 'Access denied']); return; }
+        if ($this->input->method() !== 'post') { $this->_json(['success' => false]); return; }
+        $tag_id = (int) $tag_id;
+        if (!$tag_id) { $this->_json(['success' => false, 'message' => 'Invalid tag']); return; }
+        if ($this->pitchsnap_model->tag_in_use($tag_id)) {
+            $this->_json(['success' => false, 'message' => 'Cannot delete: this tag is assigned to one or more questions']);
+            return;
+        }
+        $this->pitchsnap_model->delete_usage_tag($tag_id);
+        $this->_json(['success' => true]);
+    }
+
+    public function onboarding_link_create()
+    {
+        if (!is_admin()) { $this->_json(['success' => false, 'message' => 'Access denied']); return; }
+        if ($this->input->method() !== 'post') { $this->_json(['success' => false]); return; }
+
+        $site_id = (int) $this->input->post('site_id');
+        $flow_id = (int) $this->input->post('flow_id');
+        if (!$site_id) { $this->_json(['success' => false, 'message' => 'Invalid site']); return; }
+        if (!$flow_id) { $this->_json(['success' => false, 'message' => 'Select a flow']); return; }
+
+        $site = $this->pitchsnap_model->get_site_by_id($site_id);
+        if (!$site) { $this->_json(['success' => false, 'message' => 'Site not found']); return; }
+        $flow = $this->pitchsnap_model->get_flow($flow_id);
+        if (!$flow) { $this->_json(['success' => false, 'message' => 'Flow not found']); return; }
+
+        $token = $this->pitchsnap_model->create_onboarding_link($site_id, $flow_id);
+        if (!$token) { $this->_json(['success' => false, 'message' => 'Could not create link']); return; }
+
+        $ob_page = $flow['page_url'] ?: get_option('pitchsnap_onboarding_page_url');
+        $ob_url  = $ob_page
+            ? rtrim($ob_page, '/') . '/?token=' . $token
+            : base_url('pitchsnap/onboarding_embed') . '?token=' . $token;
+        $this->_json(['success' => true, 'url' => $ob_url]);
+    }
+
+    public function onboarding_link_revoke($id = null)
+    {
+        if (!is_admin()) { $this->_json(['success' => false, 'message' => 'Access denied']); return; }
+        if ($this->input->method() !== 'post') { $this->_json(['success' => false]); return; }
+        $id = (int) $id;
+        if (!$id) { $this->_json(['success' => false, 'message' => 'Invalid link']); return; }
+        $this->pitchsnap_model->revoke_onboarding_link($id);
+        $this->_json(['success' => true]);
+    }
+
+    public function site_data_save()
+    {
+        if (!is_admin()) { $this->_json(['success' => false, 'message' => 'Access denied']); return; }
+        if ($this->input->method() !== 'post') { $this->_json(['success' => false]); return; }
+
+        $site_id  = (int) $this->input->post('site_id');
+        $data_key = trim(strtolower($this->input->post('data_key')));
+        $value    = $this->input->post('value');
+
+        if (!$site_id) { $this->_json(['success' => false, 'message' => 'Invalid site']); return; }
+        if ($data_key === '') { $this->_json(['success' => false, 'message' => 'Data Key is required']); return; }
+        if (!preg_match('/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/', $data_key)) {
+            $this->_json(['success' => false, 'message' => 'Data Key must be dot-separated lowercase segments (e.g. business.name)']);
+            return;
+        }
+        if ($value === '' || $value === null) { $this->_json(['success' => false, 'message' => 'Value is required']); return; }
+
+        $site = $this->pitchsnap_model->get_site_by_id($site_id);
+        if (!$site) { $this->_json(['success' => false, 'message' => 'Site not found']); return; }
+
+        $this->pitchsnap_model->upsert_site_data($site_id, $data_key, $value);
+        $this->_json(['success' => true]);
+    }
+
+    public function site_data_delete($id = null)
+    {
+        if (!is_admin()) { $this->_json(['success' => false, 'message' => 'Access denied']); return; }
+        if ($this->input->method() !== 'post') { $this->_json(['success' => false]); return; }
+        $id = (int) $id;
+        if (!$id) { $this->_json(['success' => false, 'message' => 'Invalid record']); return; }
+        $this->pitchsnap_model->delete_site_data_by_id($id);
+        $this->_json(['success' => true]);
     }
 
     // -----------------------------------------------------------------------

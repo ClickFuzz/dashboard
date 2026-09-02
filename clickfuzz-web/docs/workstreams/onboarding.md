@@ -30,41 +30,71 @@ Post-purchase customer setup: collecting everything needed to finalize and maint
 
 ## Current State
 
-**Not yet implemented.** No onboarding controllers, models, views, or DB tables exist in the current codebase. The onboarding worktree (`claude/onboarding`) exists but contains no feature changes — it is at the old main baseline and needs to be recreated from the current main before onboarding development begins.
+**Phase 1H implemented and deployed.** Completion timestamp, admin visibility, and Revoke-on-completed added. Phase 1G-E deployed and manually verified prior to this session.
+
+**Phase 1H changes:**
+
+- **DB v37:** `completed_at DATETIME DEFAULT NULL` added to `tblpitchsnap_onboarding_links` (idempotent ALTER TABLE migration).
+- **`onboarding_submit()`**: sets `completed_at` only on first successful completion (`empty($link['completed_at'])`); re-submissions leave timestamp unchanged.
+- **`get_onboarding_links_for_site()`**: SELECT now includes `completed_at`.
+- **Admin Onboarding tab**: Completed column added; Revoke button now available for both `active` and `completed` links; completed badge has tooltip "Submitted — still editable until revoked".
+
+**Phase 1G-E state (deployed and verified):**
+- `onboarding()` and `onboarding_embed()` now allow `active` OR `completed` links to open the wizard (only `revoked` is blocked).
+- `onboarding_submit()` allows re-submission on completed links; upsert handles deduplication.
+- New `onboarding_save_progress` endpoint: validates token, loads flow questions, upserts only visible submitted answers, no required-field check, does not mark completed.
+- Wizard view: `_wiz_field()` now takes `$existing_val` parameter and prefills all field types (text/textarea/select/radio/checkbox/yes_no/question_builder). `question_builder` uses `data-prefill` attribute; JS `_qbInit()` restores existing rows.
+- `wizGo()` now saves current-step visible answers via `wizSaveStep()` before advancing forward; navigation only completes after save succeeds.
+- `_ob_normalize_value()` extracted as shared private helper used by both submit and save_progress.
 
 ---
 
 ## Confirmed Working
 
-- Nothing in this workstream is implemented yet.
+- Phase 1G-D: wizard submit end-to-end (token validation → visibility evaluation → required-field check → upsert site_data → mark completed → thank-you screen). Verified on production 2026-09-02.
 
 ---
 
 ## Implemented / Needs Retesting
 
-- Nothing.
+### Phase 1A — Onboarding Flows foundation (2026-09-02)
+
+- **DB migration v27:** `tblpitchsnap_onboarding_flows` (id, name, description, status, created_at, updated_at)
+- **Model:** `get_flow`, `get_all_flows`, `create_flow`, `update_flow`, `delete_flow` on `Pitchsnap_model`
+- **Controller:** `flows` (list), `flow_save` (create/edit), `flow_toggle`, `flow_duplicate`, `flow_delete` on `Pitchsnap`
+- **View:** `modules/pitchsnap/views/admin_flows.php` — table + Bootstrap modal + AJAX actions
+- **Menu:** "Onboarding Flows" sidebar child at `pitchsnap/flows` (position 2; Settings bumped to 3)
+
+### Phase 1B — Onboarding Sections (2026-09-02)
+
+- **DB migration v28:** `tblpitchsnap_onboarding_sections` (id, flow_id, name, description, sort_order, created_at, updated_at)
+- **Model:** `get_section`, `get_sections_for_flow`, `flow_has_sections`, `create_section`, `update_section`, `delete_section`, `move_section` on `Pitchsnap_model`
+- **Controller:** `flow_sections` (page), `section_save` (create/edit AJAX), `section_delete` (AJAX), `section_move` (up/down AJAX) on `Pitchsnap`; `flow_delete` updated to block if sections exist
+- **Views:** `admin_flow_sections.php` (new) — table + modal + ▲/▼ reorder; `admin_flows.php` updated with Sections button per row and error-message display on failed delete
 
 ---
 
 ## In Progress
 
-- Nothing. Onboarding worktree needs to be recreated from latest main before work begins.
+- Phase 1H deployed; pending production test (verify migration ran, completed_at is set, admin tab shows Completed column).
 
 ---
 
 ## Known Issues / Risks
 
-- The `claude/onboarding` branch and its worktree are at the old main baseline (`e92cf8f`). Must be deleted and recreated from the current main (`4e85bde` or later) before any development.
-- No schema design exists yet for onboarding data. Will need new DB tables (likely `tblpitchsnap_onboarding` or a similar structure) and a DB migration added to `clickfuzz_web_db_upgrade()`.
-- Post-purchase trigger: the handoff from Sales Flow (`subscription_complete`) to Onboarding needs to be defined. The `tblpitchsnap_sites` record (with `client_id`) is the natural anchor.
+- Phase 1A–1C not yet deployed or production-tested.
+- Post-purchase trigger: the handoff from Sales Flow (`subscription_complete`) to a specific flow is not yet defined. The `tblpitchsnap_sites` record (with `client_id`) is the natural anchor — a `flow_id` column on `tblpitchsnap_sites` is likely needed in Phase 1B or later.
+- CSRF: AJAX actions in the view pass the token via `$CI->security` in the view. If Perfex overrides CSRF handling differently, validate on first production load.
 
 ---
 
 ## Architecture / Important Decisions
 
 - Onboarding data belongs to a `tblpitchsnap_sites` record, not the `tblpitchsnap_redesigns` record. A site may eventually switch to a newer generated design while keeping the same onboarding data.
-- Onboarding will likely need both an admin-facing view (staff can see/edit) and a client-facing form (customer fills in their info). The client-facing side should use a token-protected public URL pattern consistent with the agreement page.
-- Do not implement features during this organizational task. Create the worktree and design the schema before writing any code.
+- Onboarding will need both an admin-facing view (staff can see/edit) and a client-facing form (customer fills in their info). The client-facing side should use a token-protected public URL pattern consistent with the agreement page.
+- **Flow design:** A flow is a named, reusable template (active/inactive). Sections and questions will be nested under flows in Phase 1B+. Flows are not yet linked to a specific site record — that linkage (`sites.flow_id`) comes when customer-facing onboarding is introduced.
+- **Duplicate creates inactive copy** — duplicates default to inactive so staff explicitly activates a new flow before it can be assigned to customers.
+- **Hard delete** chosen for flows because no foreign key references exist yet (no sections/questions). When Phase 1B adds child records, delete logic will need to cascade or soft-delete.
 
 ---
 
@@ -72,31 +102,50 @@ Post-purchase customer setup: collecting everything needed to finalize and maint
 
 | File | Purpose |
 |---|---|
-| `modules/pitchsnap/pitchsnap.php` | Add new DB migration here when schema is designed |
-| `modules/pitchsnap/models/Pitchsnap_model.php` | Add onboarding model methods here |
-| `modules/pitchsnap/controllers/Pitchsnap_runtime.php` | Add public onboarding form endpoint here |
-| `modules/pitchsnap/controllers/Pitchsnap.php` | Add admin onboarding view endpoint here |
+| `modules/pitchsnap/pitchsnap.php` | DB migrations v27–v35 + menu registration |
+| `modules/pitchsnap/models/Pitchsnap_model.php` | All CRUD: flows, sections, questions, usage_tags, question_tags, site_data, onboarding_links |
+| `modules/pitchsnap/controllers/Pitchsnap.php` | Admin endpoints: all onboarding management |
+| `modules/pitchsnap/controllers/Pitchsnap_runtime.php` | Public `onboarding_embed($token)` endpoint + `onboarding_loader_js()` loader script |
+| `modules/pitchsnap/views/onboarding_loader_js.php` | JS loader served at `pitchsnap/onboarding_loader.js` — mounts iframe into `#clickfuzz-onboarding` |
+| `modules/pitchsnap/views/admin_flows.php` | Flow list + create/edit modal |
+| `modules/pitchsnap/views/admin_flow_sections.php` | Section list + create/edit modal + ▲/▼ reorder |
+| `modules/pitchsnap/views/admin_section_questions.php` | Question list + create/edit modal + reorder + tag badges |
+| `modules/pitchsnap/views/admin_usage_tags.php` | Usage tag library CRUD |
+| `modules/pitchsnap/views/admin_detail.php` | Website detail page — Data + Onboarding tabs added |
+| `modules/pitchsnap/views/admin_detail/tab_data.php` | Site key/value data table + add/edit/delete modal |
+| `modules/pitchsnap/views/admin_detail/tab_onboarding.php` | Onboarding links list + create link modal + revoke |
+| `modules/pitchsnap/views/onboarding_wizard.php` | Self-contained public wizard — all field types, multi-step, conditionals |
 
-**DB tables (planned, not yet created):** `tblpitchsnap_onboarding` (or similar)
+**DB tables:** flows, sections, questions, usage_tags, question_tags (join), site_data, onboarding_links
 
 ---
 
 ## Production Status
 
-Not deployed. Not implemented.
+Phase 1G-D, 1G-E, and 1H all deployed. Migration v37 runs automatically on next admin page load. Pending production test of 1H (completed_at, admin tab, revoke-on-completed).
 
 ---
 
 ## Next
 
-1. Recreate `claude/onboarding` worktree from current main
-2. Design onboarding data schema (what fields, which tables)
-3. Design client-facing onboarding form UX
-4. Design admin-facing onboarding status view
-5. Implement DB migration, model, controllers, views
+1. **Production test Phase 1H:** Load admin Onboarding tab → verify Completed column appears and migration ran (completed_at column exists). Submit an active link → verify completed_at is set. Re-submit → verify completed_at unchanged. Revoke a completed link → verify it blocks.
+2. After production test passes: commit all, merge to `main`.
+3. **Phase 1I (future):** Trigger automatic onboarding link creation when a customer completes payment (`subscription_complete` / `payment_complete`) — requires a default `flow_id` setting or per-customer flow assignment.
 
 ---
 
 ## History
 
-- **2026-08-23** — Onboarding workstream defined as a distinct area; worktree exists but is empty/outdated and must be recreated before work begins
+- **2026-08-23** — Onboarding workstream defined as a distinct area; worktree created
+- **2026-09-02** — Phase 1A implemented: `tblpitchsnap_onboarding_flows` (DB v27), model CRUD, admin controller, admin list+modal view, sidebar menu item
+- **2026-09-02** — Phase 1B implemented: `tblpitchsnap_onboarding_sections` (DB v28), section CRUD + move_section + flow_has_sections model methods, 4 controller endpoints, admin_flow_sections.php view, Sections button in flows table, flow_delete guard
+- **2026-09-02** — Phase 1D implemented: DB v30 ALTER TABLE adds `data_key` VARCHAR(100) + `purpose` VARCHAR(30) to questions; server validation (required, regex, uniqueness); `question_data_key_exists` model method; modal updated with Data Key + Purpose fields; auto-suggest from label; data_key shown in-line under label in table; purpose badge shown when non-default
+- **2026-09-02** — Phase 1C implemented: `tblpitchsnap_onboarding_questions` (DB v29), question CRUD + reorder_questions + section_has_questions model methods, 4 controller endpoints, admin_section_questions.php view with drag-and-drop reorder, Questions button in sections table, section_delete guard
+- **2026-09-02** — Phase 1F implemented: `tblpitchsnap_onboarding_usage_tags` + `tblpitchsnap_onboarding_question_tags` (DB v33), 8 default tags seeded, Usage Tags admin page (list/create/edit/delete-guard), question modal updated with multi-select tag checkboxes, tags shown as badges in question list, `sync_question_tags` model method, tag assignment stored in join table
+- **2026-09-02** — Phase 1G-A/B implemented: `tblpitchsnap_site_data` (DB v34, site_id+data_key unique), model: `get_site_data`, `get_site_data_value`, `upsert_site_data`, `delete_site_data_by_id`; Data tab on website detail page with table (key/value/updated), JSON pretty-print display, admin add/edit/delete via modal
+- **2026-09-02** — Phase 1G-C.1 implemented: `question_builder` field type added — controller validation, admin dropdown + label map, public wizard repeatable question editor (label + input type + options editor for select/radio/checkbox, drag reorder, serializes to JSON array stored in hidden input)
+- **2026-09-02** — Phase 1G-C implemented: `tblpitchsnap_onboarding_links` (DB v35, UNIQUE token), model: `create_onboarding_link`, `get_onboarding_links_for_site`, `get_onboarding_link_by_token`, `revoke_onboarding_link`; admin Onboarding tab on website detail page (link list + create modal + revoke); public `Pitchsnap_runtime::onboarding($token)` renders self-contained wizard with all 10 field types, multi-step navigation, client-side conditional show/hide; Submit button disabled (no answer saving yet)
+- **2026-09-02** — WordPress embed delivery: new `onboarding_embed` endpoint (GET `?token=`) renders wizard HTML page; new `onboarding_loader_js` endpoint serves dedicated `onboarding_loader_js.php` JS that mounts an iframe into `#clickfuzz-onboarding`; WP page publish pipeline replaces `<!-- CLICKFUZZ_ONBOARDING -->` marker with embed div + script tag; admin link URLs now driven by `pitchsnap_onboarding_page_url` setting (fallback: direct embed URL); old `/onboarding/{token}` path-based route left as-is (returns 404 since no WP page matches that path)
+- **2026-09-02** — Phase 1H implemented and deployed: DB v37 adds `completed_at` to `tblpitchsnap_onboarding_links`; `onboarding_submit()` sets `completed_at` on first completion only; `get_onboarding_links_for_site()` includes `completed_at` in SELECT; admin Onboarding tab gains Completed column, Revoke button for completed links, and badge tooltip clarifying link remains editable until revoked
+- **2026-09-02** — Phase 1G-E implemented: completed links reopen (only revoked blocked); `onboarding_save_progress` endpoint (validates token, loads flow questions, upserts visible submitted answers, no required-field check, no status change); wizard prefills all field types from `tblpitchsnap_site_data` (`_wiz_field` takes `$existing_val`; `question_builder` uses `data-prefill` attr + JS `_qbInit` restores rows); `wizGo()` saves current step via `wizSaveStep()` before advancing; `_ob_normalize_value()` extracted as shared helper; route added for save_progress
+- **2026-09-02** — Phase 1G-D implemented: `Pitchsnap_runtime::onboarding_submit()` (JSON body POST, CSRF-free); token validation → link lookup → server-side question load → visibility evaluation (equals/not_equals/contains) → required-field check → normalize (checkbox→JSON array, question_builder→normalized JSON) → `upsert_site_data()` per visible question with data_key → mark link `completed`; wizard view wired up: Submit button enabled with `wizSubmit()`, JS collects all q_ answers as JSON (checkbox as array), POSTs to `/pitchsnap/onboarding_submit`, shows thank-you on success, inline error on failure; `_wizReportHeight()` called after both outcomes
