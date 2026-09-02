@@ -28,6 +28,7 @@
                         <div class="tab-pane <?php echo ($active_tab !== 'logs' && $active_tab !== 'ghl-destinations') ? 'active' : ''; ?>" id="tab-general">
 
                         <?php echo form_open(admin_url('pitchsnap/settings')); ?>
+                        <input type="hidden" name="pitchsnap_general_submitted" value="1">
 
                         <!-- ================================================
                              Provider Selection
@@ -234,19 +235,6 @@
                              Operational
                              ================================================ -->
                         <h5 class="tw-font-semibold mtop20 mbot10">Operational</h5>
-
-                        <div class="form-group">
-                            <div class="checkbox">
-                                <label>
-                                    <input type="hidden"   name="pitchsnap_logging_enabled" value="0">
-                                    <input type="checkbox" name="pitchsnap_logging_enabled" value="1" <?php echo get_option('pitchsnap_logging_enabled') ? 'checked' : ''; ?>>
-                                    Enable activity logging
-                                </label>
-                            </div>
-                            <p class="text-muted" style="margin-top:4px;font-size:12px;">
-                                Records generation events, errors, and lifecycle transitions in the activity log.
-                            </p>
-                        </div>
 
                         <div class="form-group">
                             <label for="pitchsnap_web_design_admin">Web Design Admin</label>
@@ -668,11 +656,22 @@
                                 _ghlCsrfHash = res.csrf_hash || _ghlCsrfHash;
                             }, 'json').fail(function() { alert('Request failed.'); });
                         }
+
                         </script>
 
                         <!-- ══════════════════════════════════
                              TAB: Logs
                              ══════════════════════════════════ -->
+                        <style>
+                        #tab-logs input[type="checkbox"] {
+                            opacity: 1 !important;
+                            position: static !important;
+                            width: 16px !important;
+                            height: 16px !important;
+                            cursor: pointer !important;
+                            pointer-events: auto !important;
+                        }
+                        </style>
                         <div class="tab-pane <?php echo $active_tab === 'logs' ? 'active' : ''; ?>" id="tab-logs">
 
                             <!-- ── Log category controls ── -->
@@ -680,8 +679,16 @@
                             <input type="hidden" name="pitchsnap_log_cats_submitted" value="1">
                             <input type="hidden" name="active_tab" value="logs">
                             <div style="border:1px solid #ddd; border-radius:4px; padding:14px 16px; margin-bottom:20px; background:#fafafa;">
+                                <div style="margin:0 0 14px;">
+                                    <label style="font-size:13px; font-weight:600; cursor:pointer;">
+                                        <input type="hidden"   name="pitchsnap_logging_enabled" value="0">
+                                        <input type="checkbox" name="pitchsnap_logging_enabled" value="1" <?php echo get_option('pitchsnap_logging_enabled') ? 'checked' : ''; ?>>
+                                        Enable activity logging
+                                    </label>
+                                    <p class="text-muted" style="margin:2px 0 0; font-size:12px; padding-left:20px;">Master switch — must be on for any log entries to be written.</p>
+                                </div>
                                 <p style="font-size:13px; font-weight:600; margin:0 0 4px;">Log Categories</p>
-                                <p class="text-muted" style="font-size:12px; margin:0 0 12px;">Controls which flows write to the log. The master <strong>Enable activity logging</strong> toggle (General tab) must also be on.</p>
+                                <p class="text-muted" style="font-size:12px; margin:0 0 12px;">Controls which flows write to the log.</p>
                                 <table class="table table-condensed" style="max-width:600px; margin-bottom:10px;">
                                     <tbody>
                                         <tr>
@@ -707,6 +714,14 @@
                                             </td>
                                             <td style="vertical-align:middle;"><strong>Generation Pipeline</strong></td>
                                             <td style="vertical-align:middle; color:#777; font-size:12px;">Manus/Anthropic jobs, completions, failures</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="vertical-align:middle;">
+                                                <input type="hidden"   name="pitchsnap_log_ghl" value="0">
+                                                <input type="checkbox" name="pitchsnap_log_ghl" value="1" <?php echo get_option('pitchsnap_log_ghl') ? 'checked' : ''; ?>>
+                                            </td>
+                                            <td style="vertical-align:middle;"><strong>GHL / Forms</strong></td>
+                                            <td style="vertical-align:middle; color:#777; font-size:12px;">contact creation, failures, skipped submissions</td>
                                         </tr>
                                     </tbody>
                                 </table>

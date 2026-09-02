@@ -181,6 +181,7 @@ Production is running the publishing-domains branch output (Website Details Phas
 | Workstream | Status | Worktree |
 |---|---|---|
 | Generation | **Parked** — Phases 1–5 merged to `main` (`0782213`); foundation complete; future UI work resumes after new Website Details architecture | `claude/generation` |
+| Lead Capture | **Active** — GHL forms + External Tracking deployed, pending e2e verification before commit + merge | `claude/lead-capture` |
 | Sales Flow | Implemented, purchase path needs end-to-end test | `claude/sales-flow` |
 | Onboarding | Not started | `claude/onboarding` |
 | Lead Connect | Not started | task worktrees created as needed |
@@ -198,7 +199,7 @@ See `docs/workstreams/` for detailed subsystem history and status.
 | `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `b811080` (origin/main in sync) |
 | `claude/generation` | `worktrees/dashboard/generation` | **Merged** — fast-forward merged into `main` (2026-08-28). Foundation complete and parked. |
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test. |
-| `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
+| `claude/lead-capture` | `worktrees/dashboard/lead-capture` | **Active** — GHL Destination Registry + External Tracking wiring deployed to production (6 files, uncommitted). Awaiting user confirmation of end-to-end GHL contact creation before commit + merge. |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
 | `claude/publishing-domains` | `worktrees/dashboard/publishing-domains` | **Merged to main (2026-08-28)** — publishing-state foundation + Website Details Phase 1 (tab_pages/tab_media, canonical $is_published) + Phase 2 (Settings tab: Publishing/Integrations/Activity). Phase 5C (Cloudflare Custom Hostname automation) still paused. |
 | `claude/recovery-audit` | `worktrees/dashboard/recovery-audit` | Complete — can be deleted after manual testing |

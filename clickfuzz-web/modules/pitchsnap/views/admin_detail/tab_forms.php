@@ -654,20 +654,52 @@
         $.getJSON(RUNTIME_URL + '/form_render/' + formId, function (r) {
             if (!r.success) { body.html('<p class="text-danger" style="padding:20px 24px;">Could not load form.</p>'); return; }
             body.html('<div style="padding:24px;">' + r.html + '</div>');
+            // Register capture-phase aggregation before GHL script loads — same pattern as runtime_js.php.
+            if (!window._cfPreviewCaptureRegistered) {
+                window._cfPreviewCaptureRegistered = true;
+                document.addEventListener('submit', function (e) {
+                    if (!e.target || !e.target.classList.contains('cf-form')) { return; }
+                    var form = e.target;
+                    var lines = [];
+                    var mFields = form.querySelectorAll('[data-cf-dest="multiple"]');
+                    for (var m = 0; m < mFields.length; m++) {
+                        var fEl = mFields[m];
+                        var lbl = fEl.getAttribute('data-cf-label') || '';
+                        var val = '';
+                        if (fEl.tagName === 'DIV') {
+                            var opts = fEl.querySelectorAll('.cf-ms-opt:checked');
+                            var vs = []; for (var v = 0; v < opts.length; v++) { vs.push(opts[v].value); }
+                            val = vs.join(', ');
+                        } else if (fEl.type === 'checkbox') {
+                            val = fEl.checked ? (fEl.value || 'yes') : '';
+                        } else {
+                            val = (fEl.value || '').trim();
+                        }
+                        if (val !== '') { lines.push(lbl ? lbl + ': ' + val : val); }
+                    }
+                    var qcEl = form.querySelector('[name="quote_content"]');
+                    if (qcEl) { qcEl.value = lines.join('\n'); }
+                }, true);
+            }
+            if (r.ghl_tracking_id && !document.querySelector('script[data-tracking-id]')) {
+                var ghlScript = document.createElement('script');
+                ghlScript.src = 'https://go.clickfuzz.com/js/external-tracking.js';
+                ghlScript.setAttribute('data-tracking-id', r.ghl_tracking_id);
+                document.head.appendChild(ghlScript);
+            }
             // Bind directly to the injected form — do not rely on delegation.
             body.find('.cf-form').on('submit', function (e) {
                 e.preventDefault();
-                e.stopPropagation();
                 var formEl    = this;
                 var fid       = formEl.getAttribute('data-form-id');
-                var inputs    = formEl.querySelectorAll('[name^="cf_field"]');
-                var fields    = {};
+                var inputs = formEl.querySelectorAll('input[data-cf-idx], select[data-cf-idx], textarea[data-cf-idx]');
+                var fields = {};
                 for (var i = 0; i < inputs.length; i++) {
-                    var inp  = inputs[i];
-                    var name = inp.name.replace(/^cf_field\[/, '').replace(/\]$/, '');
-                    fields[name] = (inp.type === 'checkbox') ? (inp.checked ? (inp.value || 'yes') : '') : inp.value;
+                    var inp = inputs[i];
+                    var idx = inp.getAttribute('data-cf-idx');
+                    fields[idx] = (inp.type === 'checkbox') ? (inp.checked ? (inp.value || 'yes') : '') : inp.value;
                 }
-                var groups = formEl.querySelectorAll('[data-cf-idx]');
+                var groups = formEl.querySelectorAll('.cf-multi-select[data-cf-idx]');
                 for (var j = 0; j < groups.length; j++) {
                     var grp  = groups[j];
                     var idx  = grp.getAttribute('data-cf-idx');

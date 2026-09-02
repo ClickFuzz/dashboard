@@ -73,7 +73,7 @@ All GHL field mappings go through the `tblpitchsnap_ghl_destinations` table (add
 
 ## Confirmed Working
 
-*(none — not yet deployed to production)*
+*(pending user end-to-end verification of GHL contact creation via External Tracking)*
 
 ---
 
@@ -117,7 +117,7 @@ Select/multi_select have an options input row in the form builder.
 
 ## In Progress
 
-*(nothing — all implemented, awaiting deploy + test)*
+GHL External Tracking end-to-end verification — all code deployed, user testing form preview.
 
 ---
 
@@ -141,18 +141,16 @@ Select/multi_select have an options input row in the form builder.
 
 ## Next
 
-1. Deploy to production and test:
-   - Site detail → Forms tab → **Custom GHL Fields** → add a site-specific destination (use a real GHL custom field key from the sub-account).
-   - Return to Forms → New Form → verify the site-specific destination appears in the dropdown under "Single Input" (marked ✦).
-   - Save a form with the custom destination mapped → submit from the published page → verify value arrives in GHL on the correct custom field.
-   - Admin Settings → GHL Destinations → add/edit/delete a global destination — verify it appears/disappears in the form builder.
-   - Test Single Input deduplication: select same destination in two rows → verify second row shows "(in use)".
-   - Submit form → verify Quote Content custom field receives aggregated values.
-2. Confirm the GHL custom field key format required by this client's sub-account (`custom.{key}` vs plain UUID).
-3. Verify QRC submission reaches GHL correctly (requires `pitchsnap_qrc_ghl_{md5(location_id)}` pre-configured).
+1. **Confirm GHL contact creation via form preview** — open any site's Forms tab, preview a form, fill email + name + the two quote_content fields, submit. Verify a contact appears in GHL with the bundled quote_content value.
+2. If contact appears → commit all 6 changed files, update PASSDOWN, merge to main.
+3. Test on a published page (not just admin preview) — submit form, verify GHL receives contact + quote_content.
+4. Site detail → Forms tab → **Custom GHL Fields** → add a site-specific destination → verify it appears in the form builder dropdown (marked ✦).
+5. Test Single Input deduplication: select same destination in two rows → verify second row shows "(in use)".
+6. Confirm GHL custom field key format for this sub-account (`custom.{key}` vs plain UUID).
 
 ---
 
 ## History
 
+- **2026-09-02:** GHL External Tracking wiring — preview modal now injects `https://go.clickfuzz.com/js/external-tracking.js` with the site's `tk_` tracking ID. Capture-phase `quote_content` aggregation listener registered in preview before GHL script loads (mirrors `runtime_js.php` pattern). Removed `e.stopPropagation()` from preview submit handler (was blocking GHL's document-level listener). Fixed preview field collection to use `data-cf-idx` (was missing semantic-named fields). Removed dead server-side GHL payload methods (`_build_ghl_payload`, `_get_qrc_field_id`, `$GHL_STANDARD_KEYS`). Fixed wrong tracking script URL in `runtime_js.php` (was `link.msgsndr.com/form_embed.js`, now `go.clickfuzz.com/external-tracking.js`). All 6 files deployed, uncommitted.
 - **2026-09-01:** Full GHL Destination Registry — DB schema (v26), model CRUD, admin UI (settings tab + per-site custom fields panel in Forms tab), form builder rewrite (destination-aware with deduplication), runtime index-based submission routing. All on `claude/lead-capture`, not yet deployed.

@@ -571,6 +571,34 @@
 (function () {
     'use strict';
 
+    // Registered synchronously so it runs before the GHL External Tracking script
+    // (injected below after form load). Aggregates fields marked data-cf-dest="multiple"
+    // into the hidden quote_content textarea so GHL reads the assembled value.
+    document.addEventListener('submit', function (e) {
+        if (!e.target || !e.target.classList.contains('cf-form')) { return; }
+        var form  = e.target;
+        var lines = [];
+        var mFields = form.querySelectorAll('[data-cf-dest="multiple"]');
+        for (var i = 0; i < mFields.length; i++) {
+            var fEl   = mFields[i];
+            var lbl   = fEl.getAttribute('data-cf-label') || '';
+            var val   = '';
+            if (fEl.tagName === 'DIV') {
+                var opts = fEl.querySelectorAll('.cf-ms-opt:checked');
+                var vs = [];
+                for (var j = 0; j < opts.length; j++) { vs.push(opts[j].value); }
+                val = vs.join(', ');
+            } else if (fEl.type === 'checkbox') {
+                val = fEl.checked ? (fEl.value || 'yes') : '';
+            } else {
+                val = (fEl.value || '').trim();
+            }
+            if (val !== '') { lines.push(lbl ? lbl + ': ' + val : val); }
+        }
+        var qcEl = form.querySelector('[name="quote_content"]');
+        if (qcEl) { qcEl.value = lines.join('\n'); }
+    }, true);
+
     var BASE_URL = '<?php echo addslashes(rtrim(base_url("pitchsnap"), "/")); ?>/';
 
     var FORM_CSS = [
@@ -610,6 +638,17 @@
         return sc ? (sc.getAttribute('data-redesign-token') || '') : '';
     }
 
+    var _ghlInjected = false;
+
+    function _injectGhlTracking(trackingId) {
+        if (_ghlInjected || !trackingId) { return; }
+        _ghlInjected = true;
+        var s = document.createElement('script');
+        s.src = 'https://go.clickfuzz.com/js/external-tracking.js';
+        s.setAttribute('data-tracking-id', trackingId);
+        document.head.appendChild(s);
+    }
+
     function fetchForm(formId, callback) {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', BASE_URL + 'form_render/' + formId, true);
@@ -617,7 +656,10 @@
             if (xhr.readyState !== 4) { return; }
             try {
                 var data = JSON.parse(xhr.responseText);
-                if (data.success) { callback(data.html); }
+                if (data.success) {
+                    if (data.ghl_tracking_id) { _injectGhlTracking(data.ghl_tracking_id); }
+                    callback(data.html);
+                }
             } catch (e) {}
         };
         xhr.send();
@@ -626,26 +668,27 @@
     function submitForm(formEl) {
         var formId    = formEl.getAttribute('data-form-id');
         var siteToken = getSiteToken();
-        var inputs    = formEl.querySelectorAll('[name^="cf_field"]');
         var fields    = {};
 
+        // Collect regular inputs by data-cf-idx (semantic names no longer break collection)
+        var inputs = formEl.querySelectorAll('input[data-cf-idx], textarea[data-cf-idx], select[data-cf-idx]');
         for (var i = 0; i < inputs.length; i++) {
-            var inp  = inputs[i];
-            var name = inp.name.replace(/^cf_field\[/, '').replace(/\]$/, '');
+            var inp = inputs[i];
+            var idx = inp.getAttribute('data-cf-idx');
             if (inp.type === 'checkbox') {
-                fields[name] = inp.checked ? (inp.value || 'yes') : '';
+                fields[idx] = inp.checked ? (inp.value || 'yes') : '';
             } else {
-                fields[name] = inp.value;
+                fields[idx] = inp.value;
             }
         }
 
-        // Collect multi-select groups (indexed by form field position)
-        var multiGroups = formEl.querySelectorAll('[data-cf-idx]');
+        // Collect multi-select groups (div containers with data-cf-idx)
+        var multiGroups = formEl.querySelectorAll('div[data-cf-idx]');
         for (var j = 0; j < multiGroups.length; j++) {
-            var group   = multiGroups[j];
+            var group    = multiGroups[j];
             var fieldIdx = group.getAttribute('data-cf-idx');
-            var checked = group.querySelectorAll('.cf-ms-opt:checked');
-            var vals    = [];
+            var checked  = group.querySelectorAll('.cf-ms-opt:checked');
+            var vals     = [];
             for (var k = 0; k < checked.length; k++) { vals.push(checked[k].value); }
             fields[fieldIdx] = vals.join(', ');
         }

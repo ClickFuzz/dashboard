@@ -616,6 +616,7 @@ class Pitchsnap_runtime extends CI_Controller
             'create_subscription' => 'stripe',
             'purchase'            => 'sales',
             'accept_agreement'    => 'sales',
+            'ghl_form'            => 'ghl',
         ];
         return $map[$context] ?? null;
     }
@@ -1076,31 +1077,56 @@ class Pitchsnap_runtime extends CI_Controller
         $settings = json_decode($form->settings ?? '{}', true) ?: [];
         $submit_label = htmlspecialchars($settings['submit_label'] ?? 'Submit', ENT_QUOTES, 'UTF-8');
 
+        // Standard GHL contact field name map (ghl_field value → semantic HTML name)
+        $std_name_map = [
+            'first_name' => 'first_name',
+            'firstName'  => 'first_name',
+            'last_name'  => 'last_name',
+            'lastName'   => 'last_name',
+            'email'      => 'email',
+            'phone'      => 'phone',
+        ];
+
         $html  = '<form class="cf-form" data-form-id="' . $form_id . '" novalidate>';
         $html .= '<input type="text" name="cf_trap" style="display:none!important" tabindex="-1" autocomplete="off">';
 
         $allowed_types = ['text','email','phone','textarea','number','select','multi_select','date','checkbox'];
         foreach ($fields as $idx => $field) {
-            $label    = htmlspecialchars($field['label'] ?? '', ENT_QUOTES, 'UTF-8');
-            $type     = in_array($field['type'] ?? '', $allowed_types, true) ? $field['type'] : 'text';
-            $required = !empty($field['required']);
-            $req_attr = $required ? ' required' : '';
-            $req_mark = $required ? ' <span class="cf-required">*</span>' : '';
-            $options  = is_array($field['options'] ?? null) ? $field['options'] : [];
+            $label     = htmlspecialchars($field['label'] ?? '', ENT_QUOTES, 'UTF-8');
+            $type      = in_array($field['type'] ?? '', $allowed_types, true) ? $field['type'] : 'text';
+            $required  = !empty($field['required']);
+            $req_attr  = $required ? ' required' : '';
+            $req_mark  = $required ? ' <span class="cf-required">*</span>' : '';
+            $options   = is_array($field['options'] ?? null) ? $field['options'] : [];
+            $ghl_key   = trim((string) ($field['ghl_field']    ?? ''));
+            $dest_mode = trim((string) ($field['ghl_dest_mode'] ?? ''));
+
+            // Stable HTML name for GHL External Tracking
+            if ($dest_mode === 'single' && isset($std_name_map[$ghl_key])) {
+                $field_name = $std_name_map[$ghl_key];
+            } elseif ($dest_mode === 'single' && $ghl_key !== '') {
+                $field_name = $ghl_key;
+            } else {
+                $field_name = 'cf_field[' . $idx . ']';
+            }
+
+            $data_idx   = ' data-cf-idx="' . $idx . '"';
+            $data_dest  = ($dest_mode === 'multiple') ? ' data-cf-dest="multiple"' : '';
+            $data_label = ($dest_mode === 'multiple') ? ' data-cf-label="' . $label . '"' : '';
 
             $html .= '<div class="cf-field">';
 
             if ($type === 'checkbox') {
                 $html .= '<label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;">';
-                $html .= '<input type="checkbox" name="cf_field[' . $idx . ']" value="yes"' . $req_attr . ' style="width:auto;margin:0;">';
+                $html .= '<input type="checkbox" name="' . $field_name . '" value="yes"' . $req_attr . $data_idx . $data_dest . $data_label . ' style="width:auto;margin:0;">';
                 $html .= ' ' . $label . $req_mark;
                 $html .= '</label>';
             } elseif ($type === 'textarea') {
                 $html .= '<label>' . $label . $req_mark . '</label>';
-                $html .= '<textarea name="cf_field[' . $idx . ']" rows="4"' . $req_attr . '></textarea>';
+                $html .= '<textarea name="' . $field_name . '" rows="4"' . $req_attr . $data_idx . $data_dest . $data_label . '></textarea>';
             } elseif ($type === 'select') {
                 $html .= '<label>' . $label . $req_mark . '</label>';
-                $html .= '<select name="cf_field[' . $idx . ']"' . $req_attr . '>';
+                $html .= '<select name="' . $field_name . '"' . $req_attr . $data_idx . $data_dest . $data_label . '>';
                 $html .= '<option value="">— Select —</option>';
                 foreach ($options as $opt) {
                     $os = htmlspecialchars((string) $opt, ENT_QUOTES, 'UTF-8');
@@ -1109,7 +1135,7 @@ class Pitchsnap_runtime extends CI_Controller
                 $html .= '</select>';
             } elseif ($type === 'multi_select') {
                 $html .= '<label>' . $label . $req_mark . '</label>';
-                $html .= '<div class="cf-multi-select" data-cf-idx="' . $idx . '" style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">';
+                $html .= '<div class="cf-multi-select" data-cf-idx="' . $idx . '"' . $data_dest . $data_label . ' style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">';
                 foreach ($options as $opt) {
                     $os = htmlspecialchars((string) $opt, ENT_QUOTES, 'UTF-8');
                     $html .= '<label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;margin:0;">';
@@ -1121,17 +1147,21 @@ class Pitchsnap_runtime extends CI_Controller
             } else {
                 $html_type = ($type === 'phone') ? 'tel' : $type;
                 $html .= '<label>' . $label . $req_mark . '</label>';
-                $html .= '<input type="' . $html_type . '" name="cf_field[' . $idx . ']"' . $req_attr . '>';
+                $html .= '<input type="' . $html_type . '" name="' . $field_name . '"' . $req_attr . $data_idx . $data_dest . $data_label . '>';
             }
 
             $html .= '</div>';
         }
 
+        // Hidden textarea populated by the document capture listener before GHL reads the form
+        $html .= '<textarea name="quote_content" style="display:none!important" aria-hidden="true" tabindex="-1"></textarea>';
         $html .= '<div class="cf-field"><button type="submit" class="cf-submit">' . $submit_label . '</button></div>';
         $html .= '<div class="cf-msg" style="display:none"></div>';
         $html .= '</form>';
 
-        return $this->_json(['success' => true, 'html' => $html, 'form_id' => $form_id]);
+        $ghl_tracking_id = (string) (get_option('pitchsnap_ghl_tracking_id_' . (int) $form->site_id) ?: '');
+
+        return $this->_json(['success' => true, 'html' => $html, 'form_id' => $form_id, 'ghl_tracking_id' => $ghl_tracking_id]);
     }
 
     /**
@@ -1210,46 +1240,16 @@ class Pitchsnap_runtime extends CI_Controller
         $ghl_contact_id = null;
         $site_id        = $site ? (int) $site->id : (int) $form->site_id;
 
-        // Route through GHL
+        // Lead delivery is via GHL External Tracking (client-side). Webhook remains available.
         if ($site) {
-            require_once FCPATH . 'modules/pitchsnap/models/Pitchsnap_ghl_model.php';
-            $ghl_model = new Pitchsnap_ghl_model();
-            $location  = $ghl_model->get_by_site($site_id);
-
-            if ($location && $location->status === 'connected') {
-                require_once FCPATH . 'modules/pitchsnap/libraries/Pitchsnap_ghl.php';
-                $ghl = new Pitchsnap_ghl();
-                if ($ghl->is_configured()) {
-                    $contact_payload = $this->_build_ghl_payload($form_fields, $clean, $location->ghl_location_id);
-                    $result          = $ghl->create_contact($location->ghl_location_id, $contact_payload);
-
-                    // If full payload fails, retry with standard contact fields only.
-                    if (!$result['success'] && !empty($contact_payload['customField'])) {
-                        $fallback = $contact_payload;
-                        unset($fallback['customField']);
-                        $result = $ghl->create_contact($location->ghl_location_id, $fallback);
-                        if ($result['success']) {
-                            log_activity('ClickFuzz Forms: custom fields failed; submitted standard contact fields only [form_id:' . $form_id . ']');
-                        }
-                    }
-
-                    if ($result['success']) {
-                        $ghl_contact_id = $result['contact_id'] ?? null;
-                    } else {
-                        log_activity('ClickFuzz Forms: GHL contact create failed [form_id:' . $form_id . ', error:' . ($result['error'] ?? '') . ']');
-                    }
-                }
-            }
-
-            // Webhook fallback (always send if configured)
             $webhook_url = get_option('pitchsnap_ghl_form_webhook_url');
             if ($webhook_url) {
                 $this->_post_webhook($webhook_url, [
-                    'form_id'     => $form_id,
-                    'form_name'   => $form->name,
-                    'site_id'     => $site_id,
-                    'fields'      => $clean,
-                    'submitted_at'=> date('c'),
+                    'form_id'      => $form_id,
+                    'form_name'    => $form->name,
+                    'site_id'      => $site_id,
+                    'fields'       => $clean,
+                    'submitted_at' => date('c'),
                 ]);
             }
         }
@@ -1265,126 +1265,6 @@ class Pitchsnap_runtime extends CI_Controller
         $success_message = $settings['success_message'] ?? 'Thank you! We\'ll be in touch soon.';
 
         return $this->_json(['success' => true, 'message' => $success_message]);
-    }
-
-    // Standard GHL contact field keys (camelCase native + legacy snake_case aliases).
-    private static $GHL_STANDARD_KEYS = [
-        'firstName'   => 'firstName',
-        'lastName'    => 'lastName',
-        'email'       => 'email',
-        'phone'       => 'phone',
-        'name'        => 'name',
-        'address1'    => 'address1',
-        'city'        => 'city',
-        'state'       => 'state',
-        'postalCode'  => 'postalCode',
-        'website'     => 'website',
-        'companyName' => 'companyName',
-        // Legacy snake_case aliases from previous hardcoded list
-        'full_name'   => 'name',
-        'first_name'  => 'firstName',
-        'last_name'   => 'lastName',
-        'address'     => 'address1',
-        'zip'         => 'postalCode',
-    ];
-
-    // Routes form fields to a GHL contact payload using the destination registry.
-    // $form_fields: decoded JSON field definitions (with ghl_field, ghl_dest_mode).
-    // $submitted: field values keyed by form field index.
-    private function _build_ghl_payload(array $form_fields, array $submitted, $location_id)
-    {
-        $payload    = ['locationId' => $location_id];
-        $custom     = [];
-        $aggregates = []; // ghl_key => lines[]
-
-        // Detect whether this form uses the new destination system (any field with ghl_dest_mode)
-        $uses_dest_system = false;
-        foreach ($form_fields as $ff) {
-            if (isset($ff['ghl_dest_mode'])) { $uses_dest_system = true; break; }
-        }
-
-        foreach ($form_fields as $idx => $ff) {
-            $ghl_key   = trim((string) ($ff['ghl_field']    ?? ''));
-            $dest_mode = trim((string) ($ff['ghl_dest_mode'] ?? ''));
-            $label     = trim((string) ($ff['label']         ?? ''));
-            $val       = $submitted[$idx] ?? null;
-            if ($val === null) { continue; }
-
-            $formatted = is_array($val)
-                ? implode(', ', array_filter(array_map('strval', $val)))
-                : trim((string) $val);
-
-            if ($dest_mode === 'multiple') {
-                if ($formatted === '' || $ghl_key === '') { continue; }
-                if (!isset($aggregates[$ghl_key])) { $aggregates[$ghl_key] = []; }
-                $display = $label !== '' ? $label : $ghl_key;
-                $aggregates[$ghl_key][] = $display . ': ' . $formatted;
-
-            } elseif ($dest_mode === 'single') {
-                if ($ghl_key === '' || $formatted === '') { continue; }
-                if (isset(self::$GHL_STANDARD_KEYS[$ghl_key])) {
-                    $payload[self::$GHL_STANDARD_KEYS[$ghl_key]] = $formatted;
-                } else {
-                    $custom[] = ['id' => $ghl_key, 'value' => $formatted];
-                }
-
-            } else {
-                // Legacy field (no ghl_dest_mode): only route standard contact keys to payload.
-                // Non-standard legacy keys are collected below for legacy QRC.
-                if ($ghl_key !== '' && isset(self::$GHL_STANDARD_KEYS[$ghl_key]) && $formatted !== '') {
-                    $payload[self::$GHL_STANDARD_KEYS[$ghl_key]] = $formatted;
-                }
-            }
-        }
-
-        // Attach aggregated Multiple Input destinations as GHL custom fields.
-        foreach ($aggregates as $agg_key => $lines) {
-            if (!empty($lines)) {
-                $custom[] = ['id' => $agg_key, 'value' => implode("\n", $lines)];
-            }
-        }
-
-        // Legacy QRC: for forms without ghl_dest_mode, build old-style aggregation.
-        if (!$uses_dest_system) {
-            $contact_keys  = array_keys(self::$GHL_STANDARD_KEYS);
-            $legacy_lines  = [];
-            foreach ($form_fields as $idx => $ff) {
-                $ghl_key = trim((string) ($ff['ghl_field'] ?? ''));
-                $label   = trim((string) ($ff['label']     ?? ''));
-                if ($ghl_key === '' || in_array($ghl_key, $contact_keys, true)) { continue; }
-                $raw = $submitted[$idx] ?? null;
-                if ($raw === null) { continue; }
-                $fmt = is_array($raw)
-                    ? implode(', ', array_filter(array_map('strval', $raw)))
-                    : trim((string) $raw);
-                if ($fmt === '') { continue; }
-                $legacy_lines[] = ($label !== '' ? $label : $ghl_key) . ': ' . $fmt;
-            }
-            if (!empty($legacy_lines)) {
-                $qrc_id = $this->_get_qrc_field_id($location_id);
-                if ($qrc_id) {
-                    $custom[] = ['id' => $qrc_id, 'value' => implode("\n", $legacy_lines)];
-                }
-            }
-        }
-
-        if (!empty($custom)) { $payload['customField'] = $custom; }
-
-        // Split full name into firstName/lastName if only `name` was provided.
-        if (!empty($payload['name']) && empty($payload['firstName'])) {
-            $parts = explode(' ', $payload['name'], 2);
-            $payload['firstName'] = $parts[0];
-            if (!empty($parts[1])) { $payload['lastName'] = $parts[1]; }
-        }
-
-        return $payload;
-    }
-
-    // Returns the cached GHL custom field UUID for legacy QRC submissions (no auto-create).
-    private function _get_qrc_field_id($location_id)
-    {
-        $cached = get_option('pitchsnap_qrc_ghl_' . md5($location_id));
-        return ($cached !== false && $cached !== '') ? $cached : null;
     }
 
     private function _post_webhook($url, array $data)

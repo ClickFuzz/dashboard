@@ -80,6 +80,19 @@
 
                         <div id="ps_ghl_status" style="margin-top:8px; font-size:12px;"></div>
 
+                        <div style="margin-top:14px;">
+                            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">GHL External Tracking ID</label>
+                            <div class="input-group input-group-sm" style="max-width:360px;">
+                                <input type="text" id="ps_ghl_tracking_id" class="form-control"
+                                       placeholder="tk_xxxxxxxxxxxxxxxxxxxxxxxx"
+                                       value="<?php echo e(get_option('pitchsnap_ghl_tracking_id_' . (int) $site->id) ?: ''); ?>">
+                                <span class="input-group-btn">
+                                    <button class="btn btn-default btn-sm" onclick="ps_ghl_save_tracking(<?php echo (int) $site->id; ?>)">Save</button>
+                                </span>
+                            </div>
+                            <p class="text-muted" style="font-size:11px;margin-top:3px;">GHL sub-account → Settings → External Tracking → copy the <code>tk_</code> ID.</p>
+                        </div>
+
                         <?php else: ?>
                         <p class="text-muted" style="font-size:13px;">
                             <i class="fa fa-info-circle"></i>
@@ -115,6 +128,24 @@ function ps_ghl_link(site_id) {
         error: function() {
             $('#ps_ghl_status').html('<span class="text-danger">Request failed. Please try again.</span>');
         }
+    });
+}
+
+function ps_ghl_save_tracking(site_id) {
+    var val = $('#ps_ghl_tracking_id').val().trim();
+    $.ajax({
+        url: admin_url + 'pitchsnap/save_ghl_tracking_id/' + site_id,
+        type: 'POST',
+        dataType: 'json',
+        data: {
+            tracking_id: val,
+            <?php echo $this->security->get_csrf_token_name(); ?>: '<?php echo $this->security->get_csrf_hash(); ?>'
+        },
+        success: function(r) {
+            if (r.success) { alert_float('success', 'Tracking ID saved.'); }
+            else { alert_float('danger', r.message || 'Save failed.'); }
+        },
+        error: function() { alert_float('danger', 'Request failed.'); }
     });
 }
 

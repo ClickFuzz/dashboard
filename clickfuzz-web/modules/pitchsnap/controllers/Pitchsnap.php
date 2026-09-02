@@ -912,6 +912,7 @@ class Pitchsnap extends AdminController
 
     private function _save_settings()
     {
+        if (array_key_exists('pitchsnap_general_submitted', $_POST)) {
         // ── Provider selection ────────────────────────────────────────────────
         $primary  = $this->input->post('pitchsnap_primary_provider', true);
         $fallback = $this->input->post('pitchsnap_fallback_provider', true);
@@ -944,8 +945,9 @@ class Pitchsnap extends AdminController
         }
 
         // ── Operational ───────────────────────────────────────────────────────
-        // hidden+checkbox pattern ensures pitchsnap_logging_enabled is always in POST
-        update_option('pitchsnap_logging_enabled',  $this->input->post('pitchsnap_logging_enabled')  ? '1' : '0');
+        if (array_key_exists('pitchsnap_logging_enabled', $_POST)) {
+            update_option('pitchsnap_logging_enabled', $this->input->post('pitchsnap_logging_enabled') ? '1' : '0');
+        }
         update_option('pitchsnap_web_design_admin', (string)(int) $this->input->post('pitchsnap_web_design_admin', true));
 
         // ── GHL token ─────────────────────────────────────────────────────────
@@ -989,9 +991,11 @@ class Pitchsnap extends AdminController
             update_option('pitchsnap_sub_tax1',         trim((string) $this->input->post('pitchsnap_sub_tax1', true)));
             update_option('pitchsnap_sub_tax2',         trim((string) $this->input->post('pitchsnap_sub_tax2', true)));
         }
+        } // end pitchsnap_general_submitted guard
 
         if (array_key_exists('pitchsnap_log_cats_submitted', $_POST)) {
-            foreach (['stripe', 'sales', 'generation'] as $cat) {
+            update_option('pitchsnap_logging_enabled', $this->input->post('pitchsnap_logging_enabled') ? '1' : '0');
+            foreach (['stripe', 'sales', 'generation', 'ghl'] as $cat) {
                 update_option('pitchsnap_log_' . $cat, $this->input->post('pitchsnap_log_' . $cat) ? '1' : '0');
             }
         }
@@ -2411,6 +2415,21 @@ class Pitchsnap extends AdminController
         if ($this->input->method() !== 'post') { return $this->_json(['success' => false, 'message' => 'Invalid request.']); }
 
         $this->pitchsnap_model->remove_placement((int) $placement_id);
+        return $this->_json(['success' => true]);
+    }
+
+    // POST pitchsnap/save_ghl_tracking_id/{site_id}
+    public function save_ghl_tracking_id($site_id = '')
+    {
+        is_admin() || show_404();
+        if ($this->input->method() !== 'post') { return $this->_json(['success' => false], 405); }
+        $site_id     = (int) $site_id;
+        if (!$site_id) { return $this->_json(['success' => false, 'message' => 'Invalid site ID.'], 400); }
+        $tracking_id = trim((string) $this->input->post('tracking_id'));
+        if ($tracking_id !== '' && !preg_match('/^tk_[a-zA-Z0-9_-]+$/', $tracking_id)) {
+            return $this->_json(['success' => false, 'message' => 'Invalid tracking ID — must start with tk_.'], 422);
+        }
+        update_option('pitchsnap_ghl_tracking_id_' . $site_id, $tracking_id);
         return $this->_json(['success' => true]);
     }
 
