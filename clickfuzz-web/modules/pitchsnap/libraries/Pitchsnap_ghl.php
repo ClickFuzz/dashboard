@@ -27,6 +27,65 @@ class Pitchsnap_ghl
         return $this->request('GET', '/locations/' . rawurlencode($location_id));
     }
 
+    /**
+     * Search available US local phone numbers for a given location.
+     *
+     * @param  string $location_id  Agency GHL location ID
+     * @param  string $search       Digits to search (area code or partial number, min 3 chars)
+     * @param  int    $limit        Max results to return
+     * @return array  ['success' => bool, 'numbers' => array, 'error' => string|null]
+     */
+    public function search_available_numbers($location_id, $search, $limit = 10)
+    {
+        $search = preg_replace('/[^0-9]/', '', (string) $search);
+        if (strlen($search) < 3) {
+            return ['success' => false, 'numbers' => [], 'error' => 'Please enter at least 3 digits.'];
+        }
+
+        $params = http_build_query([
+            'firstPart'   => $search,
+            'numberTypes' => 'local',
+            'countryCode' => 'US',
+            'smsEnabled'  => 'true',
+            'voiceEnabled'=> 'true',
+        ]);
+
+        $path = '/phone-system/numbers/location/' . rawurlencode($location_id) . '/available?' . $params;
+        $resp = $this->request('GET', $path);
+
+        if (!$resp['success']) {
+            return ['success' => false, 'numbers' => [], 'error' => $resp['error']];
+        }
+
+        // Normalise response — API returns array at root or under a key
+        $raw = $resp['data'] ?? [];
+        if (isset($raw['available']) && is_array($raw['available'])) {
+            $raw = $raw['available'];
+        } elseif (isset($raw['numbers']) && is_array($raw['numbers'])) {
+            $raw = $raw['numbers'];
+        } elseif (!isset($raw[0])) {
+            $raw = [];
+        }
+
+        $numbers = [];
+        foreach (array_slice($raw, 0, $limit) as $item) {
+            $e164 = isset($item['phoneNumber']) ? (string) $item['phoneNumber']
+                  : (isset($item['number'])      ? (string) $item['number'] : null);
+            if (!$e164 || !preg_match('/^\+?1?[2-9]\d{9}$/', preg_replace('/[^0-9+]/', '', $e164))) {
+                continue;
+            }
+            // Normalise to E.164
+            $digits = preg_replace('/[^0-9]/', '', $e164);
+            if (strlen($digits) === 10) { $digits = '1' . $digits; }
+            $numbers[] = [
+                'e164'     => '+' . $digits,
+                'friendly' => '(' . substr($digits, 1, 3) . ') ' . substr($digits, 4, 3) . '-' . substr($digits, 7),
+            ];
+        }
+
+        return ['success' => true, 'numbers' => $numbers, 'error' => null];
+    }
+
     private function request($method, $path, $body = null)
     {
         if (!$this->is_configured()) {

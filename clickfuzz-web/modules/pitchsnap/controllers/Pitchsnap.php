@@ -954,9 +954,10 @@ class Pitchsnap extends AdminController
         update_option('pitchsnap_logging_enabled',  $this->input->post('pitchsnap_logging_enabled')  ? '1' : '0');
         update_option('pitchsnap_web_design_admin', (string)(int) $this->input->post('pitchsnap_web_design_admin', true));
 
-        // ── GHL token ─────────────────────────────────────────────────────────
+        // ── GHL token & agency location ───────────────────────────────────────
         $ghl_key = trim((string) $this->input->post('pitchsnap_ghl_api_key'));
         if ($ghl_key !== '') { update_option('pitchsnap_ghl_api_key', $ghl_key); }
+        update_option('pitchsnap_agency_location_id', trim((string) $this->input->post('pitchsnap_agency_location_id', true)));
 
         // ── Cloudflare ─────────────────────────────────────────────────────────
         $cf_token = trim((string) $this->input->post('pitchsnap_cf_api_token'));
@@ -2321,10 +2322,6 @@ class Pitchsnap extends AdminController
     public function flow_delete($id)
     {
         if (!is_admin()) { $this->_json(['success' => false]); return; }
-        if ($this->pitchsnap_model->flow_has_sections((int) $id)) {
-            $this->_json(['success' => false, 'message' => 'This flow has sections and cannot be deleted. Remove all sections first.']);
-            return;
-        }
         $ok = $this->pitchsnap_model->delete_flow((int) $id);
         $this->_json(['success' => $ok]);
     }
@@ -2386,10 +2383,6 @@ class Pitchsnap extends AdminController
     public function section_delete($id)
     {
         if (!is_admin()) { $this->_json(['success' => false]); return; }
-        if ($this->pitchsnap_model->section_has_questions((int) $id)) {
-            $this->_json(['success' => false, 'message' => 'This section has questions and cannot be deleted. Remove all questions first.']);
-            return;
-        }
         $ok = $this->pitchsnap_model->delete_section((int) $id);
         $this->_json(['success' => $ok]);
     }
@@ -2428,7 +2421,7 @@ class Pitchsnap extends AdminController
         $label      = trim($this->input->post('label'));
         $field_type = $this->input->post('field_type');
 
-        $valid_types = ['text','textarea','number','email','phone','url','select','radio','checkbox','yes_no','question_builder','file'];
+        $valid_types = ['text','textarea','number','email','phone','url','select','radio','checkbox','yes_no','question_builder','file','phone_number_picker'];
         if (!$section_id) { $this->_json(['success' => false, 'message' => 'Invalid section']); return; }
         if ($label === '') { $this->_json(['success' => false, 'message' => 'Label is required']); return; }
         if (!in_array($field_type, $valid_types, true)) { $this->_json(['success' => false, 'message' => 'Invalid field type']); return; }
@@ -2499,6 +2492,34 @@ class Pitchsnap extends AdminController
             $options_json = (is_array($decoded) && !empty($decoded)) ? json_encode(array_values($decoded)) : null;
         }
 
+        $extraction_map_json = null;
+        if ($field_type === 'file') {
+            $raw_map = $this->input->post('extraction_map_json');
+            if ($raw_map && $raw_map !== 'null') {
+                $map = json_decode($raw_map, true);
+                if (is_array($map) && !empty($map)) {
+                    $allowed_fields = ['business_name','ein','street_address','city','state','postal_code'];
+                    $flow_keys = [];
+                    foreach ($this->pitchsnap_model->get_questions_in_flow_sequence((int) $section['flow_id']) as $fq) {
+                        if (!empty($fq['data_key'])) { $flow_keys[] = $fq['data_key']; }
+                    }
+                    $valid_rows = [];
+                    foreach ($map as $row) {
+                        $ef = isset($row['extraction_field']) ? $row['extraction_field'] : '';
+                        $dk = isset($row['data_key'])         ? trim($row['data_key'])   : '';
+                        if (!in_array($ef, $allowed_fields, true)) { continue; }
+                        if (!preg_match('/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/', $dk)) { continue; }
+                        if (!in_array($dk, $flow_keys, true)) {
+                            $this->_json(['success' => false, 'message' => 'Extraction target "' . $dk . '" is not a question in this flow.']);
+                            return;
+                        }
+                        $valid_rows[] = ['extraction_field' => $ef, 'data_key' => $dk];
+                    }
+                    $extraction_map_json = !empty($valid_rows) ? json_encode($valid_rows) : null;
+                }
+            }
+        }
+
         $payload = [
             'label'                => $label,
             'data_key'             => $data_key,
@@ -2507,6 +2528,7 @@ class Pitchsnap extends AdminController
             'field_type'           => $field_type,
             'required'             => $this->input->post('required') === '1' ? 1 : 0,
             'options_json'         => $options_json,
+            'extraction_map_json'  => $extraction_map_json,
             'condition_question_id'=> $condition_question_id ?: null,
             'condition_operator'   => $condition_question_id ? $condition_operator : null,
             'condition_value'      => $condition_question_id ? $condition_value    : null,

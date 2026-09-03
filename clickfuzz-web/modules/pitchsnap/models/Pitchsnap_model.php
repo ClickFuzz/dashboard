@@ -1536,7 +1536,12 @@ class Pitchsnap_model extends App_Model
 
     public function delete_flow($id)
     {
-        $this->db->delete($this->flow_table, ['id' => (int) $id]);
+        $id = (int) $id;
+        $sections = $this->db->where('flow_id', $id)->get($this->section_table)->result_array();
+        foreach ($sections as $sec) {
+            $this->_delete_section_cascade((int) $sec['id']);
+        }
+        $this->db->delete($this->flow_table, ['id' => $id]);
         return $this->db->affected_rows() > 0;
     }
 
@@ -1588,8 +1593,20 @@ class Pitchsnap_model extends App_Model
 
     public function delete_section($id)
     {
-        $this->db->delete($this->section_table, ['id' => (int) $id]);
+        $this->_delete_section_cascade((int) $id);
         return $this->db->affected_rows() > 0;
+    }
+
+    private function _delete_section_cascade($section_id)
+    {
+        $section_id = (int) $section_id;
+        $q_ids = $this->db->select('id')->where('section_id', $section_id)
+                          ->get($this->question_table)->result_array();
+        foreach ($q_ids as $row) {
+            $this->db->delete($this->question_tags_table, ['question_id' => (int) $row['id']]);
+        }
+        $this->db->delete($this->question_table, ['section_id' => $section_id]);
+        $this->db->delete($this->section_table, ['id' => $section_id]);
     }
 
     public function move_section($id, $direction)

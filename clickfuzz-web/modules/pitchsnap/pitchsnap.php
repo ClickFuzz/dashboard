@@ -176,7 +176,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 39) {
+    if ((int) get_option('pitchsnap_db_version') >= 41) {
         return;
     }
 
@@ -1517,11 +1517,70 @@ function clickfuzz_web_db_upgrade()
         }
     }
 
+    // v40: extraction_map_json on onboarding questions + CP-575 seed mappings
+    $tq40 = db_prefix() . 'pitchsnap_onboarding_questions';
+    if ($CI->db->table_exists($tq40)) {
+        if (!$CI->db->field_exists('extraction_map_json', $tq40)) {
+            $CI->db->query("ALTER TABLE `{$tq40}` ADD COLUMN `extraction_map_json` TEXT DEFAULT NULL AFTER `options_json`");
+        }
+        // Seed CP-575 extraction mappings on the business.irs_document question (idempotent)
+        $cp575_map = json_encode([
+            ['extraction_field' => 'business_name',  'data_key' => 'business.legal_name'],
+            ['extraction_field' => 'ein',            'data_key' => 'business.registration_number'],
+            ['extraction_field' => 'street_address', 'data_key' => 'business.address.street'],
+            ['extraction_field' => 'city',           'data_key' => 'business.address.city'],
+            ['extraction_field' => 'state',          'data_key' => 'business.address.state'],
+            ['extraction_field' => 'postal_code',    'data_key' => 'business.address.postal_code'],
+        ]);
+        $CI->db->query(
+            "UPDATE `{$tq40}` SET `extraction_map_json` = ? WHERE `data_key` = 'business.irs_document' AND (`extraction_map_json` IS NULL OR `extraction_map_json` = '')",
+            [$cp575_map]
+        );
+    }
+
+    // v41: seed phone_number_picker question into "Leads & Notifications" section of Local Business Website flow
+    $tq41 = db_prefix() . 'pitchsnap_onboarding_questions';
+    $ts41 = db_prefix() . 'pitchsnap_onboarding_sections';
+    $tf41 = db_prefix() . 'pitchsnap_onboarding_flows';
+    if ($CI->db->table_exists($tq41) && $CI->db->table_exists($ts41) && $CI->db->table_exists($tf41)) {
+        // Only insert if phone.preferred_number does not yet exist in any section of the LBW flow
+        $lbw_flow = $CI->db->where('name', 'Local Business Website')->get($tf41)->row_array();
+        if ($lbw_flow) {
+            $lbw_flow_id = (int) $lbw_flow['id'];
+            // Check idempotency: skip if data_key already exists in this flow
+            $existing_dk = $CI->db
+                ->select('tq.id')
+                ->from("{$tq41} tq")
+                ->join("{$ts41} ts", 'ts.id = tq.section_id')
+                ->where('ts.flow_id', $lbw_flow_id)
+                ->where('tq.data_key', 'phone.preferred_number')
+                ->get()->row_array();
+            if (!$existing_dk) {
+                // Find the "Leads & Notifications" section
+                $ln_sec = $CI->db->where('flow_id', $lbw_flow_id)->where('name', 'Leads & Notifications')->get($ts41)->row_array();
+                if ($ln_sec) {
+                    $CI->db->insert($tq41, [
+                        'section_id'  => (int) $ln_sec['id'],
+                        'label'       => 'Preferred Phone Number',
+                        'help_text'   => 'Search and select a US local phone number for your business.',
+                        'field_type'  => 'phone_number_picker',
+                        'data_key'    => 'phone.preferred_number',
+                        'purpose'     => 'data',
+                        'required'    => 0,
+                        'sort_order'  => 25,
+                        'created_at'  => date('Y-m-d H:i:s'),
+                        'updated_at'  => date('Y-m-d H:i:s'),
+                    ]);
+                }
+            }
+        }
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '39');
+        add_option('pitchsnap_db_version', '41');
     } else {
-        update_option('pitchsnap_db_version', '39');
+        update_option('pitchsnap_db_version', '41');
     }
 }
 

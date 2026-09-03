@@ -34,6 +34,12 @@ Post-purchase customer setup: collecting everything needed to finalize and maint
 
 **Phase 1I implemented and deployed.** Automatic onboarding link creation + onboarding email on successful payment (both one-time and subscription). Idempotent via `onboarding_link_id` on `tblpitchsnap_sites` (DB v38).
 
+**DB schema v39:** One-time idempotent seed of the `Local Business Website` flow — 8 sections, 42 questions, usage-tag assignments, `website.platform` conditional on `website.builder_access`. Sets `pitchsnap_onboarding_flow_id` option if previously unset.
+
+**DB schema v40 + file extraction:** `extraction_map_json` column on `tblpitchsnap_onboarding_questions`. File questions can map AI-extracted fields to other question data_keys. CP-575 extraction seeded on `business.irs_document`. Deployed to production; migration fires on next admin page load.
+
+**DB schema v41 + phone number picker (2026-09-03):** New `phone_number_picker` field type. GHL number inventory search (`Pitchsnap_ghl::search_available_numbers`), server-side `onboarding_phone_search` endpoint (token-validated, CSRF-excluded, agency location ID from admin settings), wizard picker UI with debounced search + result selection, save/resume support. `pitchsnap_agency_location_id` admin setting added. `phone.preferred_number` question seeded into Local Business Website "Leads & Notifications" section (sort_order 25). Deployed to production; migration fires on next admin page load.
+
 **Phase 1I changes:**
 
 - **DB v38:** `onboarding_link_id INT DEFAULT NULL` added to `tblpitchsnap_sites` (idempotency marker).
@@ -87,7 +93,10 @@ Post-purchase customer setup: collecting everything needed to finalize and maint
 
 ## In Progress
 
-- Phase 1I deployed; pending production test (configure a flow in Settings → Onboarding, run a test purchase, verify link created + email sent + idempotency on re-fire).
+- **DB v39–v41 deployed** — migrations fire on next admin page load. v39 seeds flow; v40 adds extraction; v41 seeds phone_number_picker question.
+- **File extraction feature deployed** — pending production test: upload CP-575 to wizard, verify AI extraction populates site_data.
+- **Phone number picker deployed** — pending production test: configure `pitchsnap_agency_location_id` in settings, open wizard, search numbers, select one, submit.
+- Phase 1I deployed; pending production test (trigger test purchase, verify onboarding email + link created).
 
 ---
 
@@ -133,15 +142,21 @@ Post-purchase customer setup: collecting everything needed to finalize and maint
 
 ## Production Status
 
-Phases 1G-D, 1G-E, 1H, and 1I all deployed. Migration v38 runs automatically on next admin page load (`onboarding_link_id` on `tblpitchsnap_sites`). `pitchsnap-onboarding` email template seeded on next page load. Pending production test of 1I (set flow in settings, trigger a payment, verify link + email + idempotency).
+All through DB v41 deployed. Migration fires on next admin page load. Pending: configure agency location ID, test phone picker, test extraction, full walkthrough.
 
 ---
 
 ## Next
 
-1. **Production test Phase 1I:** Set an active flow in Settings → Onboarding. Run a test purchase (or trigger `subscription_complete` / `payment_complete` directly). Verify: onboarding link created, `Onboarding Email` received, `{{onboarding-link}}` resolves, link appears in site's Onboarding admin tab. Re-fire the payment handler → verify no duplicate link or email.
-2. Commit Phase 1I work on `claude/onboarding`, merge to `main`.
-3. **Phase 1J (future):** Trigger GHL contact creation / A2P registration after onboarding completion (out of scope for this phase).
+1. **Trigger migration:** Load any Perfex admin page → v39–v41 run. Confirm `Local Business Website` "Leads & Notifications" section now has `phone.preferred_number` question (type `phone_number_picker`).
+2. **Configure agency location ID:** Go to **Settings → GoHighLevel** → set `Agency Location ID` to the GHL location that owns available phone number inventory.
+3. **Test phone picker:** Open onboarding wizard, navigate to Leads & Notifications section, search by area code (e.g. `512`), select a number, verify the E.164 value saves to `site_data` on step save/submit.
+4. **Test GHL outage graceful degrade:** Temporarily blank the agency location ID, verify picker shows "temporarily unavailable" message without erroring.
+5. **Test extraction:** Upload a real IRS CP-575 PDF to the wizard's IRS Document question. Verify: (a) upload succeeds, (b) business name, EIN, address fields populate in site_data, (c) later wizard fields prefill.
+6. **Test re-upload safety:** Manually enter a value in `business.legal_name`, re-upload document — confirm existing value is preserved.
+7. **Run full onboarding walkthrough:** All questions, submit, verify site_data populated.
+8. **Production test Phase 1I:** Trigger a test purchase, verify onboarding email + link auto-created.
+9. Merge to main after tests pass.
 
 ---
 
@@ -160,4 +175,7 @@ Phases 1G-D, 1G-E, 1H, and 1I all deployed. Migration v38 runs automatically on 
 - **2026-09-02** — Phase 1H implemented and deployed: DB v37 adds `completed_at` to `tblpitchsnap_onboarding_links`; `onboarding_submit()` sets `completed_at` on first completion only; `get_onboarding_links_for_site()` includes `completed_at` in SELECT; admin Onboarding tab gains Completed column, Revoke button for completed links, and badge tooltip clarifying link remains editable until revoked
 - **2026-09-02** — Phase 1I implemented and deployed: `onboarding_link_id` on `tblpitchsnap_sites` (DB v38); `_trigger_onboarding()` private method in `Pitchsnap_runtime`; called from `subscription_complete` (subscription payments) and `payment_complete` (one-time payments); `pitchsnap-onboarding` email template registered with `{{contact_firstname}}` and `{{onboarding-link}}`; `pitchsnap_onboarding_flow_id` setting with flow dropdown on admin settings page
 - **2026-09-02** — Phase 1G-E implemented: completed links reopen (only revoked blocked); `onboarding_save_progress` endpoint (validates token, loads flow questions, upserts visible submitted answers, no required-field check, no status change); wizard prefills all field types from `tblpitchsnap_site_data` (`_wiz_field` takes `$existing_val`; `question_builder` uses `data-prefill` attr + JS `_qbInit` restores rows); `wizGo()` saves current step via `wizSaveStep()` before advancing; `_ob_normalize_value()` extracted as shared helper; route added for save_progress
+- **2026-09-02** — DB v39 seeded: `Local Business Website` onboarding flow (8 sections, 42 questions, usage-tag assignments, `website.platform` conditional on `website.builder_access` via `not_equals`). Sets `pitchsnap_onboarding_flow_id` if unset. Deployed; migration fires on next admin page load.
 - **2026-09-02** — Phase 1G-D implemented: `Pitchsnap_runtime::onboarding_submit()` (JSON body POST, CSRF-free); token validation → link lookup → server-side question load → visibility evaluation (equals/not_equals/contains) → required-field check → normalize (checkbox→JSON array, question_builder→normalized JSON) → `upsert_site_data()` per visible question with data_key → mark link `completed`; wizard view wired up: Submit button enabled with `wizSubmit()`, JS collects all q_ answers as JSON (checkbox as array), POSTs to `/pitchsnap/onboarding_submit`, shows thank-you on success, inline error on failure; `_wizReportHeight()` called after both outcomes
+- **2026-09-03** — DB v40 + file extraction: `extraction_map_json TEXT` column on questions; `Pitchsnap_anthropic::extract_document()` uses vision API (image blocks for JPEG/PNG, document block + beta header for PDF); `onboarding_file_upload()` runs extraction after successful upload, only populates empty site_data targets (never overwrites), returns `extraction` key in JSON; admin question modal shows mapping UI (6 extraction fields → flow data_key selects) for file questions; wizard prefills extracted values client-side via `_wizApplyExtracted()`; `data-data-key` attr added to `.wiz-question` wrappers; CP-575 mappings seeded on `business.irs_document` question. Deployed to production; pending production test.
+- **2026-09-03** — DB v41 + phone number picker: `phone_number_picker` field type (controller, valid_types, admin dropdown, wizard rendering); `Pitchsnap_ghl::search_available_numbers()` (GHL `/phone-system/numbers/location/:id/available`); `onboarding_phone_search` public endpoint (token-validated, CSRF-excluded via `app-config.php`, server-side agency location ID — browser never sees credentials); `_ob_normalize_value` handles `phone_number_picker` → E.164 validation; wizard picker: search input, debounced 300ms JS fetch, result list with selection highlight, save/resume from stored E.164; `pitchsnap_agency_location_id` admin setting; `phone.preferred_number` seeded in LBW "Leads & Notifications" section. Deployed to production; pending production test (configure agency location ID first).

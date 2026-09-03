@@ -24,6 +24,7 @@ foreach ($questions as $_q) {
         'field_type'            => (string) $_q['field_type'],
         'required'              => (int) $_q['required'],
         'options_json'          => $_q['options_json'] ?? null,
+        'extraction_map_json'   => $_q['extraction_map_json'] ?? null,
         'data_key'              => (string) ($_q['data_key'] ?? ''),
         'purpose'               => (string) ($_q['purpose'] ?? 'data'),
         'condition_question_id' => (int) ($_q['condition_question_id'] ?? 0),
@@ -47,6 +48,7 @@ $type_labels = [
     'yes_no'           => 'Yes / No',
     'question_builder' => 'Question Builder',
     'file'             => 'File Upload',
+    'phone_number_picker' => 'Phone Number Picker',
 ];
 ?>
 <?php init_head(); ?>
@@ -125,7 +127,7 @@ td.cf-handle { cursor: grab; color: #aaa; width: 24px; text-align: center; }
                                                 <i class="fa fa-pencil"></i> Edit
                                             </button>
                                             <button type="button" class="btn btn-danger btn-xs"
-                                                onclick="cfDeleteQ(<?php echo (int) $q['id']; ?>, <?php echo json_encode($q['label']); ?>)">
+                                                onclick="cfDeleteQ(<?php echo (int) $q['id']; ?>, <?php echo htmlspecialchars(json_encode($q['label']), ENT_QUOTES); ?>)">
                                                 <i class="fa fa-trash"></i> Delete
                                             </button>
                                         </td>
@@ -175,6 +177,7 @@ td.cf-handle { cursor: grab; color: #aaa; width: 24px; text-align: center; }
                         <option value="yes_no">Yes / No</option>
                         <option value="question_builder">Question Builder</option>
                         <option value="file">File Upload</option>
+                        <option value="phone_number_picker">Phone Number Picker</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -200,6 +203,19 @@ td.cf-handle { cursor: grab; color: #aaa; width: 24px; text-align: center; }
                     <button type="button" class="btn btn-default btn-xs" onclick="cfAddOption('')">
                         <i class="fa fa-plus"></i> Add Option
                     </button>
+                </div>
+                <div id="cfExtractionSection" style="display:none;">
+                    <hr style="margin:12px 0;">
+                    <div class="form-group" style="margin-bottom:6px;">
+                        <label><input type="checkbox" id="cf_q_extract_enabled" onchange="cfExtractToggle()"> Map file contents to prefill fields</label>
+                    </div>
+                    <div id="cfExtractMappings" style="display:none;">
+                        <p class="help-block" style="font-size:11px;margin-bottom:8px;">AI will read the uploaded document and write extracted values to the selected fields. Existing non-empty values are never overwritten.</p>
+                        <div id="cfExtractRows"></div>
+                        <button type="button" class="btn btn-default btn-xs" onclick="cfAddExtractRow('','')">
+                            <i class="fa fa-plus"></i> Add Mapping
+                        </button>
+                    </div>
                 </div>
                 <hr style="margin:12px 0;">
                 <div class="form-group" style="margin-bottom:6px;">
@@ -258,6 +274,14 @@ var _cfOptionTypes  = ['select','radio','checkbox'];
 var _cfDragSrc      = null;
 var _cfFlowQuestions = <?php echo json_encode($flow_q_for_js); ?>;
 var _cfQData        = <?php echo json_encode($_q_data_for_js); ?>;
+var _cfExtractionFields = [
+    {key: 'business_name',  label: 'Legal Business Name'},
+    {key: 'ein',            label: 'EIN'},
+    {key: 'street_address', label: 'Street Address'},
+    {key: 'city',           label: 'City'},
+    {key: 'state',          label: 'State'},
+    {key: 'postal_code',    label: 'ZIP / Postal Code'},
+];
 
 function _cfPost(url, params) {
     return fetch(url, {
@@ -278,6 +302,41 @@ function _cfParams(extra) {
 function cfTypeChange() {
     var t = document.getElementById('cf_q_type').value;
     document.getElementById('cfOptionsSection').style.display = _cfOptionTypes.indexOf(t) !== -1 ? '' : 'none';
+    document.getElementById('cfExtractionSection').style.display = t === 'file' ? '' : 'none';
+    if (t !== 'file') {
+        document.getElementById('cf_q_extract_enabled').checked = false;
+        document.getElementById('cfExtractMappings').style.display = 'none';
+    }
+}
+
+function cfExtractToggle() {
+    document.getElementById('cfExtractMappings').style.display =
+        document.getElementById('cf_q_extract_enabled').checked ? '' : 'none';
+}
+
+function cfAddExtractRow(extractionField, dataKey) {
+    var container = document.getElementById('cfExtractRows');
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;align-items:center;';
+
+    var efSel = '<select class="form-control cf-ef-sel" style="flex:1;">';
+    efSel += '<option value="">— field —</option>';
+    _cfExtractionFields.forEach(function(f) {
+        efSel += '<option value="' + f.key + '"' + (f.key === extractionField ? ' selected' : '') + '>' + f.label + '</option>';
+    });
+    efSel += '</select>';
+
+    var dkSel = '<select class="form-control cf-dk-sel" style="flex:1;">';
+    dkSel += '<option value="">— target data_key —</option>';
+    _cfFlowQuestions.forEach(function(q) {
+        if (!q.data_key) { return; }
+        dkSel += '<option value="' + _esc(q.data_key) + '"' + (q.data_key === dataKey ? ' selected' : '') + '>' + _esc(q.data_key) + '</option>';
+    });
+    dkSel += '</select>';
+
+    row.innerHTML = efSel + '<span style="line-height:34px;color:#999;">&rarr;</span>' + dkSel
+        + '<button type="button" class="btn btn-default btn-xs" onclick="this.parentNode.remove()" style="flex-shrink:0;"><i class="fa fa-times"></i></button>';
+    container.appendChild(row);
 }
 
 function cfAddOption(val) {
@@ -326,6 +385,10 @@ function cfOpenNew() {
     document.getElementById('cf_q_required').checked = false;
     document.getElementById('cfOptionsList').innerHTML = '';
     document.getElementById('cfOptionsSection').style.display = 'none';
+    document.getElementById('cfExtractionSection').style.display = 'none';
+    document.getElementById('cf_q_extract_enabled').checked = false;
+    document.getElementById('cfExtractMappings').style.display = 'none';
+    document.getElementById('cfExtractRows').innerHTML = '';
     document.getElementById('cf_q_cond_enabled').checked = false;
     document.getElementById('cfCondSection').style.display = 'none';
     document.getElementById('cf_q_ctrl_op').value = 'equals';
@@ -354,6 +417,22 @@ function cfOpenEdit(id) {
             if (Array.isArray(opts)) { opts.forEach(function(o) { cfAddOption(o); }); }
         } catch(e) {}
     }
+    // Extraction mapping
+    var isFile = q.field_type === 'file';
+    document.getElementById('cfExtractionSection').style.display = isFile ? '' : 'none';
+    document.getElementById('cfExtractRows').innerHTML = '';
+    var hasMap = false;
+    if (isFile && q.extraction_map_json) {
+        try {
+            var exMap = JSON.parse(q.extraction_map_json);
+            if (Array.isArray(exMap) && exMap.length) {
+                hasMap = true;
+                exMap.forEach(function(row) { cfAddExtractRow(row.extraction_field || '', row.data_key || ''); });
+            }
+        } catch(e) {}
+    }
+    document.getElementById('cf_q_extract_enabled').checked = hasMap;
+    document.getElementById('cfExtractMappings').style.display = hasMap ? '' : 'none';
     cfPopulateControllers(q.id, q.seq_index);
     var hasCond = q.condition_question_id > 0;
     document.getElementById('cf_q_cond_enabled').checked = hasCond;
@@ -396,6 +475,22 @@ function cfSave() {
         if (!ctrlId)  { alert('Select a controlling question.'); return; }
         if (!ctrlVal) { alert('Condition value is required.'); return; }
     }
+    // Collect extraction mappings if applicable
+    var extractionMapJson = 'null';
+    if (type === 'file' && document.getElementById('cf_q_extract_enabled').checked) {
+        var exRows = [];
+        document.querySelectorAll('#cfExtractRows').forEach(function(container) {
+            container.querySelectorAll('div').forEach(function(row) {
+                var ef = row.querySelector('.cf-ef-sel');
+                var dk = row.querySelector('.cf-dk-sel');
+                if (ef && dk && ef.value && dk.value) {
+                    exRows.push({extraction_field: ef.value, data_key: dk.value});
+                }
+            });
+        });
+        if (exRows.length) { extractionMapJson = JSON.stringify(exRows); }
+    }
+
     var btn = document.getElementById('cfQSaveBtn');
     btn.disabled = true;
     var p = _cfParams({
@@ -408,6 +503,7 @@ function cfSave() {
         field_type:            type,
         required:              document.getElementById('cf_q_required').checked ? '1' : '0',
         options_json:          optionsJson,
+        extraction_map_json:   extractionMapJson,
         condition_question_id: condEnabled ? ctrlId : '',
         condition_operator:    condEnabled ? ctrlOp : '',
         condition_value:       condEnabled ? ctrlVal : ''
