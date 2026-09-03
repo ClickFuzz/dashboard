@@ -737,8 +737,10 @@
         });
     };
 
-    $('#cf-preview-modal').on('hidden.bs.modal', function () {
-        $('#cf-preview-body').empty();
+    document.addEventListener('DOMContentLoaded', function () {
+        $('#cf-preview-modal').on('hidden.bs.modal', function () {
+            $('#cf-preview-body').empty();
+        });
     });
 
     // ── Custom GHL Fields (per-site destination registry) ─────────────────
