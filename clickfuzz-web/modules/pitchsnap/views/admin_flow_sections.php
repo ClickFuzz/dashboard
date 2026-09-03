@@ -124,7 +124,7 @@ function cfPageUrlSave() {
                                                 <i class="fa fa-list"></i> Questions
                                             </a>
                                             <button type="button" class="btn btn-default btn-xs"
-                                                onclick="cfOpenEdit(<?php echo (int) $s['id']; ?>, <?php echo json_encode($s['name']); ?>, <?php echo json_encode((string) $s['description']); ?>)"
+                                                onclick="cfOpenEdit(<?php echo (int) $s['id']; ?>, <?php echo htmlspecialchars(json_encode($s['name']), ENT_QUOTES); ?>, <?php echo htmlspecialchars(json_encode((string) $s['description']), ENT_QUOTES); ?>)"
                                                 data-toggle="modal" data-target="#cfSectionModal">
                                                 <i class="fa fa-pencil"></i> Edit
                                             </button>
@@ -141,7 +141,7 @@ function cfPageUrlSave() {
                                             </button>
                                             <?php } ?>
                                             <button type="button" class="btn btn-danger btn-xs"
-                                                onclick="cfDeleteSection(<?php echo (int) $s['id']; ?>, <?php echo json_encode($s['name']); ?>)">
+                                                onclick="cfDeleteSection(<?php echo (int) $s['id']; ?>, <?php echo htmlspecialchars(json_encode($s['name']), ENT_QUOTES); ?>)">
                                                 <i class="fa fa-trash"></i> Delete
                                             </button>
                                         </td>
@@ -242,7 +242,7 @@ function cfMove(id, direction, btn) {
 }
 
 function cfDeleteSection(id, name) {
-    if (!confirm('Delete section "' + name + '"? This cannot be undone.')) { return; }
+    if (!confirm('Delete section "' + name + '" and all its questions? This cannot be undone.')) { return; }
     _cfPost('<?php echo admin_url('pitchsnap/section_delete/'); ?>' + id)
         .then(function(d) {
             if (d.success) { location.reload(); }

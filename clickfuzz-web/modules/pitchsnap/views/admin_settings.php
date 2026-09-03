@@ -229,6 +229,21 @@
                             </p>
                         </div>
 
+                        <div class="form-group">
+                            <label for="pitchsnap_agency_location_id">Agency Location ID</label>
+                            <input type="text"
+                                   name="pitchsnap_agency_location_id"
+                                   id="pitchsnap_agency_location_id"
+                                   class="form-control"
+                                   style="max-width:480px;"
+                                   value="<?php echo e(get_option('pitchsnap_agency_location_id') ?: ''); ?>"
+                                   placeholder="GHL location ID (e.g. abc123xyz...)">
+                            <p class="text-muted" style="margin-top:4px;font-size:12px;">
+                                GHL location used for agency-level operations such as searching available phone numbers.
+                                Found in GHL → Settings → Business Info → Location ID.
+                            </p>
+                        </div>
+
                         <hr>
 
                         <!-- ================================================

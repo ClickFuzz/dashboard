@@ -96,6 +96,31 @@ function _wiz_field($q, $existing_val = null) {
             . '<small class="wiz-file-hint" style="display:block;margin-top:6px;color:rgba(255,255,255,.5);font-size:12px;">Accepted: PDF, JPG, PNG &mdash; max 10 MB</small>'
             . '</div>';
     }
+    if ($ft === 'phone_number_picker') {
+        $qid     = (int) $q['id'];
+        $has_val = ($existing_val !== null && $existing_val !== '');
+        $friendly = '';
+        if ($has_val && preg_match('/^\+1([0-9]{10})$/', $existing_val, $_m)) {
+            $_d = $_m[1];
+            $friendly = '(' . substr($_d, 0, 3) . ') ' . substr($_d, 3, 3) . '-' . substr($_d, 6);
+        }
+        $hidden_val = $has_val ? ' value="' . _wiz_e($existing_val) . '"' : '';
+        $html = '<div class="wiz-phone-picker" data-qid="' . $qid . '">';
+        if ($has_val) {
+            $html .= '<div class="wiz-phone-selected">Selected: <strong>' . _wiz_e($friendly ?: $existing_val) . '</strong>'
+                   . ' <button type="button" class="wiz-phone-change-btn" onclick="wizPhonePickerReset(' . $qid . ')">Change</button></div>';
+            $html .= '<div class="wiz-phone-search-wrap" style="display:none;">';
+        } else {
+            $html .= '<div class="wiz-phone-search-wrap">';
+        }
+        $html .= '<input type="text" class="wiz-input wiz-phone-search" placeholder="Enter area code or digits (e.g. 512)" maxlength="10" autocomplete="off" oninput="wizPhoneSearch(' . $qid . ', this.value)">'
+               . '<div class="wiz-phone-results" id="wiz-phone-results-' . $qid . '"></div>'
+               . '</div>';
+        $html .= '<input type="hidden" id="q_' . $qid . '" name="q_' . $qid . '" class="wiz-phone-value"' . $hidden_val . $req . '>';
+        $html .= '<p class="wiz-help" style="margin-top:6px;">Search available US local numbers by area code. The selected number will be provisioned for your account.</p>';
+        $html .= '</div>';
+        return $html;
+    }
     $type_map = ['text'=>'text','number'=>'number','email'=>'email','phone'=>'tel','url'=>'url'];
     $type = $type_map[$ft] ?? 'text';
     $val_attr = ($existing_val !== null && $existing_val !== '') ? ' value="' . _wiz_e($existing_val) . '"' : '';
@@ -240,6 +265,25 @@ function _wiz_field($q, $existing_val = null) {
             .wiz-header { padding: 20px; }
             .wiz-body  { padding: 20px; }
         }
+
+        /* Phone Number Picker */
+        .wiz-phone-picker { position: relative; }
+        .wiz-phone-selected { font-size: 14px; color: rgba(255,255,255,.85); margin-bottom: 6px; }
+        .wiz-phone-change-btn {
+            background: none; border: 1px solid rgba(255,255,255,.3); border-radius: 4px;
+            color: rgba(255,255,255,.6); font-size: 12px; padding: 2px 8px;
+            cursor: pointer; margin-left: 8px;
+        }
+        .wiz-phone-change-btn:hover { border-color: rgba(255,255,255,.6); color: #fff; }
+        .wiz-phone-results { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+        .wiz-phone-result-item {
+            padding: 10px 14px; border-radius: 8px; font-size: 14px; font-weight: 600;
+            background: rgba(255,255,255,.08); border: 1.5px solid rgba(255,255,255,.14);
+            color: rgba(255,255,255,.9); cursor: pointer; transition: background .15s, border-color .15s;
+        }
+        .wiz-phone-result-item:hover { background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.35); }
+        .wiz-phone-result-selected { background: rgba(224,57,43,.25) !important; border-color: #e0392b !important; }
+        .wiz-phone-search-msg { font-size: 13px; color: rgba(255,255,255,.45); padding: 8px 0; }
     </style>
 </head>
 <body>
@@ -264,6 +308,7 @@ function _wiz_field($q, $existing_val = null) {
             <div class="wiz-question<?php echo !empty($_q['condition_question_id']) ? ' wiz-hidden' : ''; ?>"
                  id="wiz-q-<?php echo (int) $_q['id']; ?>"
                  data-q-id="<?php echo (int) $_q['id']; ?>"
+                 <?php if (!empty($_q['data_key'])) { ?>data-data-key="<?php echo _wiz_e(trim($_q['data_key'])); ?>"<?php } ?>
                  <?php if (!empty($_q['condition_question_id'])) { ?>
                  data-ctrl-id="<?php echo (int) $_q['condition_question_id']; ?>"
                  data-ctrl-op="<?php echo _wiz_e($_q['condition_operator']); ?>"
@@ -312,6 +357,7 @@ var _wizToken      = '<?php echo addslashes($link['token'] ?? ''); ?>';
 var _wizSubmitUrl      = '<?php echo addslashes(base_url('pitchsnap/onboarding_submit')); ?>';
 var _wizSaveUrl        = '<?php echo addslashes(base_url('pitchsnap/onboarding_save_progress')); ?>';
 var _wizUploadFileUrl  = '<?php echo addslashes(base_url('pitchsnap/onboarding_file_upload')); ?>';
+var _wizPhoneSearchUrl = '<?php echo addslashes(base_url('pitchsnap/onboarding_phone_search')); ?>';
 
 function wizGetVal(qId) {
     var inputs = document.querySelectorAll('[name="q_' + qId + '"]');
@@ -406,6 +452,9 @@ function wizUploadPendingFiles(scopeEl, callback) {
                             + '<input type="hidden" name="q_' + qId + '" value="__ob_file__" class="wiz-file-sentinel">'
                             + '<label class="wiz-file-replace-label" style="display:block;margin-top:8px;font-size:13px;cursor:pointer;color:rgba(255,255,255,.6);">Replace: <input type="file" class="wiz-file-input" data-qid="' + qId + '" accept=".pdf,.jpg,.jpeg,.png"></label>';
                     }
+                    if (d.extraction && d.extraction.success && d.extraction.populated && Object.keys(d.extraction.populated).length) {
+                        _wizApplyExtracted(d.extraction.populated);
+                    }
                     uploadNext();
                 } else {
                     alert(d.error || 'File upload failed. Please try again.');
@@ -418,6 +467,103 @@ function wizUploadPendingFiles(scopeEl, callback) {
             });
     }
     uploadNext();
+}
+
+function _wizApplyExtracted(populated) {
+    // populated = {data_key: value, ...} — write into any visible empty form fields
+    Object.keys(populated).forEach(function(dk) {
+        var val = populated[dk];
+        if (!val) { return; }
+        // Find a question element by its data-data-key attribute (set on .wiz-question wrappers)
+        var qWrap = document.querySelector('.wiz-question[data-data-key="' + dk + '"]');
+        if (!qWrap) { return; }
+        var inp = qWrap.querySelector('input[type="text"], input[type="email"], input[type="number"], input[type="url"], input[type="tel"], textarea');
+        if (inp && !inp.value) { inp.value = val; }
+    });
+    // Show a non-blocking notice
+    var notice = document.getElementById('wiz-extract-notice');
+    if (!notice) {
+        notice = document.createElement('div');
+        notice.id = 'wiz-extract-notice';
+        notice.style.cssText = 'background:rgba(255,255,255,.12);border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px;color:rgba(255,255,255,.85);';
+        notice.textContent = 'We found some business information in your document. Please review the pre-filled information as you continue.';
+        var activeStep = document.querySelector('.wiz-step.wiz-active');
+        if (activeStep) { activeStep.insertBefore(notice, activeStep.firstChild); }
+    }
+}
+
+// ── Phone Number Picker ──────────────────────────────────────────────────────
+var _wizPhoneTimers = {};
+
+function wizPhoneSearch(qid, raw) {
+    clearTimeout(_wizPhoneTimers[qid]);
+    var search = raw.replace(/[^0-9]/g, '');
+    var resultsEl = document.getElementById('wiz-phone-results-' + qid);
+    if (!resultsEl) { return; }
+    if (search.length < 3) {
+        resultsEl.innerHTML = search.length ? '<p class="wiz-phone-search-msg">Enter at least 3 digits.</p>' : '';
+        return;
+    }
+    resultsEl.innerHTML = '<p class="wiz-phone-search-msg">Searching&hellip;</p>';
+    _wizPhoneTimers[qid] = setTimeout(function() {
+        fetch(_wizPhoneSearchUrl, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({token: _wizToken, search: search})
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            if (!d.success) {
+                if (d.unavailable) {
+                    resultsEl.innerHTML = '<p class="wiz-phone-search-msg">' + (d.error || 'Search unavailable.') + '</p>';
+                } else {
+                    resultsEl.innerHTML = '<p class="wiz-phone-search-msg">' + (d.error || 'Search failed. Please try again.') + '</p>';
+                }
+                return;
+            }
+            if (!d.numbers || !d.numbers.length) {
+                resultsEl.innerHTML = '<p class="wiz-phone-search-msg">No numbers found. Try a different area code.</p>';
+                return;
+            }
+            var currentHidden = document.getElementById('q_' + qid);
+            var currentVal = currentHidden ? currentHidden.value : '';
+            var html = '';
+            d.numbers.forEach(function(num) {
+                var sel = (currentVal === num.e164) ? ' wiz-phone-result-selected' : '';
+                html += '<div class="wiz-phone-result-item' + sel + '" onclick="wizPhonePickerSelect(' + qid + ', \'' + num.e164 + '\', \'' + num.friendly + '\')">' + num.friendly + '</div>';
+            });
+            resultsEl.innerHTML = html;
+        }).catch(function() {
+            resultsEl.innerHTML = '<p class="wiz-phone-search-msg">Search failed. Please check your connection.</p>';
+        });
+    }, 300);
+}
+
+function wizPhonePickerSelect(qid, e164, friendly) {
+    var hidden = document.getElementById('q_' + qid);
+    if (hidden) { hidden.value = e164; }
+    var picker = hidden ? hidden.closest('.wiz-phone-picker') : null;
+    if (!picker) { return; }
+    var sel = picker.querySelector('.wiz-phone-selected');
+    if (!sel) {
+        sel = document.createElement('div');
+        sel.className = 'wiz-phone-selected';
+        picker.insertBefore(sel, picker.firstChild);
+    }
+    sel.innerHTML = 'Selected: <strong>' + friendly + '</strong> <button type="button" class="wiz-phone-change-btn" onclick="wizPhonePickerReset(' + qid + ')">Change</button>';
+    sel.style.display = '';
+    var wrap = picker.querySelector('.wiz-phone-search-wrap');
+    if (wrap) { wrap.style.display = 'none'; }
+    // Highlight selected in results
+    picker.querySelectorAll('.wiz-phone-result-item').forEach(function(el) {
+        el.classList.toggle('wiz-phone-result-selected', el.textContent.trim() === friendly);
+    });
+}
+
+function wizPhonePickerReset(qid) {
+    var hidden = document.getElementById('q_' + qid);
+    var picker = hidden ? hidden.closest('.wiz-phone-picker') : null;
+    if (!picker) { return; }
+    var wrap = picker.querySelector('.wiz-phone-search-wrap');
+    if (wrap) { wrap.style.display = ''; }
 }
 
 function wizSaveStep(stepEl, callback) {

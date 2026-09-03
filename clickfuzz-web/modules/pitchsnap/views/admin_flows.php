@@ -52,7 +52,7 @@ $csrf_h = $CI->security->get_csrf_hash();
                                                 <i class="fa fa-list"></i> Sections
                                             </a>
                                             <button type="button" class="btn btn-default btn-xs"
-                                                onclick="cfOpenEdit(<?php echo (int) $f['id']; ?>, <?php echo json_encode($f['name']); ?>, <?php echo json_encode((string) $f['description']); ?>, <?php echo json_encode($f['status']); ?>)"
+                                                onclick="cfOpenEdit(<?php echo (int) $f['id']; ?>, <?php echo htmlspecialchars(json_encode($f['name']), ENT_QUOTES); ?>, <?php echo htmlspecialchars(json_encode((string) $f['description']), ENT_QUOTES); ?>, <?php echo htmlspecialchars(json_encode($f['status']), ENT_QUOTES); ?>)"
                                                 data-toggle="modal" data-target="#cfFlowModal">
                                                 <i class="fa fa-pencil"></i> Edit
                                             </button>
@@ -66,7 +66,7 @@ $csrf_h = $CI->security->get_csrf_hash();
                                                 <i class="fa fa-copy"></i> Duplicate
                                             </button>
                                             <button type="button" class="btn btn-danger btn-xs"
-                                                onclick="cfDelete(<?php echo (int) $f['id']; ?>, <?php echo json_encode($f['name']); ?>)">
+                                                onclick="cfDelete(<?php echo (int) $f['id']; ?>, <?php echo htmlspecialchars(json_encode($f['name']), ENT_QUOTES); ?>)">
                                                 <i class="fa fa-trash"></i> Delete
                                             </button>
                                         </td>
@@ -180,7 +180,7 @@ function cfDuplicate(id) {
 }
 
 function cfDelete(id, name) {
-    if (!confirm('Delete flow "' + name + '"? This cannot be undone.')) { return; }
+    if (!confirm('Delete flow "' + name + '" and all its sections and questions? This cannot be undone.')) { return; }
     _cfPost('<?php echo admin_url('pitchsnap/flow_delete/'); ?>' + id)
         .then(function(d) {
             if (d.success) { location.reload(); }

@@ -569,7 +569,95 @@ class Pitchsnap_runtime extends CI_Controller
 
         $this->pitchsnap_model->upsert_site_data($site_id, $data_key, $ref);
 
-        return $this->_json(['success' => true]);
+        // Extraction: if this question has extraction mappings, attempt document AI extraction
+        $extraction_response = null;
+        $extraction_map = !empty($question['extraction_map_json'])
+            ? json_decode($question['extraction_map_json'], true)
+            : null;
+
+        if (is_array($extraction_map) && !empty($extraction_map)) {
+            // Collect which extraction fields are requested and build field→data_key map
+            $field_to_dk = [];
+            foreach ($extraction_map as $row) {
+                $ef = $row['extraction_field'] ?? '';
+                $dk = $row['data_key']         ?? '';
+                if ($ef && $dk) { $field_to_dk[$ef] = $dk; }
+            }
+
+            if (!empty($field_to_dk)) {
+                $file_path = clickfuzz_web_ob_doc_dir($site_id) . '/' . $result['filename'];
+                $this->load->library('pitchsnap_anthropic');
+                $ex = $this->pitchsnap_anthropic->extract_document(
+                    $file_path,
+                    $result['mime_type'],
+                    array_keys($field_to_dk)
+                );
+
+                if ($ex['success'] && is_array($ex['extracted'])) {
+                    $populated = [];
+                    foreach ($field_to_dk as $ef => $target_dk) {
+                        $val = $ex['extracted'][$ef] ?? null;
+                        if ($val === null || $val === '') { continue; }
+                        // Only write if target is currently empty — do not overwrite customer edits
+                        $existing_row = $this->pitchsnap_model->get_site_data_value($site_id, $target_dk);
+                        $existing_val = $existing_row ? ($existing_row['value'] ?? '') : '';
+                        if ($existing_val !== '' && $existing_val !== null) { continue; }
+                        $this->pitchsnap_model->upsert_site_data($site_id, $target_dk, $val);
+                        $populated[$target_dk] = $val;
+                    }
+                    $extraction_response = ['success' => true, 'populated' => $populated];
+                } else {
+                    $extraction_response = ['success' => false, 'error' => $ex['error'] ?? 'Extraction failed.'];
+                }
+            }
+        }
+
+        $resp = ['success' => true];
+        if ($extraction_response !== null) {
+            $resp['extraction'] = $extraction_response;
+        }
+        return $this->_json($resp);
+    }
+
+    public function onboarding_phone_search()
+    {
+        // No CSRF — added to $app_csrf_exclude_uris on production
+        if ($this->input->server('REQUEST_METHOD') !== 'POST') {
+            return $this->_json(['success' => false, 'error' => 'Method not allowed.'], 405);
+        }
+
+        $body = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($body)) {
+            return $this->_json(['success' => false, 'error' => 'Invalid request body.'], 400);
+        }
+
+        $token  = trim((string) ($body['token']  ?? ''));
+        $search = trim((string) ($body['search'] ?? ''));
+
+        if (!$token || !preg_match('/^[a-f0-9]{64}$/', $token)) {
+            return $this->_json(['success' => false, 'error' => 'Invalid token.'], 400);
+        }
+
+        $this->_load_model();
+        $link = $this->pitchsnap_model->get_onboarding_link_by_token($token);
+        if (!$link || !in_array($link['status'], ['active', 'completed'], true)) {
+            return $this->_json(['success' => false, 'error' => 'This onboarding link is no longer active.'], 403);
+        }
+
+        $location_id = trim((string) get_option('pitchsnap_agency_location_id'));
+        if ($location_id === '') {
+            return $this->_json(['success' => false, 'unavailable' => true,
+                'error' => 'Phone number search is temporarily unavailable. You can enter your preferred number manually, or skip this step and provide it later.']);
+        }
+
+        $this->load->library('pitchsnap_ghl');
+        $result = $this->pitchsnap_ghl->search_available_numbers($location_id, $search);
+
+        if (!$result['success']) {
+            return $this->_json(['success' => false, 'error' => $result['error'] ?? 'Search failed.']);
+        }
+
+        return $this->_json(['success' => true, 'numbers' => $result['numbers']]);
     }
 
     private function _ob_normalize_value($q, $raw)
@@ -577,6 +665,14 @@ class Pitchsnap_runtime extends CI_Controller
         $ft = (string) ($q['field_type'] ?? 'text');
         if ($ft === 'file') {
             return null; // file questions are saved via onboarding_file_upload; skip here
+        }
+        if ($ft === 'phone_number_picker') {
+            $val = trim((string) ($raw ?? ''));
+            if ($val === '') { return null; }
+            $digits = preg_replace('/[^0-9]/', '', $val);
+            if (strlen($digits) === 10) { $digits = '1' . $digits; }
+            if (!preg_match('/^1[2-9]\d{9}$/', $digits)) { return null; }
+            return '+' . $digits;
         }
         if ($ft === 'checkbox') {
             if (is_array($raw)) {
