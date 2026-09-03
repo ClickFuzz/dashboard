@@ -298,6 +298,8 @@ All phases (1–5) deployed to production (2026-08-26). DB migrated to v17 (v16 
 
 ## History
 
+- **2026-09-03** — Shared ClickFuzz Core Rules system: `clickfuzz_web_core_generation_rules()` + `clickfuzz_web_assemble_site_prompt()` added to generation helper. Both Anthropic and Manus default prompts refactored — old inline anti-hallucination sections removed, `CORE_GENERATION_RULES_PLACEHOLDER` injected instead. Cron prompt assembly updated to use `assemble_site_prompt()` with blank-prompt fallback for both providers. Core rules cover: factual integrity, source authority hierarchy, business identity preservation, source language preservation, testimonials, owner/team identity, services/pricing/locations, creative freedom. Admin-editable prompts cannot accidentally remove core rules (safety append fallback in `assemble_site_prompt`). Page generation untouched.
+
 - **2026-08-28** — Phases 1–5 confirmed deployed and validated on production (DB v17, all test suites passing). Diagnostic scripts removed. `claude/generation` merged to `main` at `0782213`. Workstream parked.
 - **2026-08-26** — Phase 5: page publishing helper (HTML + WP flows); model publish/cleanup methods; page_publish controller + route; 6-state sidebar in admin_page_edit; test_phase5_pages.php; DA file manager down, server deployment pending
 - **2026-08-26** — Phase 4 lifecycle fix: `queue_page_for_generation` WHERE IN extended to include `'generated'`; Regenerate from generated state now works; failed regen preserves prior successful generation
