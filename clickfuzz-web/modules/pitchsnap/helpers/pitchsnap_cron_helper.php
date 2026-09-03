@@ -117,7 +117,14 @@ function clickfuzz_web_cron_run()
 
             if ($generator->is_async()) {
                 // ----- Manus async path -----
-                $result = $generator->start($rendered);
+                // Full brief stored in generation_prompt; send only the bootstrap anchor to Manus
+                $brief_url  = clickfuzz_web_generation_brief_url($website->preview_token ?? '');
+                $manus_task = clickfuzz_web_manus_bootstrap_message(
+                    $prompt_data['business_name'] ?: 'the business',
+                    $prompt_data['website_url'],
+                    $brief_url
+                );
+                $result = $generator->start($manus_task);
 
                 if ($result['success']) {
                     $CI->pitchsnap_model->save_manus_task_started($website->id, $result['task_id'], 'manus');

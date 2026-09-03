@@ -939,6 +939,14 @@ SERVICES / PRICING / LOCATIONS
 — Do not invent prices. Do not remove verified pricing unless the generation task explicitly requests it.
 — Do not invent service areas, cities, neighborhoods, or locations.
 
+PRICE AND DURATION BINDING
+When verified pricing exists in source content, each price must be presented only with its exact paired duration or service tier as it appears in the source.
+Do not cross-match prices and durations. Do not assign a price to a different service tier than it appears in the source.
+
+BUSINESS HOURS
+Do not state business hours unless they are explicitly present in the source content.
+If no hours are found in the source, omit the business hours section entirely.
+
 CREATIVE FREEDOM — THESE RULES RESTRICT FACTS, NOT DESIGN
 The rules above restrict factual invention only. Full creative freedom is retained for:
 layout, composition, typography, spacing, visual hierarchy, section structure, animation, and aesthetic direction.
@@ -948,13 +956,64 @@ RULES;
 
 function clickfuzz_web_assemble_site_prompt($template, array $data)
 {
+    $has_core      = strpos($template, 'CORE_GENERATION_RULES_PLACEHOLDER') !== false;
+    $preview_token = $data['preview_token'] ?? '';
+    $template = str_replace(
+        ['COPYRIGHT_YEAR_PLACEHOLDER', 'WIDGET_INSTRUCTION_PLACEHOLDER', 'FORMS_INSTRUCTION_PLACEHOLDER', 'CORE_GENERATION_RULES_PLACEHOLDER'],
+        [clickfuzz_web_copyright_year_instruction(), clickfuzz_web_widget_instruction($preview_token), clickfuzz_web_forms_instruction(), clickfuzz_web_core_generation_rules()],
+        $template
+    );
     $rendered = clickfuzz_web_render_prompt($template, $data);
-    $core     = clickfuzz_web_core_generation_rules();
-    if (strpos($rendered, 'CORE_GENERATION_RULES_PLACEHOLDER') !== false) {
-        return str_replace('CORE_GENERATION_RULES_PLACEHOLDER', $core, $rendered);
+    if (!$has_core) {
+        $rendered .= "\n\n" . clickfuzz_web_core_generation_rules();
     }
-    // Safety: admin replaced prompt without the placeholder — append core rules
-    return $rendered . "\n\n" . $core;
+    $unresolved = [];
+    foreach (['COPYRIGHT_YEAR_PLACEHOLDER', 'WIDGET_INSTRUCTION_PLACEHOLDER', 'FORMS_INSTRUCTION_PLACEHOLDER', 'CORE_GENERATION_RULES_PLACEHOLDER'] as $_token) {
+        if (strpos($rendered, $_token) !== false) {
+            $unresolved[] = $_token;
+        }
+    }
+    if ($unresolved) {
+        throw new RuntimeException('Generation prompt contains unresolved placeholders: ' . implode(', ', $unresolved));
+    }
+    return $rendered;
+}
+
+function clickfuzz_web_generation_brief_url($preview_token)
+{
+    return rtrim(base_url('pitchsnap/generation_brief/' . rawurlencode($preview_token)), '/');
+}
+
+function clickfuzz_web_manus_bootstrap_message($business_name, $source_url, $brief_url)
+{
+    return 'You are redesigning the website for this exact business:
+
+Business: ' . $business_name . '
+Canonical source website:
+' . $source_url . '
+
+Your complete ClickFuzz generation instructions are here:
+' . $brief_url . '
+
+MANDATORY:
+
+1. Fetch and read the complete ClickFuzz instruction page BEFORE beginning any research, browsing, design, or generation work.
+
+2. The ClickFuzz instruction page is authoritative for verified business identity, source intelligence, factual constraints, and generation requirements.
+
+3. Work ONLY on the business identified above and at the canonical source URL above.
+
+4. Never substitute another business, practitioner, website, search result, or similarly named company.
+
+5. Do not use search results or unrelated websites as substitutes for the canonical source.
+
+6. If the ClickFuzz instruction page cannot be accessed, STOP.
+
+7. If the canonical source website cannot be accessed, STOP.
+
+8. If information is missing, follow the ClickFuzz integrity rules. Do not infer another business or source.
+
+After reading the instruction page and canonical source, complete the redesign according to the ClickFuzz instructions.';
 }
 
 function clickfuzz_web_default_prompt()
