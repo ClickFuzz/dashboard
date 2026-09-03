@@ -162,14 +162,18 @@ The Phase 5B DNS helper (`pitchsnap_dns_helper.php`) and verification UI are dep
 
 ## Current Production / Main Baseline
 
-As of 2026-08-30, `main` is at `7d3618f` (WP Connector v2 merged). `origin/main` is NOT in sync — local main is 2 commits ahead (wp-connector v2 key pairing + full Perfex integration). Push required before other worktrees can pull.
+As of 2026-09-03, `main` is at `7ff364c` (all branches merged and pushed). `origin/main` is in sync. DB schema: v41.
 
-Production is running the publishing-domains branch output. FTPS publishing and hosted-site serving (`www.eddmautofill.com`) remain live.
+Production is fully deployed from main. All workstream features are live:
+- **Forms system** (v25): GHL forms, field builder, form placements, submissions
+- **GHL Destinations** (v26): global + per-site destination registry
+- **Onboarding subsystem** (v27–v41): flows, sections, questions, wizard, phone fields, usage tags, auto-link after payment, site data
+- **Pages system** + WP Connector v2.2.0: page editor, homepage publish, WordPress theme deploy + content import
+- **Sales Flow**: Stripe checkout, subscription, agreement
 
-**Items pending production deployment (from main):**
-- Lead-profile tab hooks (restored 2026-08-23) — still not deployed to `clickfuzz.com/dashboard`
-- Conversation empty state fix in `admin_lead.php` (2026-08-23) — still not deployed
-- WordPress Connector v2 — Perfex module side (controller, model, routes, views, helper) not yet deployed to `clickfuzz.com/dashboard`
+FTPS publishing and hosted-site serving (`www.eddmautofill.com`) remain live.
+
+**All branches are at ahead=0 dirty=0 vs origin/main.** No pending deployment items.
 
 ---
 
@@ -177,10 +181,10 @@ Production is running the publishing-domains branch output. FTPS publishing and 
 
 | Workstream | Status | Worktree |
 |---|---|---|
-| Generation | **Parked** — Phases 1–5 merged to `main` (`0782213`); foundation complete; future UI work resumes after new Website Details architecture | `claude/generation` |
-| Lead Capture | **Active** — GHL forms + External Tracking deployed, pending e2e verification before commit + merge | `claude/lead-capture` |
-| Sales Flow | Implemented, purchase path needs end-to-end test | `claude/sales-flow` |
-| Onboarding | Not started | `claude/onboarding` |
+| Generation | **Merged & deployed** — pages pipeline, WP connector, GHL destinations all live | `claude/generation` |
+| Lead Capture | **Merged & deployed** — GHL forms, External Tracking, field builder live (2026-09-03) | `claude/lead-capture` |
+| Onboarding | **Merged & deployed** — Phases 1A–1J, wizard, phone field, usage tags, auto-link, site data (v41) live (2026-09-03) | `claude/onboarding` |
+| Sales Flow | **Merged & deployed** — Stripe checkout, subscription, agreement live | `claude/sales-flow` |
 | Lead Connect | Not started | task worktrees created as needed |
 | Reviews | Not started | no worktree yet |
 | Reporting | View tracking only, no dashboard | no worktree yet |
@@ -193,8 +197,8 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 | Branch | Worktree | Status |
 |---|---|---|
-| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `8aa7c78` (local only; not pushed) |
-| `claude/generation` | `worktrees/dashboard/generation` | **Merged** — fast-forward merged into `main` (2026-08-28). Parked. |
+| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `7ff364c` (origin/main in sync, pushed 2026-09-03) |
+| `claude/generation` | `worktrees/dashboard/generation` | **Merged** — closed via ours-strategy merge 2026-09-03 (content was already in main via lead-capture/onboarding) |
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test. |
 | `claude/lead-capture` | `worktrees/dashboard/lead-capture` | **Merged** — GHL forms + External Tracking confirmed working (2026-09-02). Fast-forward merged to main. |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |
