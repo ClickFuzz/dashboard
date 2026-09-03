@@ -872,6 +872,9 @@ class Pitchsnap extends AdminController
         $data['active_tab'] = $this->input->get('tab') ?: 'general';
         $data['staff_list'] = $this->db->where('active', 1)->order_by('firstname', 'ASC')->get(db_prefix() . 'staff')->result();
 
+        // Active onboarding flows for flow selector
+        $data['active_flows'] = [];
+
         // Build guardrail display values (saved DB value, falling back to hardcoded provider default)
         $gr_names        = ['logo_usage','image_selection','team_placement','team_association','anonymous_team','gallery_usage','credential_usage','owner_story','visual_readability','brand_color_preservation'];
         $manus_defaults  = array_fill_keys($gr_names, false);
@@ -888,6 +891,7 @@ class Pitchsnap extends AdminController
             }
         }
         $data['guardrail_values'] = $gr_values;
+        $data['ghl_destinations'] = $this->pitchsnap_model->get_ghl_destinations(null) ?: [];
 
         $this->load->view('pitchsnap/admin_settings', $data);
     }
@@ -2248,6 +2252,59 @@ class Pitchsnap extends AdminController
             set_alert('danger', 'Could not set version — it may not belong to this page.');
         }
         redirect($edit_url);
+    }
+
+    public function ghl_destinations_json($site_id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false]); }
+        $site_id = (int) $site_id;
+        $dests   = $this->pitchsnap_model->get_ghl_destinations($site_id ?: null);
+        $list    = [];
+        foreach ($dests as $d) {
+            $list[] = [
+                'id'      => (int) $d->id,
+                'label'   => $d->label,
+                'ghl_key' => $d->ghl_key,
+                'mode'    => $d->mode,
+                'global'  => ($d->site_id === null),
+            ];
+        }
+        return $this->_json(['success' => true, 'destinations' => $list]);
+    }
+
+    // POST pitchsnap/ghl_dest_save — create or update a GHL destination
+    public function ghl_dest_save()
+    {
+        if (!is_admin()) { return $this->_json(['success' => false]); }
+        if ($this->input->method() !== 'post') { return $this->_json(['success' => false]); }
+        $id          = (int) $this->input->post('id');
+        $label       = trim($this->input->post('label', true));
+        $ghl_key     = trim($this->input->post('ghl_key', true));
+        $mode        = $this->input->post('mode') === 'multiple' ? 'multiple' : 'single';
+        $site_id_raw = $this->input->post('site_id');
+        if ($label === '') { return $this->_json(['success' => false, 'message' => 'Label is required.']); }
+        $data = ['label' => $label, 'ghl_key' => $ghl_key, 'mode' => $mode, 'active' => 1];
+        if ($id) {
+            $this->pitchsnap_model->update_ghl_destination($id, $data);
+        } else {
+            if ($site_id_raw !== '' && $site_id_raw !== false && $site_id_raw !== null) {
+                $data['site_id'] = (int) $site_id_raw;
+            }
+            $id = $this->pitchsnap_model->create_ghl_destination($data);
+        }
+        $dest = $this->pitchsnap_model->get_ghl_destination($id);
+        return $this->_json(['success' => true, 'destination' => $dest, 'csrf_hash' => $this->security->get_csrf_hash()]);
+    }
+
+    // POST pitchsnap/ghl_dest_delete/{id}
+    public function ghl_dest_delete($id = '')
+    {
+        if (!is_admin()) { return $this->_json(['success' => false]); }
+        if ($this->input->method() !== 'post') { return $this->_json(['success' => false]); }
+        $id = (int) $id;
+        if (!$id) { return $this->_json(['success' => false]); }
+        $this->pitchsnap_model->delete_ghl_destination($id);
+        return $this->_json(['success' => true, 'csrf_hash' => $this->security->get_csrf_hash()]);
     }
 
     private function _json($data)

@@ -9,7 +9,7 @@ ClickFuzz Web is a custom Perfex CRM module. It handles website generation, pros
 **DB:** `clgorman_clickfuzzdashboard` (table prefix: `tbl`)
 **Stack:** Perfex CRM 3.1.4 / CodeIgniter 3.1.11 / PHP 8.3.33
 **Module:** `pitchsnap` (slug), active (tblmodules id=23, active=1)
-**DB schema version:** 17 (production, as of 2026-08-26)
+**DB schema version:** 26 (git generation branch target — v25: forms tables, v26: GHL destinations)
 
 ---
 
@@ -162,13 +162,19 @@ The Phase 5B DNS helper (`pitchsnap_dns_helper.php`) and verification UI are dep
 
 ## Current Production / Main Baseline
 
-As of 2026-08-28, `main` is at `4326091` (publishing-state foundation merged). `origin/main` is in sync. Main is canonical through DB v17.
+As of 2026-09-03, `main` is at `5bd774f` (pages-publish + WP connector v2.2.0 merged). `origin/main` is in sync. DB canonical version: v24 in main.
 
-Production is running the publishing-domains branch output (Website Details Phase 1 + Phase 2 UI deployed). FTPS publishing and hosted-site serving (`www.eddmautofill.com`) remain live. Production matches `claude/publishing-domains` HEAD (`bb6fbff`).
+Production is running pages-publish + sales-flow output. FTPS publishing and hosted-site serving (`www.eddmautofill.com`) remain live.
 
-`claude/generation` is merged into `main`. Generation workstream is parked. Future generation/UI work (including Website Details Phase 3 Overview cleanup and global Settings redesign) resumes from the generation worktree.
+**`claude/generation` re-synced to main (2026-09-03):** fast-forward merged `origin/main` (11 commits: pages-publish, WP connector, color palette, page editor) into `claude/generation`. Branch is now at `5bd774f` + GHL Destinations additions (uncommitted).
 
-`claude/publishing-domains` Website Details UI complete (Phase 1: tab_pages/tab_media extraction; Phase 2: Settings tab with Publishing/Integrations/Activity). Deployed and browser-verified. Pending merge to main.
+**GHL Destinations feature added to generation branch (2026-09-03):** Production had this feature (controller endpoints, model methods, view tab, migrations v25/v26) but it was not in git. Reconciled into this branch:
+- `Pitchsnap.php`: `settings()` now passes `$data['ghl_destinations']` and `$data['active_flows']` ([] stub until onboarding merged); added `ghl_destinations_json()`, `ghl_dest_save()`, `ghl_dest_delete()`
+- `Pitchsnap_model.php`: added `destinations_table` property + 6 GHL destination CRUD methods
+- `pitchsnap.php`: added v25 (forms tables) and v26 (GHL destinations table with 5 seed rows); early-return check bumped to `>= 26`; version stored as `'26'`
+- `admin_settings.php`: added GHL Destinations tab nav, tab pane, modal, JS; added Onboarding section with `$active_flows` loop; tab active logic updated to 3-way
+
+**Production settings page crash is fixed** (via server-side patch applied last session). The git branch now also has the same fix so the next deployment will include it in-source.
 
 **Items pending production deployment (from main):**
 - Lead-profile tab hooks (restored 2026-08-23) — still not deployed to `clickfuzz.com/dashboard`
@@ -180,7 +186,7 @@ Production is running the publishing-domains branch output (Website Details Phas
 
 | Workstream | Status | Worktree |
 |---|---|---|
-| Generation | **Parked** — Phases 1–5 merged to `main` (`0782213`); foundation complete; future UI work resumes after new Website Details architecture | `claude/generation` |
+| Generation | **Active** — synced to main `5bd774f` (2026-09-03). GHL Destinations feature reconciled from production into branch. Uncommitted — needs commit + production test. | `claude/generation` |
 | Sales Flow | Implemented, purchase path needs end-to-end test | `claude/sales-flow` |
 | Onboarding | Not started | `claude/onboarding` |
 | Lead Connect | Not started | task worktrees created as needed |
@@ -195,8 +201,8 @@ See `docs/workstreams/` for detailed subsystem history and status.
 
 | Branch | Worktree | Status |
 |---|---|---|
-| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `b811080` (origin/main in sync) |
-| `claude/generation` | `worktrees/dashboard/generation` | **Merged** — fast-forward merged into `main` (2026-08-28). Foundation complete and parked. |
+| `main` | `/Users/mymac/Desktop/Projects/software/Clickfuzz/dashboard` | Canonical — `5bd774f` (origin/main in sync) |
+| `claude/generation` | `worktrees/dashboard/generation` | **Active** — synced to `5bd774f` + GHL Destinations (2026-09-03). Uncommitted changes: controller, model, pitchsnap.php, view, PASSDOWN.md. |
 | `claude/ghl-integration` | `worktrees/dashboard/ghl-integration` | **Merged & deployed** — Phase 1 live at `ef02893`. Awaiting live connection test. |
 | `claude/lead-capture` | `worktrees/dashboard/lead-capture` | Ready — from `0fe1d30`, no feature changes yet |
 | `claude/onboarding` | `worktrees/dashboard/onboarding` | Ready — from `032b466`, no feature changes yet |

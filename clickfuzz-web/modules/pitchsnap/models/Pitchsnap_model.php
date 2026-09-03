@@ -12,6 +12,7 @@ class Pitchsnap_model extends App_Model
     private $media_table;
     private $page_media_table;
     private $page_generations_table;
+    private $destinations_table;
 
     public function __construct()
     {
@@ -25,6 +26,7 @@ class Pitchsnap_model extends App_Model
         $this->media_table            = db_prefix() . 'pitchsnap_site_media';
         $this->page_media_table       = db_prefix() . 'pitchsnap_page_media';
         $this->page_generations_table = db_prefix() . 'pitchsnap_page_generations';
+        $this->destinations_table     = db_prefix() . 'pitchsnap_ghl_destinations';
     }
 
     // -----------------------------------------------------------------------
@@ -1478,5 +1480,52 @@ class Pitchsnap_model extends App_Model
             'wp_active_theme_slug' => null,
             'dateupdated'          => date('Y-m-d H:i:s'),
         ]);
+    }
+
+    // ── GHL Destination Registry ──────────────────────────────────────────────
+
+    public function get_ghl_destinations($site_id = null)
+    {
+        $where = 'site_id IS NULL';
+        if ($site_id !== null) {
+            $where .= ' OR site_id = ' . (int) $site_id;
+        }
+        return $this->db->query(
+            "SELECT * FROM `{$this->destinations_table}`
+             WHERE active = 1 AND ({$where})
+             ORDER BY (site_id IS NULL) DESC, sort_order ASC, id ASC"
+        )->result();
+    }
+
+    public function get_all_global_ghl_destinations()
+    {
+        return $this->db->where('site_id IS NULL', null, false)
+            ->order_by('sort_order', 'ASC')->order_by('id', 'ASC')
+            ->get($this->destinations_table)->result();
+    }
+
+    public function get_ghl_destination($id)
+    {
+        return $this->db->where('id', (int) $id)->get($this->destinations_table)->row();
+    }
+
+    public function create_ghl_destination(array $data)
+    {
+        $now = date('Y-m-d H:i:s');
+        $data['dateadded']   = $now;
+        $data['dateupdated'] = $now;
+        $this->db->insert($this->destinations_table, $data);
+        return $this->db->insert_id();
+    }
+
+    public function update_ghl_destination($id, array $data)
+    {
+        $data['dateupdated'] = date('Y-m-d H:i:s');
+        $this->db->where('id', (int) $id)->update($this->destinations_table, $data);
+    }
+
+    public function delete_ghl_destination($id)
+    {
+        $this->db->where('id', (int) $id)->delete($this->destinations_table);
     }
 }
