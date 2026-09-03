@@ -177,7 +177,7 @@ function clickfuzz_web_add_menu_items()
 function clickfuzz_web_db_upgrade()
 {
     // Version gate: skip all schema/settings checks once already up to date.
-    if ((int) get_option('pitchsnap_db_version') >= 38) {
+    if ((int) get_option('pitchsnap_db_version') >= 39) {
         return;
     }
 
@@ -940,11 +940,589 @@ function clickfuzz_web_db_upgrade()
         $CI->db->query("ALTER TABLE `{$t38}` ADD COLUMN `onboarding_link_id` INT(11) DEFAULT NULL AFTER `status`");
     }
 
+    // v39: seed Local Business Website onboarding flow (one-time, idempotent)
+    $tf39  = db_prefix() . 'pitchsnap_onboarding_flows';
+    $ts39  = db_prefix() . 'pitchsnap_onboarding_sections';
+    $tq39  = db_prefix() . 'pitchsnap_onboarding_questions';
+    $ttg39 = db_prefix() . 'pitchsnap_onboarding_usage_tags';
+    $tqt39 = db_prefix() . 'pitchsnap_onboarding_question_tags';
+
+    if ($CI->db->table_exists($tf39) && $CI->db->table_exists($ts39) && $CI->db->table_exists($tq39)) {
+        $lbw_exists = $CI->db->where('name', 'Local Business Website')
+                              ->count_all_results($tf39) > 0;
+
+        if (!$lbw_exists) {
+            $now = date('Y-m-d H:i:s');
+
+            $tag_rows = $CI->db->get($ttg39)->result_array();
+            $tag_map  = [];
+            foreach ($tag_rows as $_tr) {
+                $tag_map[$_tr['slug']] = (int) $_tr['id'];
+            }
+
+            $sections_data = [
+                [
+                    'name'        => 'Your Business',
+                    'description' => null,
+                    'sort_order'  => 10,
+                    'questions'   => [
+                        [
+                            'label'      => 'Upload your business logo',
+                            'help_text'  => 'Upload the best-quality version of your logo you have. PNG, JPG or PDF is fine.',
+                            'field_type' => 'file',
+                            'required'   => 0,
+                            'data_key'   => 'business.logo',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website', 'customer_profile'],
+                        ],
+                        [
+                            'label'      => 'What name do your customers know your business by?',
+                            'help_text'  => 'Use the public-facing business name you want displayed on your website.',
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.friendly_name',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['customer_profile', 'perfex', 'website', 'ghl', 'schema'],
+                        ],
+                        [
+                            'label'      => 'What is your main business phone number?',
+                            'help_text'  => 'Enter the phone number customers currently use to reach your business.',
+                            'field_type' => 'phone',
+                            'required'   => 1,
+                            'data_key'   => 'business.phone',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['customer_profile', 'perfex', 'website', 'ghl', 'a2p', 'schema', 'runtime'],
+                        ],
+                        [
+                            'label'      => 'What is your general business email address?',
+                            'help_text'  => 'Use an email address on your business domain when possible, for example info@businessname.com. A domain-based email is required for A2P registration.',
+                            'field_type' => 'email',
+                            'required'   => 1,
+                            'data_key'   => 'business.email',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['customer_profile', 'perfex', 'website', 'ghl', 'a2p', 'schema'],
+                        ],
+                        [
+                            'label'      => 'What is your current business website?',
+                            'help_text'  => 'Enter your current website address. If ClickFuzz is replacing an existing site, give us the current live URL.',
+                            'field_type' => 'url',
+                            'required'   => 0,
+                            'data_key'   => 'business.website',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['customer_profile', 'perfex', 'website', 'ghl', 'a2p', 'schema'],
+                        ],
+                    ],
+                ],
+                [
+                    'name'        => 'Website & Domain',
+                    'description' => null,
+                    'sort_order'  => 20,
+                    'questions'   => [
+                        [
+                            'label'      => 'Do you have access to your current website builder?',
+                            'help_text'  => null,
+                            'field_type' => 'radio',
+                            'required'   => 1,
+                            'data_key'   => 'website.builder_access',
+                            'purpose'    => 'data',
+                            'options'    => ['Yes, I have access', 'No, I don\'t have access', 'I do not have a website'],
+                            'tags'       => ['website'],
+                        ],
+                        [
+                            'label'           => 'Where is your current website built?',
+                            'help_text'       => 'For example: WordPress, Wix, Squarespace, Shopify or another platform.',
+                            'field_type'      => 'text',
+                            'required'        => 0,
+                            'data_key'        => 'website.platform',
+                            'purpose'         => 'data',
+                            'options'         => null,
+                            'tags'            => ['website'],
+                            'cond_data_key'   => 'website.builder_access',
+                            'cond_operator'   => 'not_equals',
+                            'cond_value'      => 'I do not have a website',
+                        ],
+                        [
+                            'label'      => 'Where is your domain registered or hosted?',
+                            'help_text'  => 'For example: GoDaddy, Namecheap, Cloudflare, Squarespace or another provider.',
+                            'field_type' => 'text',
+                            'required'   => 0,
+                            'data_key'   => 'website.domain_host',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website'],
+                        ],
+                        [
+                            'label'      => 'What domain should we use for your ClickFuzz website?',
+                            'help_text'  => 'Enter the domain you want customers to use for your website.',
+                            'field_type' => 'text',
+                            'required'   => 0,
+                            'data_key'   => 'website.primary_domain',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website', 'ghl', 'schema', 'a2p', 'runtime'],
+                        ],
+                    ],
+                ],
+                [
+                    'name'        => 'Services & Service Area',
+                    'description' => null,
+                    'sort_order'  => 30,
+                    'questions'   => [
+                        [
+                            'label'      => 'What services does your business provide?',
+                            'help_text'  => 'List your main services. Include anything you specifically want customers to find you for.',
+                            'field_type' => 'textarea',
+                            'required'   => 1,
+                            'data_key'   => 'business.services',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website', 'ghl', 'schema'],
+                        ],
+                        [
+                            'label'      => 'What cities, towns or areas do you serve?',
+                            'help_text'  => 'List the main areas where you want to attract customers.',
+                            'field_type' => 'textarea',
+                            'required'   => 1,
+                            'data_key'   => 'business.service_areas',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website', 'ghl', 'schema'],
+                        ],
+                        [
+                            'label'      => 'What are your normal business hours?',
+                            'help_text'  => 'Include the days and hours customers can normally reach you.',
+                            'field_type' => 'textarea',
+                            'required'   => 1,
+                            'data_key'   => 'business.hours',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website', 'ghl', 'schema', 'runtime'],
+                        ],
+                    ],
+                ],
+                [
+                    'name'        => 'About Your Business',
+                    'description' => null,
+                    'sort_order'  => 40,
+                    'questions'   => [
+                        [
+                            'label'      => 'Tell us about your business',
+                            'help_text'  => 'Tell us your story in your own words. How long have you been in business, what do you specialize in, and what makes customers choose you? Don\'t worry about writing polished website copy — we\'ll handle that.',
+                            'field_type' => 'textarea',
+                            'required'   => 1,
+                            'data_key'   => 'website.about',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website', 'schema'],
+                        ],
+                        [
+                            'label'      => 'Do you have any licenses, insurance, certifications or professional credentials we should mention?',
+                            'help_text'  => null,
+                            'field_type' => 'textarea',
+                            'required'   => 0,
+                            'data_key'   => 'business.credentials',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website'],
+                        ],
+                        [
+                            'label'      => 'Are there any awards, memberships or professional associations we should mention?',
+                            'help_text'  => null,
+                            'field_type' => 'textarea',
+                            'required'   => 0,
+                            'data_key'   => 'business.awards',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website'],
+                        ],
+                        [
+                            'label'      => 'Do you have customer testimonials you\'d like us to use?',
+                            'help_text'  => 'Paste any testimonials you would like included on the website.',
+                            'field_type' => 'textarea',
+                            'required'   => 0,
+                            'data_key'   => 'website.testimonials',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website'],
+                        ],
+                        [
+                            'label'      => 'Do you have photos of your work you\'d like us to use?',
+                            'help_text'  => 'Upload a representative project or work photo. Additional images can be added later.',
+                            'field_type' => 'file',
+                            'required'   => 0,
+                            'data_key'   => 'website.project_photo',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website'],
+                        ],
+                    ],
+                ],
+                [
+                    'name'        => 'Leads & Notifications',
+                    'description' => null,
+                    'sort_order'  => 50,
+                    'questions'   => [
+                        [
+                            'label'      => 'Where should we send new lead and website notifications?',
+                            'help_text'  => 'Enter the email address that should receive notifications when a customer contacts your business.',
+                            'field_type' => 'email',
+                            'required'   => 1,
+                            'data_key'   => 'notifications.email',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['ghl', 'runtime'],
+                        ],
+                        [
+                            'label'      => 'What phone number should receive SMS notifications?',
+                            'help_text'  => 'Enter the mobile number that should receive text notifications for new leads and customer activity.',
+                            'field_type' => 'phone',
+                            'required'   => 1,
+                            'data_key'   => 'notifications.sms_phone',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['ghl', 'runtime'],
+                        ],
+                        [
+                            'label'      => 'What information would you like customers to provide when requesting a quote?',
+                            'help_text'  => 'Add the questions that would help you understand and qualify a new job before contacting the customer. We will turn these into your Request a Quote form.',
+                            'field_type' => 'question_builder',
+                            'required'   => 1,
+                            'data_key'   => 'forms.quote_fields',
+                            'purpose'    => 'quote_form_definition',
+                            'options'    => null,
+                            'tags'       => ['quote_form', 'website', 'runtime'],
+                        ],
+                    ],
+                ],
+                [
+                    'name'        => 'Legal Business Information',
+                    'description' => 'We use this information to configure business communications and, where applicable, register your business for verified SMS messaging. Legal information should match your official business records exactly.',
+                    'sort_order'  => 60,
+                    'questions'   => [
+                        [
+                            'label'      => 'Upload your IRS EIN Confirmation Letter',
+                            'help_text'  => 'Please upload the IRS CP-575 or 147C document showing the legal business entity and EIN being registered. The information entered below should match this document exactly.',
+                            'field_type' => 'file',
+                            'required'   => 1,
+                            'data_key'   => 'business.irs_document',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['a2p'],
+                        ],
+                        [
+                            'label'      => 'What is the exact legal name of the business?',
+                            'help_text'  => 'Enter the business name exactly as it appears on your EIN registration document, including punctuation.',
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.legal_name',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['customer_profile', 'perfex', 'ghl', 'a2p', 'schema'],
+                        ],
+                        [
+                            'label'      => 'What type of business registration ID do you have?',
+                            'help_text'  => null,
+                            'field_type' => 'select',
+                            'required'   => 1,
+                            'data_key'   => 'business.registration_id_type',
+                            'purpose'    => 'data',
+                            'options'    => ['EIN', 'BN', 'Other'],
+                            'tags'       => ['ghl', 'a2p'],
+                        ],
+                        [
+                            'label'      => 'What is your business registration number?',
+                            'help_text'  => 'For a U.S. business, enter the EIN exactly as registered.',
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.registration_number',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['ghl', 'a2p'],
+                        ],
+                        [
+                            'label'      => 'What type of legal business entity are you?',
+                            'help_text'  => null,
+                            'field_type' => 'select',
+                            'required'   => 1,
+                            'data_key'   => 'business.type',
+                            'purpose'    => 'data',
+                            'options'    => ['Sole Proprietorship', 'LLC', 'Corporation', 'Partnership', 'Nonprofit', 'Other'],
+                            'tags'       => ['ghl', 'a2p', 'schema'],
+                        ],
+                        [
+                            'label'      => 'What industry best describes your business?',
+                            'help_text'  => null,
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.industry',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website', 'ghl', 'a2p', 'schema'],
+                        ],
+                        [
+                            'label'      => 'What is your primary business niche or specialty?',
+                            'help_text'  => 'For example: roofing contractor, HVAC company, landscaping company or residential electrician.',
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.niche',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['website', 'ghl', 'a2p', 'schema'],
+                        ],
+                        [
+                            'label'      => 'What currency does your business use?',
+                            'help_text'  => null,
+                            'field_type' => 'select',
+                            'required'   => 1,
+                            'data_key'   => 'business.currency',
+                            'purpose'    => 'data',
+                            'options'    => ['USD', 'CAD'],
+                            'tags'       => ['ghl'],
+                        ],
+                        [
+                            'label'      => 'What country or region does the business operate in?',
+                            'help_text'  => null,
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.operating_region',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['ghl', 'a2p', 'schema'],
+                        ],
+                    ],
+                ],
+                [
+                    'name'        => 'Legal Business Address',
+                    'description' => 'Enter the physical business address associated with your legal business registration. For A2P registration, these details should match your official documentation.',
+                    'sort_order'  => 70,
+                    'questions'   => [
+                        [
+                            'label'      => 'Street Address',
+                            'help_text'  => null,
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.address.street',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['customer_profile', 'perfex', 'website', 'ghl', 'a2p', 'schema'],
+                        ],
+                        [
+                            'label'      => 'City',
+                            'help_text'  => null,
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.address.city',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['customer_profile', 'perfex', 'website', 'ghl', 'a2p', 'schema'],
+                        ],
+                        [
+                            'label'      => 'State / Province / Region',
+                            'help_text'  => null,
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.address.state',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['customer_profile', 'perfex', 'website', 'ghl', 'a2p', 'schema'],
+                        ],
+                        [
+                            'label'      => 'Postal / ZIP Code',
+                            'help_text'  => null,
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.address.postal_code',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['customer_profile', 'perfex', 'website', 'ghl', 'a2p', 'schema'],
+                        ],
+                        [
+                            'label'      => 'Country',
+                            'help_text'  => null,
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.address.country',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['customer_profile', 'perfex', 'website', 'ghl', 'a2p', 'schema'],
+                        ],
+                        [
+                            'label'      => 'What time zone does your business operate in?',
+                            'help_text'  => 'For example: America/Denver, America/Chicago or America/New_York.',
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'business.timezone',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['ghl', 'runtime'],
+                        ],
+                        [
+                            'label'      => 'What language should your ClickFuzz account use?',
+                            'help_text'  => null,
+                            'field_type' => 'select',
+                            'required'   => 1,
+                            'data_key'   => 'business.platform_language',
+                            'purpose'    => 'data',
+                            'options'    => ['English (United States)', 'English (Canada)'],
+                            'tags'       => ['ghl'],
+                        ],
+                        [
+                            'label'      => 'What language should we use for automated customer communications?',
+                            'help_text'  => null,
+                            'field_type' => 'select',
+                            'required'   => 1,
+                            'data_key'   => 'business.outbound_language',
+                            'purpose'    => 'data',
+                            'options'    => ['English (United States)', 'English (Canada)'],
+                            'tags'       => ['ghl', 'runtime'],
+                        ],
+                    ],
+                ],
+                [
+                    'name'        => 'Authorized Representative',
+                    'description' => 'For verified business messaging, we need the details of an authorized representative of the company. The business owner or CEO is preferred. Use a company-domain email address whenever possible.',
+                    'sort_order'  => 80,
+                    'questions'   => [
+                        [
+                            'label'      => 'Authorized representative first name',
+                            'help_text'  => null,
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'a2p.authorized_representative.first_name',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['a2p', 'ghl'],
+                        ],
+                        [
+                            'label'      => 'Authorized representative last name',
+                            'help_text'  => null,
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'a2p.authorized_representative.last_name',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['a2p', 'ghl'],
+                        ],
+                        [
+                            'label'      => 'Authorized representative email',
+                            'help_text'  => 'Use an email address on the company\'s domain. Generic Gmail, Yahoo or similar addresses can cause verification problems.',
+                            'field_type' => 'email',
+                            'required'   => 1,
+                            'data_key'   => 'a2p.authorized_representative.email',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['a2p', 'ghl'],
+                        ],
+                        [
+                            'label'      => 'Authorized representative job position',
+                            'help_text'  => 'For example: Owner, CEO, President or Managing Member.',
+                            'field_type' => 'text',
+                            'required'   => 1,
+                            'data_key'   => 'a2p.authorized_representative.job_title',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['a2p', 'ghl'],
+                        ],
+                        [
+                            'label'      => 'Authorized representative phone number',
+                            'help_text'  => 'Include the country code.',
+                            'field_type' => 'phone',
+                            'required'   => 1,
+                            'data_key'   => 'a2p.authorized_representative.phone',
+                            'purpose'    => 'data',
+                            'options'    => null,
+                            'tags'       => ['a2p', 'ghl'],
+                        ],
+                    ],
+                ],
+            ];
+
+            $CI->db->trans_start();
+
+            $CI->db->insert($tf39, [
+                'name'        => 'Local Business Website',
+                'description' => null,
+                'status'      => 'active',
+                'created_at'  => $now,
+            ]);
+            $lbw_flow_id = (int) $CI->db->insert_id();
+
+            $q_ids = [];
+
+            foreach ($sections_data as $sec) {
+                $CI->db->insert($ts39, [
+                    'flow_id'     => $lbw_flow_id,
+                    'name'        => $sec['name'],
+                    'description' => $sec['description'],
+                    'sort_order'  => $sec['sort_order'],
+                    'created_at'  => $now,
+                ]);
+                $sec_id     = (int) $CI->db->insert_id();
+                $q_sort_num = 0;
+
+                foreach ($sec['questions'] as $q) {
+                    $q_sort_num += 10;
+                    $q_row = [
+                        'section_id'   => $sec_id,
+                        'label'        => $q['label'],
+                        'data_key'     => $q['data_key'],
+                        'purpose'      => $q['purpose'],
+                        'help_text'    => $q['help_text'],
+                        'field_type'   => $q['field_type'],
+                        'required'     => $q['required'],
+                        'options_json' => $q['options'] ? json_encode($q['options']) : null,
+                        'sort_order'   => $q_sort_num,
+                        'created_at'   => $now,
+                    ];
+
+                    if (!empty($q['cond_data_key']) && isset($q_ids[$q['cond_data_key']])) {
+                        $q_row['condition_question_id'] = $q_ids[$q['cond_data_key']];
+                        $q_row['condition_operator']    = $q['cond_operator'];
+                        $q_row['condition_value']       = $q['cond_value'];
+                    }
+
+                    $CI->db->insert($tq39, $q_row);
+                    $q_id = (int) $CI->db->insert_id();
+                    $q_ids[$q['data_key']] = $q_id;
+
+                    if (!empty($q['tags']) && !empty($tag_map)) {
+                        foreach ($q['tags'] as $slug) {
+                            if (isset($tag_map[$slug])) {
+                                $CI->db->insert($tqt39, [
+                                    'question_id' => $q_id,
+                                    'tag_id'      => $tag_map[$slug],
+                                ]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            $CI->db->trans_complete();
+
+            if ($CI->db->trans_status() !== false) {
+                $current_flow_opt = get_option('pitchsnap_onboarding_flow_id');
+                if (!$current_flow_opt || (int) $current_flow_opt === 0) {
+                    if (!$current_flow_opt) {
+                        add_option('pitchsnap_onboarding_flow_id', $lbw_flow_id);
+                    } else {
+                        update_option('pitchsnap_onboarding_flow_id', $lbw_flow_id);
+                    }
+                }
+            }
+        }
+    }
+
     // Mark schema as current so this function is a no-op on future requests
     if (!get_option('pitchsnap_db_version')) {
-        add_option('pitchsnap_db_version', '38');
+        add_option('pitchsnap_db_version', '39');
     } else {
-        update_option('pitchsnap_db_version', '38');
+        update_option('pitchsnap_db_version', '39');
     }
 }
 
