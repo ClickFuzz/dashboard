@@ -51,6 +51,7 @@ $route['pitchsnap/onboarding_loader.js'] = 'pitchsnap_runtime/onboarding_loader_
 $route['pitchsnap/onboarding_submit']         = 'pitchsnap_runtime/onboarding_submit';
 $route['pitchsnap/onboarding_save_progress']  = 'pitchsnap_runtime/onboarding_save_progress';
 $route['pitchsnap/onboarding_file_upload']    = 'pitchsnap_runtime/onboarding_file_upload';
+$route['pitchsnap/onboarding_phone_search']  = 'pitchsnap_runtime/onboarding_phone_search';
 $route['pitchsnap/onboarding_doc_download/(:num)/(:any)'] = 'pitchsnap/onboarding_doc_download/$1/$2';
 
 // WordPress Connector — public callback (WP plugin POSTs token + site_url here)
