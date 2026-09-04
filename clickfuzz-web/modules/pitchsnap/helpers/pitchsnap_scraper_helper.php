@@ -2087,6 +2087,69 @@ function clickfuzz_web_visual_character(array $bg_colors, array $all_scored, arr
  *     'logo_vision_used' => bool,
  *   ]
  */
+/**
+ * Returns true when the last target in a CSS selector is represented in the
+ * scraped HTML markup; false only when definitively absent.
+ * Conservative: returns true for selectors too complex to parse safely.
+ */
+function clickfuzz_web_css_target_in_html($selector, $html)
+{
+    // Strip pseudo-classes/elements: :hover, :nth-child(2), ::before, etc.
+    $selector = preg_replace('/::?[\w-]+(\([^)]*\))?/', '', $selector);
+    // Strip attribute selectors: [attr], [attr="val"]
+    $selector = preg_replace('/\[[^\]]*\]/', '', $selector);
+    $selector = trim($selector);
+    if (!$selector) return true;
+
+    // Split on CSS combinators (space, >, +, ~) to isolate selector parts
+    $parts = preg_split('/\s*[\s>+~]\s*/', $selector, -1, PREG_SPLIT_NO_EMPTY);
+    if (empty($parts)) return true;
+
+    // Target = last part (the element the rule actually styles)
+    $target = trim(end($parts));
+    if (!$target) return true;
+
+    // Extract classes, id, and bare element tag from the target token
+    $classes = [];
+    if (preg_match_all('/\.(-?[a-zA-Z][a-zA-Z0-9_-]*)/', $target, $cm)) {
+        $classes = $cm[1];
+    }
+    $id = null;
+    if (preg_match('/#([a-zA-Z][a-zA-Z0-9_-]*)/', $target, $im)) {
+        $id = $im[1];
+    }
+    // Bare element tag only when not qualified by class or id
+    $tag = null;
+    if (!$classes && !$id && preg_match('/^([a-zA-Z][a-zA-Z0-9]*)$/', $target, $tm)) {
+        $tag = strtolower($tm[1]);
+    }
+
+    // Nothing parseable → conservative
+    if (!$classes && !$id && !$tag) return true;
+
+    // Every class in the target must appear in a class attribute value
+    foreach ($classes as $cls) {
+        $pat = '/class\s*=\s*["\'][^"\']*(?<![a-zA-Z0-9_-])' . preg_quote($cls, '/') . '(?![a-zA-Z0-9_-])/i';
+        if (!preg_match($pat, $html)) return false;
+    }
+
+    if ($id) {
+        if (!preg_match('/\bid\s*=\s*["\']' . preg_quote($id, '/') . '["\']/i', $html)) return false;
+    }
+
+    if ($tag) {
+        // Skip ubiquitous inline/form elements present on virtually every page
+        static $skip_tags = ['a','span','em','strong','b','i','u','small','code',
+                             'sub','sup','img','br','hr','input','label','select',
+                             'textarea','option','td','th','li','dt','dd','p'];
+        if (!in_array($tag, $skip_tags, true)) {
+            if (!preg_match('/<' . preg_quote($tag, '/') . '[\s>\/]/i', $html)) return false;
+        }
+    }
+
+    return true;
+}
+
 function clickfuzz_web_extract_brand_colors(array $pages, $logo_url = null, $api_key = '')
 {
     $scores  = [];  // normalized_hex => int score
@@ -2164,27 +2227,54 @@ function clickfuzz_web_extract_brand_colors(array $pages, $logo_url = null, $api
     preg_match_all('/<style[^>]*>(.*?)<\/style>/si', $html, $sb);
     $all_css = implode("\n", $sb[1]);
 
-    // Header/nav selectors
+    // Header/nav selectors — validate target exists in markup before scoring
     preg_match_all(
-        '/(?:^|[}\s])(?:header|nav|\.header|\.nav|\.site-header|\.navbar|\.top-bar|#header|#nav)[\w\s,:.#\[\]()="\'*~+>-]*\{([^}]+)\}/im',
-        $all_css, $nav_rules
+        '/(?:^|[}\s])((?:header|nav|\.header|\.nav|\.site-header|\.navbar|\.top-bar|#header|#nav)[\w\s,:.#\[\]()="\'*~+>-]*)\{([^}]+)\}/im',
+        $all_css, $nav_rules, PREG_SET_ORDER
     );
-    foreach ($nav_rules[1] as $body) {
+    foreach ($nav_rules as $nav_rule) {
+        if (!clickfuzz_web_css_target_in_html(trim($nav_rule[1]), $html)) continue;
+        $body = $nav_rule[2];
         if (preg_match('/background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,6}|rgb\([^)]+\))/i', $body, $cm)
             && stripos($cm[0], 'url(') === false) {
             $add($cm[1], 4, 'CSS header/nav background');
         }
     }
 
-    // Button/CTA selectors
+    // Button/CTA selectors — validate target exists in markup before scoring
     preg_match_all(
-        '/(?:^|[}\s])(?:\.btn\b|\.button\b|\.cta\b|button\b)[\w\s,:.#\[\]()="\'*~+>-]*\{([^}]+)\}/im',
-        $all_css, $btn_rules
+        '/(?:^|[}\s])((?:\.btn\b|\.button\b|\.cta\b|button\b)[\w\s,:.#\[\]()="\'*~+>-]*)\{([^}]+)\}/im',
+        $all_css, $btn_rules, PREG_SET_ORDER
     );
-    foreach ($btn_rules[1] as $body) {
+    foreach ($btn_rules as $btn_rule) {
+        if (!clickfuzz_web_css_target_in_html(trim($btn_rule[1]), $html)) continue;
+        $body = $btn_rule[2];
         if (preg_match('/background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,6}|rgb\([^)]+\))/i', $body, $cm)
             && stripos($cm[0], 'url(') === false) {
             $add($cm[1], 4, 'CSS button/CTA background');
+        }
+    }
+
+    // ── 5b. General CSS rules — background-color and SVG fill with target validation ──
+    // Broader than the specific header/nav/button signals above; lower weight (2pt).
+    // Only scores when the selector target is confirmed present in the markup.
+    preg_match_all(
+        '/(?:^|[}\s])([^@{}\s][^{}]*)\{([^}]+)\}/im',
+        $all_css, $gen_rules, PREG_SET_ORDER
+    );
+    foreach ($gen_rules as $gen_rule) {
+        $body = $gen_rule[2];
+        if (stripos($body, 'background') === false && stripos($body, 'fill') === false) continue;
+        $selector = trim($gen_rule[1]);
+        if (!clickfuzz_web_css_target_in_html($selector, $html)) continue;
+        if (preg_match('/background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,6}|rgb\([^)]+\))/i', $body, $cm)
+            && stripos($cm[0], 'url(') === false) {
+            $_hex = clickfuzz_web_normalize_color($cm[1]);
+            if ($_hex && !clickfuzz_web_is_neutral_color($_hex)) $add($_hex, 2, 'CSS validated background');
+        }
+        if (preg_match('/\bfill\s*:\s*(#[0-9a-fA-F]{3,6})/i', $body, $cm)) {
+            $_hex = clickfuzz_web_normalize_color($cm[1]);
+            if ($_hex && !clickfuzz_web_is_neutral_color($_hex)) $add($_hex, 2, 'CSS validated fill');
         }
     }
 
