@@ -870,6 +870,152 @@ Replace #XXXXXX with a single hex color (#RRGGBB or #RGB) that visually fits the
 ' . $tag;
 }
 
+function clickfuzz_web_core_generation_rules()
+{
+    return <<<'RULES'
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLICKFUZZ INTEGRITY RULES — MANDATORY
+ClickFuzz enforces these rules for every provider.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FACTUAL INTEGRITY — NEVER INVENT
+If verified source information does not support a factual statement, omit it rather than inventing it.
+Never invent or add any of the following unless directly supported by the verified source:
+— Customer reviews, testimonials, or star ratings
+— Awards, badges, or industry recognition
+— Guarantees or warranties
+— Certifications, licenses, or accreditations
+— Years in business or founding dates
+— Service areas, cities, or neighborhoods
+— Emergency or 24/7 availability
+— Team members, owners, or practitioners
+— Pricing, financing, or discounts
+— Statistics or performance claims
+— Business history or founding story
+— Any factual service claim or unsupported business assertion
+
+Fewer accurate sections is far better than more fabricated ones.
+If a section would require invented content, omit that section entirely.
+
+SOURCE AUTHORITY HIERARCHY
+1. ClickFuzz structured/verified source intelligence is authoritative.
+2. The original live source website may supplement or verify information where provider capabilities allow.
+3. When the live site conflicts with ClickFuzz structured data, ClickFuzz structured data wins.
+4. Model inference, general knowledge, or design preference is NEVER a valid source for factual business claims.
+
+BUSINESS IDENTITY PRESERVATION
+Preserve the verified business identity exactly:
+— Business name (do not reinterpret or rebrand)
+— Phone number and email
+— Location and address
+— Practitioner, owner, and team identities
+— Actual services offered
+— Actual pricing (do not remove verified pricing or invent pricing)
+— Credentials and qualifications as stated
+Do not reinterpret the business into a different category simply because alternative positioning sounds better.
+
+SOURCE LANGUAGE PRESERVATION — ABSOLUTE
+Preserve the customer-facing language of the source business website unless ClickFuzz explicitly instructs otherwise.
+Do NOT translate, rewrite into a different language, or replace source copy without explicit instruction.
+This applies to: headings, body copy, navigation labels, CTAs, testimonials, meta title and description.
+Example: a Czech business stays in Czech. A French business stays in French.
+
+TESTIMONIALS AND REVIEWS
+— Use only real reviews or testimonials supported by ClickFuzz source intelligence or the original website.
+— Light formatting edits are permitted; do not materially alter the meaning.
+— Never create composite or fictional testimonials.
+— If no real testimonials exist in the source, omit the testimonials section entirely.
+
+OWNER / TEAM IDENTITY AND IMAGERY
+— Never invent owners, practitioners, employees, or team members.
+— Never assign a person's name or role to an image unless ClickFuzz source intelligence confirms the association.
+— Never substitute a fictional person and present them as the actual owner or a team member.
+— Authentic owner or team images supplied by ClickFuzz are the authoritative identity imagery.
+— Generic contextual people imagery may only be used where it is clearly generic and not presented as the actual owner or staff.
+
+SERVICES / PRICING / LOCATIONS
+— Do not create additional services because they improve layout aesthetics.
+— Do not rename or reframe a service in a way that materially changes what the business offers.
+— Do not invent prices. Do not remove verified pricing unless the generation task explicitly requests it.
+— Do not invent service areas, cities, neighborhoods, or locations.
+
+PRICE AND DURATION BINDING
+When verified pricing exists in source content, each price must be presented only with its exact paired duration or service tier as it appears in the source.
+Do not cross-match prices and durations. Do not assign a price to a different service tier than it appears in the source.
+
+BUSINESS HOURS
+Do not state business hours unless they are explicitly present in the source content.
+If no hours are found in the source, omit the business hours section entirely.
+
+CREATIVE FREEDOM — THESE RULES RESTRICT FACTS, NOT DESIGN
+The rules above restrict factual invention only. Full creative freedom is retained for:
+layout, composition, typography, spacing, visual hierarchy, section structure, animation, and aesthetic direction.
+Maximum design freedom. Minimum factual freedom.
+RULES;
+}
+
+function clickfuzz_web_assemble_site_prompt($template, array $data)
+{
+    $has_core      = strpos($template, 'CORE_GENERATION_RULES_PLACEHOLDER') !== false;
+    $preview_token = $data['preview_token'] ?? '';
+    $template = str_replace(
+        ['COPYRIGHT_YEAR_PLACEHOLDER', 'WIDGET_INSTRUCTION_PLACEHOLDER', 'FORMS_INSTRUCTION_PLACEHOLDER', 'CORE_GENERATION_RULES_PLACEHOLDER'],
+        [clickfuzz_web_copyright_year_instruction(), clickfuzz_web_widget_instruction($preview_token), clickfuzz_web_forms_instruction(), clickfuzz_web_core_generation_rules()],
+        $template
+    );
+    $rendered = clickfuzz_web_render_prompt($template, $data);
+    if (!$has_core) {
+        $rendered .= "\n\n" . clickfuzz_web_core_generation_rules();
+    }
+    $unresolved = [];
+    foreach (['COPYRIGHT_YEAR_PLACEHOLDER', 'WIDGET_INSTRUCTION_PLACEHOLDER', 'FORMS_INSTRUCTION_PLACEHOLDER', 'CORE_GENERATION_RULES_PLACEHOLDER'] as $_token) {
+        if (strpos($rendered, $_token) !== false) {
+            $unresolved[] = $_token;
+        }
+    }
+    if ($unresolved) {
+        throw new RuntimeException('Generation prompt contains unresolved placeholders: ' . implode(', ', $unresolved));
+    }
+    return $rendered;
+}
+
+function clickfuzz_web_generation_brief_url($preview_token)
+{
+    return rtrim(base_url('pitchsnap/generation_brief/' . rawurlencode($preview_token)), '/');
+}
+
+function clickfuzz_web_manus_bootstrap_message($business_name, $source_url, $brief_url)
+{
+    return 'You are redesigning the website for this exact business:
+
+Business: ' . $business_name . '
+Canonical source website:
+' . $source_url . '
+
+Your complete ClickFuzz generation instructions are here:
+' . $brief_url . '
+
+MANDATORY:
+
+1. Fetch and read the complete ClickFuzz instruction page BEFORE beginning any research, browsing, design, or generation work.
+
+2. The ClickFuzz instruction page is authoritative for verified business identity, source intelligence, factual constraints, and generation requirements.
+
+3. Work ONLY on the business identified above and at the canonical source URL above.
+
+4. Never substitute another business, practitioner, website, search result, or similarly named company.
+
+5. Do not use search results or unrelated websites as substitutes for the canonical source.
+
+6. If the ClickFuzz instruction page cannot be accessed, STOP.
+
+7. If the canonical source website cannot be accessed, STOP.
+
+8. If information is missing, follow the ClickFuzz integrity rules. Do not infer another business or source.
+
+After reading the instruction page and canonical source, complete the redesign according to the ClickFuzz instructions.';
+}
+
 function clickfuzz_web_default_prompt()
 {
     $prompt = <<<'PROMPT'
@@ -896,24 +1042,7 @@ Use the IMAGE URLS to reference real photos in your design.
 
 {{source_content}}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ANTI-HALLUCINATION RULES — ABSOLUTE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Only include facts directly supported by the source content above.
-Never invent or add:
-— Customer reviews, testimonials, or star ratings (unless shown in source)
-— Awards, badges, or industry recognition not mentioned
-— Guarantees or warranties not explicitly stated
-— Certifications or licenses not listed in source
-— Years in business or founding date if not stated
-— Service areas or cities not mentioned
-— 24/7 or emergency service if not stated
-— Team members not mentioned in source
-— Pricing, financing, or discount offers
-— Any factual business claim not in the source content
-
-If a section would require invented content, omit that section entirely.
-Fewer accurate sections is far better than more fabricated ones.
+CORE_GENERATION_RULES_PLACEHOLDER
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DESIGN PHILOSOPHY
@@ -1011,14 +1140,7 @@ Visit this URL to verify details and supplement the structured data above. When 
 TASK:
 Create a professional, modern redesign that converts better than the original while keeping all real business information exactly as it appears on the source site.
 
-WHAT TO PRESERVE FROM THE ORIGINAL SITE:
-- Business name, logo, and brand colors
-- All real services and service descriptions
-- Phone number, email, and contact details
-- Location and service area (only what is stated on the site)
-- Real reviews and testimonials (only what is on the site)
-- Real certifications, licenses, and credentials (only what is visible)
-- Real team members and photos (only what is on the site)
+CORE_GENERATION_RULES_PLACEHOLDER
 
 IMPROVEMENT GOALS:
 {{desired_improvement}}
@@ -1029,21 +1151,6 @@ DESIGN REQUIREMENTS:
 - Clear, prominent calls-to-action (phone number, contact form, quote request)
 - Use the real business branding and color scheme
 - Fast-loading, professional result
-
-ANTI-HALLUCINATION RULES — CRITICAL — DO NOT VIOLATE:
-Never invent or add anything not found on the original website, including:
-- Customer reviews, testimonials, star ratings, or quotes
-- Guarantees, warranties, or satisfaction pledges
-- Certifications, licenses, accreditations, or professional memberships
-- Awards, recognition, or industry ratings
-- Years in business or founding dates
-- Service areas, cities served, or coverage maps
-- Emergency availability or 24/7 claims
-- Pricing, estimates, or financing information
-- Team member names, titles, or bios not on the original site
-- Any factual claim not clearly visible on {{website_url}}
-
-If information is missing from the original site, omit that section rather than inventing content.
 
 COPYRIGHT_YEAR_PLACEHOLDER
 

@@ -5,6 +5,7 @@ defined('BASEPATH') or exit('No direct script access allowed');
 // Module routes file (modules/pitchsnap/config/routes.php) is the canonical source;
 // these serve as a guaranteed fallback via the application/config/routes.php include mechanism.
 $route['pitchsnap/intake']     = 'pitchsnap/pitchsnap_intake/request';
+$route['pitchsnap/generation_brief/(:any)'] = 'pitchsnap/pitchsnap_runtime/generation_brief/$1';
 $route['pitchsnap/runtime.js'] = 'pitchsnap/pitchsnap_runtime/script';
 $route['pitchsnap/runtime']    = 'pitchsnap/pitchsnap_runtime/script';
 $route['pitchsnap/chat']       = 'pitchsnap/pitchsnap_runtime/chat';

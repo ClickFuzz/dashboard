@@ -5,6 +5,7 @@ defined('BASEPATH') or exit('No direct script access allowed');
 // Modules::parse_routes() prepends '$module/' automatically before locating controllers.
 
 $route['pitchsnap/intake']     = 'pitchsnap_intake/request';
+$route['pitchsnap/generation_brief/(:any)'] = 'pitchsnap_runtime/generation_brief/$1';
 $route['pitchsnap/runtime.js'] = 'pitchsnap_runtime/script';
 $route['pitchsnap/runtime']    = 'pitchsnap_runtime/script';
 $route['pitchsnap/chat']       = 'pitchsnap_runtime/chat';

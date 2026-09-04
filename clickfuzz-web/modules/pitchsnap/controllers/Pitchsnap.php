@@ -1028,10 +1028,8 @@ class Pitchsnap extends AdminController
         $primary = get_option('pitchsnap_primary_provider') ?: 'manus';
         if ($primary === 'manus') {
             if (!get_option('pitchsnap_manus_api_key')) { return $this->_json(['success' => false, 'message' => 'Manus API key not configured. Go to ClickFuzz Web → Settings.']); }
-            if (!trim((string) get_option('pitchsnap_manus_prompt'))) { return $this->_json(['success' => false, 'message' => 'Manus generation prompt not configured. Go to ClickFuzz Web → Settings.']); }
         } else {
             if (!get_option('pitchsnap_anthropic_api_key')) { return $this->_json(['success' => false, 'message' => 'Anthropic API key not configured. Go to ClickFuzz Web → Settings.']); }
-            if (!trim((string) get_option('pitchsnap_generation_prompt'))) { return $this->_json(['success' => false, 'message' => 'Generation prompt not configured. Go to ClickFuzz Web → Settings.']); }
         }
         $website = $this->pitchsnap_model->get($id);
         if (!$website) { return $this->_json(['success' => false, 'message' => 'Website not found.']); }

@@ -106,12 +106,25 @@ function clickfuzz_web_cron_run()
                 ? 'pitchsnap_manus_prompt'
                 : 'pitchsnap_generation_prompt';
 
-            $rendered = clickfuzz_web_render_prompt(get_option($prompt_key), $prompt_data);
+            $template = get_option($prompt_key);
+            if (empty(trim((string) $template))) {
+                $template = ($provider_name === 'manus')
+                    ? clickfuzz_web_manus_default_prompt()
+                    : clickfuzz_web_default_prompt();
+            }
+            $rendered = clickfuzz_web_assemble_site_prompt($template, $prompt_data);
             $CI->pitchsnap_model->save_generation_prompt($website->id, $rendered);
 
             if ($generator->is_async()) {
                 // ----- Manus async path -----
-                $result = $generator->start($rendered);
+                // Full brief stored in generation_prompt; send only the bootstrap anchor to Manus
+                $brief_url  = clickfuzz_web_generation_brief_url($website->preview_token ?? '');
+                $manus_task = clickfuzz_web_manus_bootstrap_message(
+                    $prompt_data['business_name'] ?: 'the business',
+                    $prompt_data['website_url'],
+                    $brief_url
+                );
+                $result = $generator->start($manus_task);
 
                 if ($result['success']) {
                     $CI->pitchsnap_model->save_manus_task_started($website->id, $result['task_id'], 'manus');
@@ -125,10 +138,11 @@ function clickfuzz_web_cron_run()
                         // Fetch source content with full Anthropic guardrail profile
                         $fb_source  = clickfuzz_web_fetch_source($website->original_url ?? '', clickfuzz_web_guardrail_profile('anthropic'));
                         $fb_data    = array_merge($prompt_data, ['source_content' => $fb_source]);
-                        $fb_rendered = clickfuzz_web_render_prompt(
-                            get_option('pitchsnap_generation_prompt'),
-                            $fb_data
-                        );
+                        $fb_template = get_option('pitchsnap_generation_prompt');
+                        if (empty(trim((string) $fb_template))) {
+                            $fb_template = clickfuzz_web_default_prompt();
+                        }
+                        $fb_rendered = clickfuzz_web_assemble_site_prompt($fb_template, $fb_data);
                         $CI->pitchsnap_model->save_generation_prompt($website->id, $fb_rendered);
                         $fb_gen    = new Pitchsnap_generator('anthropic');
                         $fb_result = $fb_gen->generate($fb_rendered);

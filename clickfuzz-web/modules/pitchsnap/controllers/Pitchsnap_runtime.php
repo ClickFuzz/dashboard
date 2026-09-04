@@ -33,6 +33,38 @@ class Pitchsnap_runtime extends CI_Controller
             ->set_output($js);
     }
 
+    public function generation_brief($token)
+    {
+        if (!preg_match('/^[a-f0-9]{64}$/', (string) $token)) {
+            show_404();
+        }
+
+        $this->_load_model();
+        $redesign = $this->pitchsnap_model->get_by_token($token);
+
+        if (!$redesign || empty($redesign->generation_prompt)) {
+            show_404();
+        }
+
+        $brief = $redesign->generation_prompt;
+
+        $html = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            . '<meta name="robots" content="noindex,nofollow">'
+            . '<title>ClickFuzz Generation Brief</title>'
+            . '<style>body{font-family:monospace;margin:2rem auto;max-width:900px;padding:0 1rem}'
+            . 'pre{white-space:pre-wrap;word-wrap:break-word;line-height:1.5}</style>'
+            . '</head><body><pre>'
+            . htmlspecialchars($brief, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+            . '</pre></body></html>';
+
+        $this->output
+            ->set_content_type('text/html; charset=utf-8')
+            ->set_header('Cache-Control: no-store, no-cache, must-revalidate')
+            ->set_header('X-Content-Type-Options: nosniff')
+            ->set_header('X-Robots-Tag: noindex, nofollow')
+            ->set_output($html);
+    }
+
     public function chat()
     {
         $this->_cors();
